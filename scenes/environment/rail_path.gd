@@ -72,7 +72,8 @@ func _snap_points_to_ground() -> void:
 	for i in range(curve.point_count):
 		var p: Vector3 = curve.get_point_position(i)
 		var world_p: Vector3 = to_global(p)
-		var h: float = terrain._sample_height(world_p.x, world_p.z) + ground_offset
+		var local_t: Vector3 = terrain.to_local(Vector3(world_p.x, 0.0, world_p.z))
+		var h: float = terrain._sample_height(local_t.x, local_t.z) + ground_offset
 		world_p.y = h
 		curve.set_point_position(i, to_local(world_p))
 
