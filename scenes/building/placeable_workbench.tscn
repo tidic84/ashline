@@ -1,0 +1,19 @@
+[gd_scene load_steps=4 format=3 uid="uid://place_bench001"]
+
+[ext_resource type="Script" path="res://scripts/building/placeable.gd" id="1"]
+[ext_resource type="PackedScene" path="res://assets/models/survival/workbench-anvil.glb" id="2"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_bench"]
+size = Vector3(1, 1, 1)
+
+[node name="PlaceableWorkbench" type="StaticBody3D"]
+collision_layer = 48
+collision_mask = 7
+script = ExtResource("1")
+max_health = 100.0
+
+[node name="Model" parent="." instance=ExtResource("2")]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("BoxShape3D_bench")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)

@@ -1,0 +1,10 @@
+[gd_scene load_steps=3 format=3 uid="uid://d7railpath001"]
+
+[ext_resource type="Script" uid="uid://bib4e6vre4okx" path="res://scenes/environment/rail_path.gd" id="1_script"]
+
+[sub_resource type="Curve3D" id="Curve3D_001"]
+bake_interval = 0.5
+
+[node name="RailPath" type="Path3D"]
+curve = SubResource("Curve3D_001")
+script = ExtResource("1_script")
