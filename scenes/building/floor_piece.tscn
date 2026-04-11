@@ -1,0 +1,9 @@
+[gd_scene load_steps=2 format=3 uid="uid://floor_piece001"]
+
+[ext_resource type="Material" path="res://textures/chassis/M_rusty_metal.tres" id="1_metal"]
+
+[node name="FloorPiece" type="Node3D"]
+
+[node name="Mesh" type="CSGBox3D" parent="."]
+size = Vector3(0.98, 0.08, 0.98)
+material = ExtResource("1_metal")

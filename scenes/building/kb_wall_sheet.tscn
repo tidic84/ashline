@@ -1,0 +1,19 @@
+[gd_scene load_steps=3 format=3 uid="uid://kb_6aa820bb4222"]
+
+[ext_resource type="Script" path="res://scripts/building/placeable.gd" id="1"]
+[ext_resource type="PackedScene" path="res://assets/models/kitbash/wall/wall_002.glb" id="2_model"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_col"]
+size = Vector3(1.66, 2.00, 0.10)
+
+[node name="KbWallSheet" type="StaticBody3D"]
+collision_layer = 16
+collision_mask = 7
+script = ExtResource("1")
+max_health = 95.0
+
+[node name="Model" parent="." instance=ExtResource("2_model")]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("BoxShape3D_col")
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.00, 0)
