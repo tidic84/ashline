@@ -21,15 +21,6 @@ var _regenerate_queued := false
 var _editor_debounce_deadline_msec := 0
 var _connected_noise: FastNoiseLite
 var _noise_changed_callable := Callable(self, "_on_noise_changed")
-
-# Multi-layer terrain noise for realistic hills
-var _erosion_noise: FastNoiseLite
-var _detail_noise: FastNoiseLite
-var _ridge_noise: FastNoiseLite
-var _warp_noise: FastNoiseLite
-var _rail_sculpt_points: Array[Vector3] = []  # stored by sculpt_terrain_for_rails
-var _rail_sculpt_half_w: float = 0.0
-var _rail_sculpt_blend_w: float = 0.0
 var _grass_dirty := true
 var _grass_last_camera_local := Vector3.INF
 var _grass_build_thread := Thread.new()
@@ -65,14 +56,6 @@ var _grass_mask_cache_key := ""
         uv_scale = maxf(value, 0.01)
         _queue_regenerate()
 
-## World-space offset so adjacent streamed chunks sample noise continuously.
-## Set by TerrainStreamer on each chunk. Patch-local vertex x + world_offset.x
-## gives the world-space x used when sampling noise and rail sculpting.
-@export var world_offset: Vector2 = Vector2.ZERO:
-    set(value):
-        world_offset = value
-        _queue_regenerate()
-
 @export var terrain_material: Material:
     set(value):
         terrain_material = value
@@ -87,15 +70,6 @@ var _grass_mask_cache_key := ""
         noise = value
         _connect_noise()
         _queue_regenerate()
-
-@export_subgroup("Advanced Terrain")
-@export var terrain_advanced := true
-@export_range(0.0, 100.0, 0.1) var erosion_strength: float = 8.0
-@export_range(0.0, 50.0, 0.1) var detail_strength: float = 1.5
-@export_range(0.0, 100.0, 0.1) var ridge_strength: float = 6.0
-@export_range(0.0, 50.0, 0.1) var domain_warp_amount: float = 15.0
-@export_range(0.0, 1.0, 0.01) var plateau_factor: float = 0.3
-@export_range(0.0, 1.0, 0.01) var valley_carve: float = 0.4
 
 @export_group("Collision")
 @export var generate_collision := true:
@@ -213,115 +187,6 @@ var _grass_mask_cache_key := ""
         grass_scale_max = maxf(value, 0.01)
         _grass_dirty = true
 
-## Called by TerrainGenerator after rail path is built.
-## Flattens the terrain mesh + collision under the rail, creating a realistic roadbed.
-## rail_points is an Array[Vector3] of world-space positions along the rail centre.
-## half_width controls how wide the flattened strip is (meters each side of centre).
-func sculpt_terrain_for_rails(rail_points: Array[Vector3], half_width: float = 3.0, blend_width: float = 3.0) -> void:
-    # Store sculpt data so _sample_height can use it (for grass rebuild)
-    _rail_sculpt_points = rail_points
-    _rail_sculpt_half_w = half_width
-    _rail_sculpt_blend_w = blend_width
-
-    var mesh_instance := get_node_or_null(MESH_NODE_NAME) as MeshInstance3D
-    if mesh_instance == null or mesh_instance.mesh == null:
-        return
-    var arr_mesh := mesh_instance.mesh as ArrayMesh
-    if arr_mesh == null or arr_mesh.get_surface_count() == 0:
-        return
-
-    var arrays := arr_mesh.surface_get_arrays(0)
-    var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
-
-    # Build spatial grid for O(1) rail point lookup instead of O(N) brute force
-    var max_radius: float = half_width + blend_width
-    var cell_size: float = maxf(max_radius, 2.0)
-    var grid: Dictionary = {}  # Vector2i -> Array[Vector3]
-    for rp in rail_points:
-        var gx: int = int(floor(rp.x / cell_size))
-        var gz: int = int(floor(rp.z / cell_size))
-        var key := Vector2i(gx, gz)
-        if not grid.has(key):
-            grid[key] = []
-        grid[key].append(rp)
-
-    # Rail points are WORLD space. Vertices are patch-local — offset them.
-    var off_x: float = world_offset.x
-    var off_z: float = world_offset.y
-    for vi in range(vertices.size()):
-        var v := vertices[vi]
-        var vwx: float = v.x + off_x
-        var vwz: float = v.z + off_z
-        var gx: int = int(floor(vwx / cell_size))
-        var gz: int = int(floor(vwz / cell_size))
-        var best_dist_sq: float = INF
-        var best_rail_y: float = v.y
-        # Search 3x3 neighborhood
-        for dxx in range(-1, 2):
-            for dzz in range(-1, 2):
-                var key := Vector2i(gx + dxx, gz + dzz)
-                if not grid.has(key):
-                    continue
-                for rp in grid[key]:
-                    var dx: float = vwx - rp.x
-                    var dz: float = vwz - rp.z
-                    var d2: float = dx * dx + dz * dz
-                    if d2 < best_dist_sq:
-                        best_dist_sq = d2
-                        best_rail_y = rp.y
-        var dist := sqrt(best_dist_sq)
-        if dist < half_width:
-            vertices[vi].y = best_rail_y - 0.15
-        elif dist < half_width + blend_width:
-            var t: float = (dist - half_width) / blend_width
-            t = t * t * (3.0 - 2.0 * t)
-            vertices[vi].y = lerpf(best_rail_y - 0.15, v.y, t)
-
-    # Rebuild mesh with modified vertices
-    arrays[Mesh.ARRAY_VERTEX] = vertices
-
-    # Recalculate normals
-    var normals := PackedVector3Array()
-    normals.resize(vertices.size())
-    for ni in range(normals.size()):
-        normals[ni] = Vector3.ZERO
-    var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
-    for ti in range(0, indices.size(), 3):
-        var a := indices[ti]
-        var b := indices[ti + 1]
-        var c := indices[ti + 2]
-        var fn := (vertices[c] - vertices[a]).cross(vertices[b] - vertices[a])
-        normals[a] += fn
-        normals[b] += fn
-        normals[c] += fn
-    for ni in range(normals.size()):
-        normals[ni] = normals[ni].normalized()
-    arrays[Mesh.ARRAY_NORMAL] = normals
-
-    var new_mesh := ArrayMesh.new()
-    new_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-    new_mesh.regen_normal_maps()
-    mesh_instance.mesh = new_mesh
-    _apply_terrain_material_override()
-
-    # Rebuild collision
-    if generate_collision:
-        var collision_faces := PackedVector3Array()
-        collision_faces.resize(indices.size())
-        for fi in range(indices.size()):
-            collision_faces[fi] = vertices[indices[fi]]
-        var body := _ensure_static_body()
-        body.collision_layer = collision_layer
-        body.collision_mask = collision_mask
-        var cs := _ensure_collision_shape(body)
-        var shape := ConcavePolygonShape3D.new()
-        shape.data = collision_faces
-        cs.shape = shape
-
-    # Force grass to rebuild so it follows the sculpted terrain
-    _grass_dirty = true
-
-
 @export_group("Editor")
 @export var editor_regenerate_biomes := true
 
@@ -341,7 +206,6 @@ func _init() -> void:
         noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
         noise.frequency = 0.03
         _connect_noise()
-    _init_terrain_noises()
 
 
 func _enter_tree() -> void:
@@ -501,202 +365,10 @@ func _append_triangle(indices: PackedInt32Array, normals_accum: Array[Vector3], 
     normals_accum[c] += face_normal
 
 
-func _init_terrain_noises() -> void:
-    # Erosion: medium frequency ridges and gullies
-    _erosion_noise = FastNoiseLite.new()
-    _erosion_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-    _erosion_noise.seed = 1337
-    _erosion_noise.frequency = 0.008
-    _erosion_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
-    _erosion_noise.fractal_octaves = 4
-    _erosion_noise.fractal_lacunarity = 2.2
-    _erosion_noise.fractal_gain = 0.45
-
-    # Detail: high frequency micro-bumps (stones, small mounds)
-    _detail_noise = FastNoiseLite.new()
-    _detail_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-    _detail_noise.seed = 7331
-    _detail_noise.frequency = 0.05
-    _detail_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
-    _detail_noise.fractal_octaves = 3
-    _detail_noise.fractal_lacunarity = 2.0
-    _detail_noise.fractal_gain = 0.5
-
-    # Ridge noise: creates sharp ridgelines like eroded hills
-    _ridge_noise = FastNoiseLite.new()
-    _ridge_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-    _ridge_noise.seed = 42
-    _ridge_noise.frequency = 0.004
-    _ridge_noise.fractal_type = FastNoiseLite.FRACTAL_RIDGED
-    _ridge_noise.fractal_octaves = 5
-    _ridge_noise.fractal_lacunarity = 2.0
-    _ridge_noise.fractal_gain = 0.5
-
-    # Domain warp noise: deforms sampling coordinates for organic shapes
-    _warp_noise = FastNoiseLite.new()
-    _warp_noise.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
-    _warp_noise.seed = 9999
-    _warp_noise.frequency = 0.003
-    _warp_noise.fractal_type = FastNoiseLite.FRACTAL_FBM
-    _warp_noise.fractal_octaves = 3
-
-
 func _sample_height(local_x: float, local_z: float) -> float:
     if noise == null or height_scale == 0.0:
         return 0.0
-    # Convert to world-space coords so adjacent chunks line up
-    var world_x := local_x + world_offset.x
-    var world_z := local_z + world_offset.y
-    if not terrain_advanced:
-        return noise.get_noise_2d(world_x, world_z) * height_scale
-
-    # Domain warping: shift coordinates organically to break up grid patterns
-    var warp_x := 0.0
-    var warp_z := 0.0
-    if _warp_noise != null and domain_warp_amount > 0.0:
-        warp_x = _warp_noise.get_noise_2d(world_x, world_z) * domain_warp_amount
-        warp_z = _warp_noise.get_noise_2d(world_x + 500.0, world_z + 500.0) * domain_warp_amount
-    var wx := world_x + warp_x
-    var wz := world_z + warp_z
-
-    # Layer 1: Continental / base shape (large rolling hills)
-    var base := noise.get_noise_2d(wx, wz) * height_scale
-
-    # Layer 2: Ridged erosion (sharp crests and valleys)
-    var ridge := 0.0
-    if _ridge_noise != null and ridge_strength > 0.0:
-        ridge = _ridge_noise.get_noise_2d(wx, wz) * ridge_strength
-
-    # Layer 3: Erosion detail (medium bumps, gullies)
-    var erosion := 0.0
-    if _erosion_noise != null and erosion_strength > 0.0:
-        erosion = _erosion_noise.get_noise_2d(wx, wz) * erosion_strength
-
-    # Layer 4: Micro detail (small stones, ground roughness)
-    var detail := 0.0
-    if _detail_noise != null and detail_strength > 0.0:
-        # Scale detail by slope — more roughness on steep areas
-        detail = _detail_noise.get_noise_2d(world_x, world_z) * detail_strength
-
-    var combined := base + ridge + erosion + detail
-
-    # Plateau effect: flatten peaks into realistic mesa/plateau shapes
-    if plateau_factor > 0.0:
-        var plateau_threshold := height_scale * 0.6
-        if combined > plateau_threshold:
-            var excess := combined - plateau_threshold
-            combined = plateau_threshold + excess * (1.0 - plateau_factor)
-
-    # Valley carving: deepen low areas to create riverbed-like valleys
-    if valley_carve > 0.0:
-        var valley_threshold := -height_scale * 0.2
-        if combined < valley_threshold:
-            var depth := valley_threshold - combined
-            combined = valley_threshold - depth * (1.0 + valley_carve)
-
-    # Rail sculpt blending: flatten terrain toward rail bed near stored rail points.
-    # Rail points stored in WORLD space; compare against vertex world position.
-    if _rail_sculpt_points.size() > 0 and _rail_sculpt_half_w > 0.0:
-        var best_d2: float = INF
-        var best_ry: float = combined
-        for rp in _rail_sculpt_points:
-            var dx: float = world_x - rp.x
-            var dz: float = world_z - rp.z
-            var d2: float = dx * dx + dz * dz
-            if d2 < best_d2:
-                best_d2 = d2
-                best_ry = rp.y
-        var dist := sqrt(best_d2)
-        var target_y := best_ry - 0.15
-        if dist < _rail_sculpt_half_w:
-            combined = target_y
-        elif dist < _rail_sculpt_half_w + _rail_sculpt_blend_w:
-            var t: float = (dist - _rail_sculpt_half_w) / _rail_sculpt_blend_w
-            t = t * t * (3.0 - 2.0 * t)
-            combined = lerpf(target_y, combined, t)
-
-    return combined
-
-
-static func _sample_height_static(payload: Dictionary, local_x: float, local_z: float) -> float:
-    var noise_res = payload.get("noise") as FastNoiseLite
-    var hs: float = float(payload.get("height_scale", 0.0))
-    if noise_res == null or hs == 0.0:
-        return 0.0
-    var world_offset_v: Vector2 = payload.get("world_offset", Vector2.ZERO)
-    var world_x := local_x + world_offset_v.x
-    var world_z := local_z + world_offset_v.y
-    if not bool(payload.get("terrain_advanced", false)):
-        return noise_res.get_noise_2d(world_x, world_z) * hs
-
-    var warp_amt: float = float(payload.get("domain_warp_amount", 0.0))
-    var warp_n = payload.get("warp_noise") as FastNoiseLite
-    var warp_x := 0.0
-    var warp_z := 0.0
-    if warp_n != null and warp_amt > 0.0:
-        warp_x = warp_n.get_noise_2d(world_x, world_z) * warp_amt
-        warp_z = warp_n.get_noise_2d(world_x + 500.0, world_z + 500.0) * warp_amt
-    var wx := world_x + warp_x
-    var wz := world_z + warp_z
-
-    var base := noise_res.get_noise_2d(wx, wz) * hs
-
-    var ridge_n = payload.get("ridge_noise") as FastNoiseLite
-    var ridge_s: float = float(payload.get("ridge_strength", 0.0))
-    var ridge := 0.0
-    if ridge_n != null and ridge_s > 0.0:
-        ridge = ridge_n.get_noise_2d(wx, wz) * ridge_s
-
-    var erosion_n = payload.get("erosion_noise") as FastNoiseLite
-    var erosion_s: float = float(payload.get("erosion_strength", 0.0))
-    var erosion := 0.0
-    if erosion_n != null and erosion_s > 0.0:
-        erosion = erosion_n.get_noise_2d(wx, wz) * erosion_s
-
-    var detail_n = payload.get("detail_noise") as FastNoiseLite
-    var detail_s: float = float(payload.get("detail_strength", 0.0))
-    var detail := 0.0
-    if detail_n != null and detail_s > 0.0:
-        detail = detail_n.get_noise_2d(world_x, world_z) * detail_s
-
-    var combined := base + ridge + erosion + detail
-
-    var pf: float = float(payload.get("plateau_factor", 0.0))
-    if pf > 0.0:
-        var pt := hs * 0.6
-        if combined > pt:
-            combined = pt + (combined - pt) * (1.0 - pf)
-
-    var vc: float = float(payload.get("valley_carve", 0.0))
-    if vc > 0.0:
-        var vt := -hs * 0.2
-        if combined < vt:
-            combined = vt - (vt - combined) * (1.0 + vc)
-
-    # Rail sculpt blending (mirror of instance version) — rail points in WORLD space
-    var rail_pts = payload.get("rail_sculpt_points")
-    var rail_hw: float = float(payload.get("rail_sculpt_half_w", 0.0))
-    var rail_bw: float = float(payload.get("rail_sculpt_blend_w", 0.0))
-    if rail_pts != null and rail_hw > 0.0 and (rail_pts as Array).size() > 0:
-        var best_d2: float = INF
-        var best_ry: float = combined
-        for rp in rail_pts:
-            var dx: float = world_x - (rp as Vector3).x
-            var dz: float = world_z - (rp as Vector3).z
-            var d2: float = dx * dx + dz * dz
-            if d2 < best_d2:
-                best_d2 = d2
-                best_ry = (rp as Vector3).y
-        var dist := sqrt(best_d2)
-        var target_y := best_ry - 0.15
-        if dist < rail_hw:
-            combined = target_y
-        elif dist < rail_hw + rail_bw:
-            var t: float = (dist - rail_hw) / rail_bw
-            t = t * t * (3.0 - 2.0 * t)
-            combined = lerpf(target_y, combined, t)
-
-    return combined
+    return noise.get_noise_2d(local_x, local_z) * height_scale
 
 
 func _ensure_mesh_instance() -> MeshInstance3D:
@@ -790,14 +462,9 @@ func _start_grass_build(camera_local: Vector3) -> void:
     var noise_copy := noise.duplicate() if noise != null else null
     var grass_mask_image := _get_grass_mask_image()
     var grass_mask_copy := grass_mask_image.duplicate() if grass_mask_image != null else null
-    var erosion_copy := _erosion_noise.duplicate() if _erosion_noise != null else null
-    var detail_copy := _detail_noise.duplicate() if _detail_noise != null else null
-    var ridge_copy := _ridge_noise.duplicate() if _ridge_noise != null else null
-    var warp_copy := _warp_noise.duplicate() if _warp_noise != null else null
     var payload := {
         "request_id": request_id,
         "camera_local": camera_local,
-        "world_offset": world_offset,
         "size": size,
         "spacing": maxf(grass_spacing, 0.1),
         "radius": grass_radius,
@@ -807,17 +474,6 @@ func _start_grass_build(camera_local: Vector3) -> void:
         "scale_max": maxf(grass_scale_min, grass_scale_max),
         "height_scale": height_scale,
         "noise": noise_copy,
-        "terrain_advanced": terrain_advanced,
-        "erosion_noise": erosion_copy,
-        "detail_noise": detail_copy,
-        "ridge_noise": ridge_copy,
-        "warp_noise": warp_copy,
-        "erosion_strength": erosion_strength,
-        "detail_strength": detail_strength,
-        "ridge_strength": ridge_strength,
-        "domain_warp_amount": domain_warp_amount,
-        "plateau_factor": plateau_factor,
-        "valley_carve": valley_carve,
         "grass_mask_enabled": grass_mask_enabled,
         "grass_mask_image": grass_mask_copy,
         "grass_mask_area_size": grass_mask_area_size if grass_mask_area_size != Vector2.ZERO else size,
@@ -826,10 +482,7 @@ func _start_grass_build(camera_local: Vector3) -> void:
         "grass_mask_inverse": grass_mask_inverse,
         "grass_mask_affects_density": grass_mask_affects_density,
         "grass_mask_affects_scale": grass_mask_affects_scale,
-        "grass_mask_min_scale_factor": grass_mask_min_scale_factor,
-        "rail_sculpt_points": _rail_sculpt_points.duplicate(),
-        "rail_sculpt_half_w": _rail_sculpt_half_w,
-        "rail_sculpt_blend_w": _rail_sculpt_blend_w
+        "grass_mask_min_scale_factor": grass_mask_min_scale_factor
     }
     _grass_build_thread.start(_build_grass_transforms.bind(payload))
 
@@ -930,7 +583,9 @@ func _build_grass_transforms(payload: Dictionary) -> Dictionary:
             if _hash_to_unit(_hash_u32(hash ^ 0x4f1bbcdc)) > (keep_probability * mask_density):
                 continue
 
-            var local_y := _sample_height_static(payload, local_x, local_z)
+            var local_y := 0.0
+            if noise_resource != null and float(payload["height_scale"]) != 0.0:
+                local_y = noise_resource.get_noise_2d(local_x, local_z) * float(payload["height_scale"])
             local_y += float(payload["height_offset"])
             var yaw := _hash_to_unit(_hash_u32(hash ^ 0xa53c9d71)) * TAU
             var scale_t := _hash_to_unit(_hash_u32(hash ^ 0x9e3779b9))
@@ -1233,7 +888,6 @@ func _ensure_static_body() -> StaticBody3D:
     body = StaticBody3D.new()
     body.name = BODY_NODE_NAME
     body.set_meta(GENERATED_META_KEY, true)
-    body.add_to_group("ground")
     add_child(body)
     return body
 
@@ -1255,22 +909,6 @@ func _remove_collision_body() -> void:
     if body != null:
         remove_child(body)
         body.queue_free()
-
-
-## Streaming toggle used by TerrainStreamer. Controls mesh visibility and
-## collision shape disable without destroying the chunk data.
-func set_streaming_active(active: bool) -> void:
-    var mesh_instance := get_node_or_null(MESH_NODE_NAME) as MeshInstance3D
-    if mesh_instance != null:
-        mesh_instance.visible = active
-    var body := get_node_or_null(BODY_NODE_NAME) as StaticBody3D
-    if body != null:
-        var cs := body.get_node_or_null(SHAPE_NODE_NAME) as CollisionShape3D
-        if cs != null:
-            cs.disabled = not active
-    var grass_instance := get_node_or_null(GRASS_NODE_NAME) as MultiMeshInstance3D
-    if grass_instance != null:
-        grass_instance.visible = active
 
 
 func _connect_noise() -> void:

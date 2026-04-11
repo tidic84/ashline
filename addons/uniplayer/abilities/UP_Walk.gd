@@ -14,9 +14,9 @@ signal crouch(enabled: bool)
 @export_node_path("UP_Bobbing") var bobbing_path:NodePath = NodePath()
 
 @export var GRAVITY = -9.8
-@export var WALK_SPEED = 4.0
-@export var RUN_SPEED = 8.0
-@export var CROUCH_SPEED = 1.0
+@export var WALK_SPEED = 2.0
+@export var RUN_SPEED = 4.0
+@export var CROUCH_SPEED = 0.5
 @export var ALWAYS_RUN:bool = false
 
 @export_subgroup("Movement")
@@ -112,9 +112,9 @@ func _set_crouch(state: bool):
     crouch.emit(state)
 
 var DEFAULT_INPUT_BINDINGS = [
-    [ACTION_LEFT, KEY_Q, null],
+    [ACTION_LEFT, KEY_A, null],
     [ACTION_RIGHT, KEY_D, null],
-    [ACTION_FORWARD, KEY_Z, null],
+    [ACTION_FORWARD, KEY_W, null],
     [ACTION_BACKWARD, KEY_S, null],
     [ACTION_JUMP, KEY_SPACE, null],
     [ACTION_CROUCH, KEY_CTRL, null],
