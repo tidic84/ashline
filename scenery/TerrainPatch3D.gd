@@ -22,6 +22,13 @@ var _editor_debounce_deadline_msec := 0
 var _connected_noise: FastNoiseLite
 var _noise_changed_callable := Callable(self, "_on_noise_changed")
 var _grass_dirty := true
+
+# Rail sculpting data — set by TerrainGenerator or editor scan
+var _rail_sculpt_points: PackedVector3Array = PackedVector3Array()  # local-space
+var _rail_sculpt_half_width: float = 2.5
+var _rail_sculpt_blend_width: float = 3.5
+var _editor_rail_signature: String = ""
+var _editor_rail_check_msec: int = 0
 var _grass_last_camera_local := Vector3.INF
 var _grass_build_thread := Thread.new()
 var _grass_build_in_flight := false
@@ -237,6 +244,7 @@ func _process(_delta: float) -> void:
             if not _regenerate_queued:
                 _regenerate_queued = true
                 call_deferred("_deferred_regenerate")
+        _editor_check_rail_changes()
     _flush_grass_build_if_ready()
     _update_grass_if_needed()
 
@@ -265,6 +273,8 @@ func _deferred_regenerate() -> void:
     _regenerate_queued = false
     if not is_inside_tree():
         return
+    if Engine.is_editor_hint():
+        scan_rail_paths_for_sculpt()
     _generate()
 
 
@@ -366,9 +376,138 @@ func _append_triangle(indices: PackedInt32Array, normals_accum: Array[Vector3], 
 
 
 func _sample_height(local_x: float, local_z: float) -> float:
-    if noise == null or height_scale == 0.0:
-        return 0.0
-    return noise.get_noise_2d(local_x, local_z) * height_scale
+    var base_h := 0.0
+    if noise != null and height_scale != 0.0:
+        base_h = noise.get_noise_2d(local_x, local_z) * height_scale
+    if _rail_sculpt_points.size() < 2:
+        return base_h
+    return _sculpted_height(local_x, local_z, base_h)
+
+
+func _sculpted_height(local_x: float, local_z: float, base_h: float) -> float:
+    var outer := _rail_sculpt_half_width + _rail_sculpt_blend_width
+    var best_dist_sq := outer * outer + 1.0
+    var best_rail_y := 0.0
+    for i in range(_rail_sculpt_points.size()):
+        var rp: Vector3 = _rail_sculpt_points[i]
+        var dx := local_x - rp.x
+        var dz := local_z - rp.z
+        var d_sq := dx * dx + dz * dz
+        if d_sq < best_dist_sq:
+            best_dist_sq = d_sq
+            best_rail_y = rp.y
+    var dist := sqrt(best_dist_sq)
+    if dist <= _rail_sculpt_half_width:
+        return best_rail_y
+    if dist >= outer:
+        return base_h
+    var t := (dist - _rail_sculpt_half_width) / _rail_sculpt_blend_width
+    t = t * t * (3.0 - 2.0 * t)  # smoothstep
+    return lerpf(best_rail_y, base_h, t)
+
+
+func sculpt_terrain_for_rails(world_points: Array[Vector3], half_width: float, blend_width: float, _rail_base_offset: float = 0.0) -> void:
+    _rail_sculpt_half_width = half_width
+    _rail_sculpt_blend_width = blend_width
+    _rail_sculpt_points.clear()
+    for wp in world_points:
+        _rail_sculpt_points.append(to_local(wp))
+    _generate()
+
+
+func scan_rail_paths_for_sculpt() -> void:
+    var tree := get_tree()
+    if tree == null:
+        return
+    var root: Node = tree.edited_scene_root if Engine.is_editor_hint() else tree.current_scene
+    if root == null:
+        return
+    var rail_paths: Array[Path3D] = []
+    _collect_rail_paths(root, rail_paths)
+    if rail_paths.is_empty():
+        _rail_sculpt_points.clear()
+        return
+    _rail_sculpt_points.clear()
+    for rp in rail_paths:
+        if rp.curve == null or rp.curve.point_count < 2:
+            continue
+        var total_len := rp.curve.get_baked_length()
+        var t := 0.0
+        while t <= total_len:
+            var world_p := rp.to_global(rp.curve.sample_baked(t))
+            _rail_sculpt_points.append(to_local(world_p))
+            t += 1.0
+        var last := rp.to_global(rp.curve.sample_baked(total_len))
+        _rail_sculpt_points.append(to_local(last))
+
+
+func distance_to_rails_xz(world_pos: Vector3) -> float:
+    if _rail_sculpt_points.size() < 2:
+        return INF
+    var lp := to_local(world_pos)
+    var best_sq := INF
+    for i in range(_rail_sculpt_points.size()):
+        var rp: Vector3 = _rail_sculpt_points[i]
+        var dx := lp.x - rp.x
+        var dz := lp.z - rp.z
+        var d_sq := dx * dx + dz * dz
+        if d_sq < best_sq:
+            best_sq = d_sq
+    return sqrt(best_sq)
+
+
+func get_rail_exclusion_radius() -> float:
+    return _rail_sculpt_half_width + _rail_sculpt_blend_width
+
+
+func _collect_rail_paths(node: Node, out: Array[Path3D]) -> void:
+    if node is Path3D and (node.is_in_group("rail_path") or node is RailPath):
+        out.append(node as Path3D)
+    for c in node.get_children():
+        _collect_rail_paths(c, out)
+
+
+func _editor_check_rail_changes() -> void:
+    var now := Time.get_ticks_msec()
+    if now < _editor_rail_check_msec:
+        return
+    _editor_rail_check_msec = now + 500
+    var sig := _build_rail_signature()
+    if sig == _editor_rail_signature:
+        return
+    _editor_rail_signature = sig
+    if sig.is_empty():
+        _rail_sculpt_points.clear()
+        _generate()
+        return
+    scan_rail_paths_for_sculpt()
+    _generate()
+
+
+func _build_rail_signature() -> String:
+    var tree := get_tree()
+    if tree == null:
+        return ""
+    var root: Node = tree.edited_scene_root if Engine.is_editor_hint() else tree.current_scene
+    if root == null:
+        return ""
+    var rail_paths: Array[Path3D] = []
+    _collect_rail_paths(root, rail_paths)
+    if rail_paths.is_empty():
+        return ""
+    var parts: PackedStringArray = PackedStringArray()
+    for rp in rail_paths:
+        if rp.curve == null:
+            continue
+        parts.append("%d:%d:%.4f:%.4f:%.4f" % [
+            rp.get_instance_id(),
+            rp.curve.point_count,
+            rp.global_position.x, rp.global_position.y, rp.global_position.z
+        ])
+        for i in range(rp.curve.point_count):
+            var p := rp.curve.get_point_position(i)
+            parts.append("%.3f,%.3f,%.3f" % [p.x, p.y, p.z])
+    return ":".join(parts)
 
 
 func _ensure_mesh_instance() -> MeshInstance3D:
@@ -482,7 +621,9 @@ func _start_grass_build(camera_local: Vector3) -> void:
         "grass_mask_inverse": grass_mask_inverse,
         "grass_mask_affects_density": grass_mask_affects_density,
         "grass_mask_affects_scale": grass_mask_affects_scale,
-        "grass_mask_min_scale_factor": grass_mask_min_scale_factor
+        "grass_mask_min_scale_factor": grass_mask_min_scale_factor,
+        "rail_sculpt_points": _rail_sculpt_points.duplicate(),
+        "rail_exclusion_radius_sq": (_rail_sculpt_half_width + _rail_sculpt_blend_width) * (_rail_sculpt_half_width + _rail_sculpt_blend_width)
     }
     _grass_build_thread.start(_build_grass_transforms.bind(payload))
 
@@ -542,6 +683,11 @@ func _build_grass_transforms(payload: Dictionary) -> Dictionary:
     var mask_image = payload["grass_mask_image"] as Image
     var mask_area_size: Vector2 = payload["grass_mask_area_size"]
 
+    var rail_points: PackedVector3Array = payload["rail_sculpt_points"]
+    var rail_excl_sq: float = payload["rail_exclusion_radius_sq"]
+    var has_rail_exclusion := rail_points.size() >= 2
+    var rail_count := rail_points.size()
+
     for cell_z in range(min_z, max_z + 1):
         for cell_x in range(min_x, max_x + 1):
             var base_x := float(cell_x) * spacing
@@ -556,6 +702,16 @@ func _build_grass_transforms(payload: Dictionary) -> Dictionary:
             var offset_xz := Vector2(local_x - camera_local.x, local_z - camera_local.z)
             if offset_xz.length_squared() > radius_sq:
                 continue
+            if has_rail_exclusion:
+                var near_rail := false
+                for ri in range(rail_count):
+                    var rdx := local_x - rail_points[ri].x
+                    var rdz := local_z - rail_points[ri].z
+                    if rdx * rdx + rdz * rdz < rail_excl_sq:
+                        near_rail = true
+                        break
+                if near_rail:
+                    continue
             var mask_density := 1.0
             var mask_scale := 1.0
             if mask_enabled:

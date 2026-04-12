@@ -2,49 +2,164 @@
 extends Path3D
 class_name RailPath
 
-## Hand-placed rail path. Edit the Path3D curve in the editor — the
-## TerrainGenerator reads this curve to sculpt the roadbed and build meshes.
-##
-## Usage:
-##   1. Add a RailPath node to your scene (or instance rail_path.tscn).
-##   2. Select it, use the Path3D handles in the 3D viewport to draw the track.
-##   3. Toggle "Snap To Ground" to pin each control point to terrain height.
-##   4. At runtime, TerrainGenerator picks it up via the "rail_path" group.
+const PREVIEW_ROOT_NAME := "RailPreview"
+const PREVIEW_RAILS_NAME := "Rails"
+const PREVIEW_TIES_NAME := "Ties"
+const PREVIEW_SECTIONS_NAME := "RailSections"
+const RAIL_SECTION_SCENE_PATH := "res://assets/models/rails/rail_section.glb"
 
-@export var snap_to_ground: bool = true:
+## Hand-placed rail path used by `TerrainGenerator` to build the tracks.
+##
+## Rails are meant to be realistic: piecewise-straight segments between
+## control points, optionally rising from the ground but constrained by
+## maximum horizontal (yaw) and vertical (pitch / grade) deltas between
+## consecutive segments.
+##
+## Editor workflow:
+##   1. Drop the `rail_path.tscn` node in your scene and edit the Path3D
+##      curve in the viewport.
+##   2. Set `smoothing_mode` to None (straight), Corner (tight), or
+##      Distributed (natural railroad curves across adjacent segments).
+##   3. Toggle `snap_to_ground` to pin points to terrain Y.
+##   4. Use the action buttons to validate and enforce constraints.
+
+@export_group("Constraints")
+## Max yaw delta (degrees) between two consecutive segments. Turns larger
+## than this are rejected by `action_validate` / clamped by `action_enforce`.
+@export_range(1.0, 90.0, 0.5) var max_yaw_deg: float = 12.0
+## Max pitch delta (degrees) between two consecutive segments. Controls
+## how fast grade can change along the track.
+@export_range(0.1, 45.0, 0.1) var max_pitch_delta_deg: float = 5.0
+## Max absolute pitch (degrees) — caps how steep any single segment can be.
+@export_range(0.1, 45.0, 0.1) var max_abs_pitch_deg: float = 15.0
+## Minimum length (meters) for any segment between two points. Segments
+## below this are flagged during validation.
+@export_range(0.5, 50.0, 0.5) var min_segment_length: float = 4.0
+
+@export_group("Shape")
+@export_range(0.05, 1.0, 0.01) var curve_bake_interval: float = 0.2
+
+@export_group("Smoothing")
+## None: tangents left as-is (manual or zero).
+## Corner: smooth curve only at the junction point (tight easement).
+## Distributed: curve spreads across both adjacent segments (natural railroad feel).
+@export_enum("None", "Corner", "Distributed") var smoothing_mode: int = 0:
+	set(value):
+		smoothing_mode = value
+		_apply_smoothing()
+		_preview_signature = ""
+
+## How far (meters) the transition curve extends from each control point.
+## Longer = gentler curve but eats more of the straight segment.
+@export_range(1.0, 100.0, 0.5) var smooth_length: float = 10.0:
+	set(value):
+		smooth_length = maxf(value, 1.0)
+		_apply_smoothing()
+		_preview_signature = ""
+
+## Maximum curvature rate (degrees per meter) for horizontal turns.
+## Limits how tight the auto-generated curves can be.
+@export_range(0.1, 10.0, 0.1) var max_curvature_deg_per_m: float = 2.0:
+	set(value):
+		max_curvature_deg_per_m = maxf(value, 0.1)
+		_apply_smoothing()
+		_preview_signature = ""
+
+## Maximum vertical curvature rate (degrees per meter).
+@export_range(0.1, 10.0, 0.1) var max_pitch_curvature_deg_per_m: float = 1.0:
+	set(value):
+		max_pitch_curvature_deg_per_m = maxf(value, 0.1)
+		_apply_smoothing()
+		_preview_signature = ""
+
+@export_group("Ground")
+## If true, point Y is pinned to terrain height on load. Leave off if
+## you want segments to rise above the ground — you can still hit
+## `action_snap_now` to snap the current selection manually.
+@export var snap_to_ground: bool = false:
 	set(value):
 		snap_to_ground = value
-		if Engine.is_editor_hint():
+		if Engine.is_editor_hint() and is_inside_tree():
 			_snap_points_to_ground()
 
 @export_range(-10.0, 10.0, 0.01) var ground_offset: float = 0.20
 
-## Re-snap now (editor button via tool reload)
+@export_group("Preview")
+@export var preview_enabled: bool = true
+@export var preview_match_runtime_deformed: bool = false
+@export var preview_follow_pitch: bool = true
+@export var preview_adaptive_sampling: bool = true
+@export_range(0.2, 5.0, 0.01) var preview_adaptive_min_step: float = 0.45
+@export_range(0.5, 12.0, 0.01) var preview_adaptive_max_step: float = 2.4
+@export_range(0.0, 6.0, 0.01) var preview_curve_influence: float = 2.2
+@export_range(0.0, 6.0, 0.01) var preview_pitch_influence: float = 1.8
+@export var preview_real_rails_enabled: bool = true
+@export var preview_real_auto_section_length: bool = true
+@export_range(0.5, 10.0, 0.01) var preview_real_section_length: float = 2.4
+@export_range(-180.0, 180.0, 0.1) var preview_real_yaw_offset_deg: float = -90.0
+@export_range(0.2, 2.5, 0.01) var preview_rail_gauge: float = 1.0
+@export_range(0.1, 2.0, 0.01) var preview_sample_step: float = 0.5
+@export_range(0.2, 2.5, 0.01) var preview_tie_spacing: float = 0.55
+@export var preview_show_ties: bool = true
+
+@export_group("Actions")
+## Re-apply smoothing to tangents (useful after manually moving points).
+@export var action_apply_smoothing: bool = false:
+	set(value):
+		if value:
+			_apply_smoothing()
+		action_apply_smoothing = false
+
+## Log warnings for every point that violates yaw/pitch/length constraints.
+@export var action_validate: bool = false:
+	set(value):
+		if value:
+			_validate_constraints()
+		action_validate = false
+
+## Clamp each point's Y (grade) and lateral offset so yaw/pitch stay
+## within the configured limits. Walks the path forward from point 0.
+@export var action_enforce: bool = false:
+	set(value):
+		if value:
+			_enforce_constraints()
+		action_enforce = false
+
+## Re-snap now (editor button via tool reload).
 @export var action_snap_now: bool = false:
 	set(value):
 		if value:
 			_snap_points_to_ground()
 		action_snap_now = false
 
-## Reset to a default S-curve spanning the world
+## Reset to a clean long-straight curve with a gentle climb.
 @export var action_reset_curve: bool = false:
 	set(value):
 		if value:
 			_reset_default_curve()
 		action_reset_curve = false
 
+var _preview_signature := ""
+var _preview_rails_material: StandardMaterial3D
+var _preview_ties_material: StandardMaterial3D
+var _preview_section_scene: PackedScene = null
+var _preview_section_length_cache: float = -1.0
+var _editor_point_positions_hash := ""
+
 
 func _ready() -> void:
 	add_to_group("rail_path")
 	if curve == null:
 		curve = Curve3D.new()
-	curve.bake_interval = 0.5
+	curve.bake_interval = curve_bake_interval
 	if Engine.is_editor_hint():
+		_ensure_preview_materials()
+		_update_preview_mesh(true)
 		return
 	if curve.point_count == 0:
 		_reset_default_curve()
-	elif snap_to_ground:
-		# Wait one frame so terrain is ready, then snap Y to ground height
+	_apply_smoothing()
+	if snap_to_ground:
 		await get_tree().process_frame
 		_snap_points_to_ground()
 
@@ -53,16 +168,225 @@ func _process(_delta: float) -> void:
 	if not Engine.is_editor_hint():
 		set_process(false)
 		return
-	# Keep bake interval dense so sampling is smooth.
-	if curve and not is_equal_approx(curve.bake_interval, 0.5):
-		curve.bake_interval = 0.5
+	if curve and not is_equal_approx(curve.bake_interval, curve_bake_interval):
+		curve.bake_interval = curve_bake_interval
+	if smoothing_mode > 0:
+		var pos_hash := _build_point_positions_hash()
+		if pos_hash != _editor_point_positions_hash:
+			_editor_point_positions_hash = pos_hash
+			_apply_smoothing()
+	_update_preview_mesh()
 
 
 func get_rail_curve() -> Curve3D:
 	return curve
 
 
+func _build_point_positions_hash() -> String:
+	if curve == null:
+		return ""
+	var parts := PackedStringArray()
+	parts.append(str(curve.point_count))
+	for i in range(curve.point_count):
+		var p := curve.get_point_position(i)
+		parts.append("%.3f,%.3f,%.3f" % [p.x, p.y, p.z])
+	return "|".join(parts)
+
+
+# --- Smoothing ---
+
+func _apply_smoothing() -> void:
+	if curve == null or curve.point_count < 2:
+		return
+	if not is_inside_tree():
+		return
+
+	# Mode 0 = None: zero all tangents (straight segments)
+	if smoothing_mode == 0:
+		for i in range(curve.point_count):
+			curve.set_point_in(i, Vector3.ZERO)
+			curve.set_point_out(i, Vector3.ZERO)
+		_preview_signature = ""
+		return
+
+	var n := curve.point_count
+
+	# Compute segment directions and lengths
+	var seg_dirs: Array[Vector3] = []
+	var seg_lens: Array[float] = []
+	for i in range(n - 1):
+		var seg: Vector3 = curve.get_point_position(i + 1) - curve.get_point_position(i)
+		seg_lens.append(seg.length())
+		seg_dirs.append(seg.normalized() if seg.length() > 0.001 else Vector3.FORWARD)
+
+	# First and last points: zero tangents (track starts/ends straight)
+	curve.set_point_in(0, Vector3.ZERO)
+	curve.set_point_out(0, Vector3.ZERO)
+	curve.set_point_in(n - 1, Vector3.ZERO)
+	curve.set_point_out(n - 1, Vector3.ZERO)
+
+	# For interior points, compute smooth tangents
+	for i in range(1, n - 1):
+		var dir_before: Vector3 = seg_dirs[i - 1]
+		var dir_after: Vector3 = seg_dirs[i]
+		var len_before: float = seg_lens[i - 1]
+		var len_after: float = seg_lens[i]
+
+		# Yaw angle between segments
+		var h_before := Vector3(dir_before.x, 0.0, dir_before.z)
+		var h_after := Vector3(dir_after.x, 0.0, dir_after.z)
+		var yaw_deg := 0.0
+		if h_before.length_squared() > 0.0001 and h_after.length_squared() > 0.0001:
+			yaw_deg = rad_to_deg(h_before.normalized().angle_to(h_after.normalized()))
+
+		# Pitch change
+		var pitch_before := _pitch_of(dir_before)
+		var pitch_after := _pitch_of(dir_after)
+		var pitch_delta := absf(pitch_after - pitch_before)
+
+		# Compute tangent length clamped by curvature limits
+		var tangent_len: float = smooth_length
+
+		# Clamp by yaw curvature: angle / tangent_len <= max_curvature_deg_per_m
+		if yaw_deg > 0.001:
+			var max_len_for_yaw := yaw_deg / max_curvature_deg_per_m
+			tangent_len = minf(tangent_len, max_len_for_yaw)
+
+		# Clamp by pitch curvature
+		if pitch_delta > 0.001:
+			var max_len_for_pitch := pitch_delta / max_pitch_curvature_deg_per_m
+			tangent_len = minf(tangent_len, max_len_for_pitch)
+
+		# Don't exceed half the adjacent segment length
+		tangent_len = minf(tangent_len, len_before * 0.45)
+		tangent_len = minf(tangent_len, len_after * 0.45)
+		tangent_len = maxf(tangent_len, 0.5)
+
+		if smoothing_mode == 1:
+			# Corner mode: tangent along the bisector direction, short
+			# Uses incoming/outgoing directions directly
+			var tangent_out: Vector3 = dir_after * tangent_len
+			var tangent_in: Vector3 = -dir_before * tangent_len
+			curve.set_point_in(i, tangent_in)
+			curve.set_point_out(i, tangent_out)
+
+		elif smoothing_mode == 2:
+			# Distributed mode: blend curve across both segments
+			# Tangent direction = average of incoming and outgoing
+			var blend_dir: Vector3 = (dir_before + dir_after).normalized()
+			if blend_dir.length_squared() < 0.0001:
+				blend_dir = dir_after
+			var tangent_out: Vector3 = blend_dir * tangent_len
+			var tangent_in: Vector3 = -blend_dir * tangent_len
+			curve.set_point_in(i, tangent_in)
+			curve.set_point_out(i, tangent_out)
+
+	_preview_signature = ""
+
+
+# --- Validation ---
+
+func _validate_constraints() -> void:
+	if curve == null or curve.point_count < 2:
+		print("[RailPath] curve empty — nothing to validate")
+		return
+	var issues: int = 0
+	var prev_fwd: Vector3 = Vector3.ZERO
+	for i in range(curve.point_count - 1):
+		var a: Vector3 = curve.get_point_position(i)
+		var b: Vector3 = curve.get_point_position(i + 1)
+		var seg: Vector3 = b - a
+		var seg_len: float = seg.length()
+		if seg_len < min_segment_length:
+			print("[RailPath] segment %d: length %.2fm < min %.2fm" % [i, seg_len, min_segment_length])
+			issues += 1
+		var pitch_deg: float = _pitch_of(seg)
+		if absf(pitch_deg) > max_abs_pitch_deg:
+			print("[RailPath] segment %d: pitch %.2f° exceeds max %.2f°" % [i, pitch_deg, max_abs_pitch_deg])
+			issues += 1
+		if prev_fwd.length_squared() > 0.0001:
+			var yaw_delta: float = _yaw_delta_deg(prev_fwd, seg)
+			if yaw_delta > max_yaw_deg:
+				print("[RailPath] segment %d: yaw delta %.2f° exceeds max %.2f°" % [i, yaw_delta, max_yaw_deg])
+				issues += 1
+			var prev_pitch: float = _pitch_of(prev_fwd)
+			var pitch_delta: float = absf(pitch_deg - prev_pitch)
+			if pitch_delta > max_pitch_delta_deg:
+				print("[RailPath] segment %d: pitch delta %.2f° exceeds max %.2f°" % [i, pitch_delta, max_pitch_delta_deg])
+				issues += 1
+		prev_fwd = seg
+	if issues == 0:
+		print("[RailPath] validation OK — %d segments within constraints" % (curve.point_count - 1))
+	else:
+		push_warning("[RailPath] %d constraint violations found" % issues)
+
+
+# --- Enforce (clamp) ---
+
+func _enforce_constraints() -> void:
+	if curve == null or curve.point_count < 2:
+		return
+	var prev_fwd: Vector3 = Vector3.ZERO
+	for i in range(curve.point_count - 1):
+		var a: Vector3 = curve.get_point_position(i)
+		var b: Vector3 = curve.get_point_position(i + 1)
+		var seg: Vector3 = b - a
+		var h: Vector3 = Vector3(seg.x, 0.0, seg.z)
+		var h_len: float = h.length()
+		if h_len < 0.001:
+			continue
+		# Clamp yaw to previous segment
+		if prev_fwd.length_squared() > 0.0001:
+			var prev_h: Vector3 = Vector3(prev_fwd.x, 0.0, prev_fwd.z)
+			if prev_h.length_squared() > 0.0001:
+				prev_h = prev_h.normalized()
+				var cur_h: Vector3 = h.normalized()
+				var yaw_delta: float = rad_to_deg(cur_h.angle_to(prev_h))
+				if yaw_delta > max_yaw_deg:
+					var axis: Vector3 = prev_h.cross(cur_h)
+					var sign: float = signf(axis.y) if absf(axis.y) > 0.0001 else 1.0
+					var clamped := prev_h.rotated(Vector3.UP, deg_to_rad(max_yaw_deg) * sign)
+					h = clamped * h_len
+		# Clamp absolute pitch
+		var pitch: float = _pitch_of(Vector3(h.x, seg.y, h.z))
+		var max_pitch: float = max_abs_pitch_deg
+		# Also clamp pitch delta vs previous segment
+		if prev_fwd.length_squared() > 0.0001:
+			var prev_pitch: float = _pitch_of(prev_fwd)
+			var lo: float = prev_pitch - max_pitch_delta_deg
+			var hi: float = prev_pitch + max_pitch_delta_deg
+			max_pitch = minf(max_pitch, hi)
+			pitch = maxf(pitch, lo)
+		pitch = clampf(pitch, -max_abs_pitch_deg, max_pitch)
+		var new_y: float = h.length() * tan(deg_to_rad(pitch))
+		var new_seg := Vector3(h.x, new_y, h.z)
+		var new_b: Vector3 = a + new_seg
+		curve.set_point_position(i + 1, new_b)
+		prev_fwd = new_seg
+	print("[RailPath] constraints enforced")
+	_preview_signature = ""
+
+
+func _pitch_of(v: Vector3) -> float:
+	var h: float = Vector2(v.x, v.z).length()
+	if h < 0.0001:
+		return 0.0 if absf(v.y) < 0.0001 else (90.0 if v.y > 0.0 else -90.0)
+	return rad_to_deg(atan2(v.y, h))
+
+
+func _yaw_delta_deg(a: Vector3, b: Vector3) -> float:
+	var ha := Vector3(a.x, 0.0, a.z)
+	var hb := Vector3(b.x, 0.0, b.z)
+	if ha.length_squared() < 0.0001 or hb.length_squared() < 0.0001:
+		return 0.0
+	return rad_to_deg(ha.normalized().angle_to(hb.normalized()))
+
+
+# --- Ground snap ---
+
 func _snap_points_to_ground() -> void:
+	if not is_inside_tree():
+		return
 	if curve == null or curve.point_count == 0:
 		return
 	var terrain := _find_terrain_node()
@@ -76,40 +400,37 @@ func _snap_points_to_ground() -> void:
 		var h: float = terrain._sample_height(local_t.x, local_t.z) + ground_offset
 		world_p.y = h
 		curve.set_point_position(i, to_local(world_p))
+	_preview_signature = ""
 
+
+# --- Default curve ---
 
 func _reset_default_curve() -> void:
 	if curve == null:
 		curve = Curve3D.new()
 	curve.clear_points()
-	var n := 6
-	var span := 400.0
-	for i in range(n):
-		var t := float(i) / float(n - 1)
-		var z := lerpf(-span * 0.5, span * 0.5, t)
-		var x := sin(t * TAU * 0.5) * 20.0
-		var p := Vector3(x, 0.0, z)
-		# Catmull-Rom tangents
-		var t_in := Vector3.ZERO
-		var t_out := Vector3.ZERO
-		if i > 0 and i < n - 1:
-			var tang := Vector3(
-				sin((float(i + 1) / float(n - 1)) * TAU * 0.5) * 20.0
-				- sin((float(i - 1) / float(n - 1)) * TAU * 0.5) * 20.0,
-				0.0,
-				lerpf(-span * 0.5, span * 0.5, float(i + 1) / float(n - 1))
-				- lerpf(-span * 0.5, span * 0.5, float(i - 1) / float(n - 1))
-			) * 0.5
-			t_in = -tang
-			t_out = tang
-		curve.add_point(p, t_in, t_out)
+	# Long straight with a single gentle bend and a small climb at the end.
+	# Tangents are left at zero so segments stay straight.
+	var points: Array[Vector3] = [
+		Vector3(0.0, 0.0, -60.0),
+		Vector3(0.0, 0.0, -20.0),
+		Vector3(0.0, 0.0, 20.0),
+		Vector3(6.0, 0.0, 60.0),
+		Vector3(12.0, 1.5, 100.0),
+		Vector3(12.0, 3.0, 140.0),
+	]
+	for p in points:
+		curve.add_point(p, Vector3.ZERO, Vector3.ZERO)
 	if snap_to_ground:
 		_snap_points_to_ground()
+	_preview_signature = ""
 
 
 func _find_terrain_node() -> Node:
-	# Walk the scene for a node exposing _sample_height (TerrainStreamer or TerrainPatch3D).
-	var root: Node = get_tree().edited_scene_root if Engine.is_editor_hint() else get_tree().current_scene
+	var tree := get_tree()
+	if tree == null:
+		return null
+	var root: Node = tree.edited_scene_root if Engine.is_editor_hint() else tree.current_scene
 	if root == null:
 		return null
 	return _search_terrain(root)
@@ -125,3 +446,665 @@ func _search_terrain(node: Node) -> Node:
 		if found:
 			return found
 	return null
+
+
+# --- Editor preview ---
+
+func _ensure_preview_materials() -> void:
+	if _preview_rails_material == null:
+		_preview_rails_material = StandardMaterial3D.new()
+		_preview_rails_material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		_preview_rails_material.albedo_color = Color(0.60, 0.62, 0.66, 1.0)
+		_preview_rails_material.metallic = 0.65
+		_preview_rails_material.roughness = 0.45
+		_preview_rails_material.vertex_color_use_as_albedo = false
+		_preview_rails_material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+	if _preview_ties_material == null:
+		_preview_ties_material = StandardMaterial3D.new()
+		_preview_ties_material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		_preview_ties_material.albedo_color = Color(0.33, 0.22, 0.14, 1.0)
+		_preview_ties_material.roughness = 0.9
+		_preview_ties_material.vertex_color_use_as_albedo = false
+		_preview_ties_material.transparency = BaseMaterial3D.TRANSPARENCY_DISABLED
+
+
+func _update_preview_mesh(force: bool = false) -> void:
+	if not Engine.is_editor_hint():
+		return
+	var signature := _build_preview_signature()
+	if not force and signature == _preview_signature:
+		return
+	_preview_signature = signature
+
+	if not preview_enabled or curve == null or curve.point_count < 2:
+		_clear_preview_mesh()
+		return
+
+	_ensure_preview_materials()
+	var root := _ensure_preview_root()
+	if root == null:
+		return
+
+	if preview_match_runtime_deformed and _build_preview_deformed_rails(root):
+		var sections_old_match := root.get_node_or_null(PREVIEW_SECTIONS_NAME)
+		if sections_old_match != null:
+			sections_old_match.queue_free()
+		return
+
+	if preview_real_rails_enabled and _build_preview_real_sections(root):
+		var rails_old := root.get_node_or_null(PREVIEW_RAILS_NAME)
+		if rails_old != null:
+			rails_old.queue_free()
+		var ties_old := root.get_node_or_null(PREVIEW_TIES_NAME)
+		if ties_old != null:
+			ties_old.queue_free()
+		return
+
+	var sections_old := root.get_node_or_null(PREVIEW_SECTIONS_NAME)
+	if sections_old != null:
+		sections_old.queue_free()
+
+	var rails_mesh := _build_preview_rails_mesh()
+	var rails := root.get_node_or_null(PREVIEW_RAILS_NAME) as MeshInstance3D
+	if rails == null:
+		rails = MeshInstance3D.new()
+		rails.name = PREVIEW_RAILS_NAME
+		rails.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(rails)
+		if Engine.is_editor_hint():
+			rails.owner = get_tree().edited_scene_root
+	rails.mesh = rails_mesh
+	rails.material_override = _preview_rails_material
+
+	if preview_show_ties:
+		var ties_mesh := _build_preview_ties_mesh()
+		var ties := root.get_node_or_null(PREVIEW_TIES_NAME) as MeshInstance3D
+		if ties == null:
+			ties = MeshInstance3D.new()
+			ties.name = PREVIEW_TIES_NAME
+			ties.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			root.add_child(ties)
+			if Engine.is_editor_hint():
+				ties.owner = get_tree().edited_scene_root
+		ties.mesh = ties_mesh
+		ties.material_override = _preview_ties_material
+	else:
+		var ties_old := root.get_node_or_null(PREVIEW_TIES_NAME)
+		if ties_old != null:
+			ties_old.queue_free()
+
+
+func _build_preview_signature() -> String:
+	if curve == null:
+		return "no_curve"
+	var parts := PackedStringArray()
+	parts.append(str(preview_enabled))
+	parts.append(str(preview_match_runtime_deformed))
+	parts.append(str(preview_follow_pitch))
+	parts.append(str(preview_adaptive_sampling))
+	parts.append("%.3f" % preview_adaptive_min_step)
+	parts.append("%.3f" % preview_adaptive_max_step)
+	parts.append("%.3f" % preview_curve_influence)
+	parts.append("%.3f" % preview_pitch_influence)
+	parts.append(str(preview_real_rails_enabled))
+	parts.append(str(preview_real_auto_section_length))
+	parts.append("%.3f" % preview_real_section_length)
+	parts.append("%.3f" % preview_real_yaw_offset_deg)
+	parts.append(str(preview_show_ties))
+	parts.append("%.3f" % preview_rail_gauge)
+	parts.append("%.3f" % preview_sample_step)
+	parts.append("%.3f" % preview_tie_spacing)
+	parts.append(str(smoothing_mode))
+	parts.append("%.2f" % smooth_length)
+	parts.append("%.2f" % max_curvature_deg_per_m)
+	parts.append("%.2f" % max_pitch_curvature_deg_per_m)
+	parts.append(str(curve.point_count))
+	for i in range(curve.point_count):
+		var p := curve.get_point_position(i)
+		var ti := curve.get_point_in(i)
+		var to := curve.get_point_out(i)
+		parts.append("%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f|%.3f" % [p.x, p.y, p.z, ti.x, ti.y, ti.z, to.x, to.y, to.z])
+	return "::".join(parts)
+
+
+func _adaptive_preview_step(offset: float, base_step: float, total_len: float) -> float:
+	if not preview_adaptive_sampling:
+		return maxf(base_step, 0.05)
+	var complexity := _preview_complexity_at_offset(offset, total_len)
+	var min_step := minf(preview_adaptive_min_step, preview_adaptive_max_step)
+	var max_step := maxf(preview_adaptive_min_step, preview_adaptive_max_step)
+	var target := base_step / (1.0 + complexity)
+	return clampf(target, min_step, max_step)
+
+
+func _preview_complexity_at_offset(offset: float, total_len: float) -> float:
+	var d := 1.0
+	var p0 := maxf(offset - d, 0.0)
+	var p1 := offset
+	var p2 := minf(offset + d, total_len)
+	var f0 := curve.sample_baked(p1) - curve.sample_baked(p0)
+	var f1 := curve.sample_baked(p2) - curve.sample_baked(p1)
+	if f0.length_squared() < 0.00001 or f1.length_squared() < 0.00001:
+		return 0.0
+	var h0 := Vector3(f0.x, 0.0, f0.z)
+	var h1 := Vector3(f1.x, 0.0, f1.z)
+	var yaw_delta := 0.0
+	if h0.length_squared() > 0.00001 and h1.length_squared() > 0.00001:
+		yaw_delta = rad_to_deg(h0.normalized().angle_to(h1.normalized()))
+	var pitch0 := _pitch_of(f0)
+	var pitch1 := _pitch_of(f1)
+	var pitch_delta := absf(pitch1 - pitch0)
+	return (yaw_delta / 45.0) * preview_curve_influence + (pitch_delta / 20.0) * preview_pitch_influence
+
+
+func _ensure_preview_root() -> Node3D:
+	var root := get_node_or_null(PREVIEW_ROOT_NAME) as Node3D
+	if root != null:
+		root.visible = true
+		return root
+	root = Node3D.new()
+	root.name = PREVIEW_ROOT_NAME
+	root.set_meta("editor_only", true)
+	add_child(root)
+	return root
+
+
+func _clear_preview_mesh() -> void:
+	var root := get_node_or_null(PREVIEW_ROOT_NAME)
+	if root != null:
+		root.queue_free()
+
+
+func _sample_preview_frame(offset: float, total_len: float) -> Dictionary:
+	var pos := curve.sample_baked(offset)
+	var ahead := minf(offset + 0.5, total_len)
+	var behind := maxf(offset - 0.5, 0.0)
+	var fwd := curve.sample_baked(ahead) - curve.sample_baked(behind)
+	if fwd.length_squared() < 0.0001:
+		fwd = Vector3.FORWARD
+	fwd = fwd.normalized()
+	var right := Vector3.UP.cross(fwd)
+	if right.length_squared() < 0.0001:
+		right = Vector3.RIGHT
+	right = right.normalized()
+	var up := fwd.cross(right)
+	if up.length_squared() < 0.0001:
+		up = Vector3.UP
+	else:
+		up = up.normalized()
+	return {
+		"pos": pos,
+		"right": right,
+		"up": up,
+		"fwd": fwd,
+	}
+
+
+func _build_preview_deformed_rails(root: Node3D) -> bool:
+	if curve == null or curve.point_count < 2:
+		return false
+	var total_len := curve.get_baked_length()
+	if total_len <= 0.001:
+		return false
+
+	var step := maxf(preview_sample_step, 0.05)
+	var samples: Array[Transform3D] = []
+	var offset := 0.0
+	while offset <= total_len:
+		samples.append(_sample_track_transform_from_curve(curve, offset, preview_follow_pitch))
+		offset += step
+	samples.append(_sample_track_transform_from_curve(curve, total_len, preview_follow_pitch))
+	if samples.size() < 2:
+		return false
+
+	var sections_old := root.get_node_or_null(PREVIEW_SECTIONS_NAME)
+	if sections_old != null:
+		sections_old.queue_free()
+
+	var rails_node := root.get_node_or_null(PREVIEW_RAILS_NAME) as Node3D
+	if rails_node == null:
+		rails_node = Node3D.new()
+		rails_node.name = PREVIEW_RAILS_NAME
+		rails_node.set_meta("editor_only", true)
+		root.add_child(rails_node)
+	var rails_children := rails_node.get_children()
+	for child in rails_children:
+		rails_node.remove_child(child)
+		child.free()
+
+	var half_gauge := maxf(preview_rail_gauge * 0.5, 0.05)
+	for side in [-1.0, 1.0]:
+		var mesh := _build_preview_rail_strip_mesh(samples, half_gauge * side)
+		var mi := MeshInstance3D.new()
+		mi.name = "Rail_L" if side < 0.0 else "Rail_R"
+		mi.mesh = mesh
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.material_override = _preview_rails_material
+		rails_node.add_child(mi)
+
+	var ties_old := root.get_node_or_null(PREVIEW_TIES_NAME)
+	if ties_old != null:
+		ties_old.queue_free()
+	if preview_show_ties:
+		var tie_spacing := maxf(preview_tie_spacing, 0.1)
+		var tie_count := int(total_len / tie_spacing)
+		if tie_count > 0:
+			var tie_mesh := BoxMesh.new()
+			tie_mesh.size = Vector3(maxf(preview_rail_gauge + 0.6, 1.2), 0.08, 0.12)
+			var tmm := MultiMesh.new()
+			tmm.transform_format = MultiMesh.TRANSFORM_3D
+			tmm.mesh = tie_mesh
+			tmm.instance_count = tie_count
+			for i in range(tie_count):
+				var tr := _sample_track_transform_from_curve(curve, float(i) * tie_spacing, preview_follow_pitch)
+				tmm.set_instance_transform(i, tr)
+			var tmmi := MultiMeshInstance3D.new()
+			tmmi.name = PREVIEW_TIES_NAME
+			tmmi.multimesh = tmm
+			tmmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			tmmi.material_override = _preview_ties_material
+			root.add_child(tmmi)
+
+	return true
+
+
+func _sample_track_transform_from_curve(sample_curve: Curve3D, offset: float, follow_pitch: bool) -> Transform3D:
+	var total: float = sample_curve.get_baked_length()
+	var pos: Vector3 = sample_curve.sample_baked(offset)
+	var ahead: float = minf(offset + 1.0, total)
+	var behind: float = maxf(offset - 1.0, 0.0)
+	var fwd: Vector3 = sample_curve.sample_baked(ahead) - sample_curve.sample_baked(behind)
+	if not follow_pitch:
+		fwd.y = 0.0
+	if fwd.length_squared() < 0.0001:
+		fwd = Vector3.FORWARD
+	fwd = fwd.normalized()
+	var right := Vector3.UP.cross(fwd)
+	if right.length_squared() < 0.0001:
+		right = Vector3.RIGHT
+	right = right.normalized()
+	var up := Vector3.UP if not follow_pitch else fwd.cross(right).normalized()
+	return Transform3D(Basis(right, up, fwd), pos)
+
+
+func _build_preview_rail_strip_mesh(samples: Array[Transform3D], lateral_offset: float) -> ArrayMesh:
+	var hw: float = 0.025
+	var hh: float = 0.05
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var indices := PackedInt32Array()
+	var n: int = samples.size()
+	for i in range(n):
+		var t: Transform3D = samples[i]
+		var right: Vector3 = t.basis.x.normalized()
+		var up: Vector3 = t.basis.y.normalized()
+		var center: Vector3 = t.origin + right * lateral_offset + up * (hh + 0.04)
+		var uv_v: float = float(i) * 0.5
+		verts.append(center + up * hh - right * hw)
+		verts.append(center + up * hh + right * hw)
+		verts.append(center - up * hh + right * hw)
+		verts.append(center - up * hh - right * hw)
+		norms.append((-right + up).normalized())
+		norms.append((right + up).normalized())
+		norms.append((right - up).normalized())
+		norms.append((-right - up).normalized())
+		uvs.append(Vector2(0.0, uv_v))
+		uvs.append(Vector2(1.0, uv_v))
+		uvs.append(Vector2(1.0, uv_v))
+		uvs.append(Vector2(0.0, uv_v))
+	for i in range(n - 1):
+		var base: int = i * 4
+		var next: int = (i + 1) * 4
+		for f in range(4):
+			var a: int = base + f
+			var b: int = base + (f + 1) % 4
+			var c: int = next + (f + 1) % 4
+			var d: int = next + f
+			indices.append(a)
+			indices.append(b)
+			indices.append(c)
+			indices.append(a)
+			indices.append(c)
+			indices.append(d)
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
+func _build_preview_real_sections(root: Node3D) -> bool:
+	var section_scene := _get_preview_section_scene()
+	if section_scene == null:
+		return false
+	var world_curve := _build_world_preview_curve()
+	if world_curve == null or world_curve.point_count < 2:
+		return false
+	var total_len := world_curve.get_baked_length()
+	if total_len <= 0.001:
+		return false
+
+	var deformed := _build_preview_deformed_section_mesh(world_curve, total_len, section_scene)
+	if deformed != null:
+		var sections_def := root.get_node_or_null(PREVIEW_SECTIONS_NAME) as Node3D
+		if sections_def == null:
+			sections_def = Node3D.new()
+			sections_def.name = PREVIEW_SECTIONS_NAME
+			sections_def.set_meta("editor_only", true)
+			root.add_child(sections_def)
+		for child in sections_def.get_children():
+			sections_def.remove_child(child)
+			child.free()
+		var mi := MeshInstance3D.new()
+		mi.name = "RailsDeformed"
+		mi.mesh = deformed
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.set_meta("editor_only", true)
+		mi.transform = global_transform.affine_inverse()
+		sections_def.add_child(mi)
+		return true
+
+	var section_length := _get_preview_section_length()
+	var offsets := PackedFloat32Array()
+	var o := section_length * 0.5
+	while o <= total_len + 0.0001:
+		offsets.push_back(minf(o, total_len))
+		o += _adaptive_preview_step(o, section_length, total_len)
+	if offsets.size() == 0:
+		offsets.push_back(total_len * 0.5)
+	var section_count := offsets.size()
+	if section_count <= 0:
+		return false
+
+	var sections := root.get_node_or_null(PREVIEW_SECTIONS_NAME) as Node3D
+	if sections == null:
+		sections = Node3D.new()
+		sections.name = PREVIEW_SECTIONS_NAME
+		sections.set_meta("editor_only", true)
+		root.add_child(sections)
+	var old_children := sections.get_children()
+	for child in old_children:
+		sections.remove_child(child)
+		child.free()
+
+	var yaw_offset := Basis(Vector3.UP, deg_to_rad(preview_real_yaw_offset_deg))
+	for i in range(section_count):
+		var t_offset: float = offsets[i]
+		var world_tr := _sample_track_transform_from_curve(world_curve, t_offset, preview_follow_pitch)
+		world_tr.basis = world_tr.basis * yaw_offset
+		var tr := global_transform.affine_inverse() * world_tr
+		var instance := section_scene.instantiate()
+		if instance is Node3D:
+			var section_node := instance as Node3D
+			section_node.transform = tr
+			section_node.set_meta("editor_only", true)
+			sections.add_child(section_node)
+		else:
+			instance.queue_free()
+	return true
+
+
+func _build_world_preview_curve() -> Curve3D:
+	if curve == null or curve.point_count < 2:
+		return null
+	var world_curve := Curve3D.new()
+	world_curve.bake_interval = curve_bake_interval
+	for i in range(curve.point_count):
+		var p: Vector3 = to_global(curve.get_point_position(i))
+		var t_in: Vector3 = global_basis * curve.get_point_in(i)
+		var t_out: Vector3 = global_basis * curve.get_point_out(i)
+		world_curve.add_point(p, t_in, t_out)
+	return world_curve
+
+
+func _sample_flat_transform_from_curve(sample_curve: Curve3D, offset: float) -> Transform3D:
+	var total: float = sample_curve.get_baked_length()
+	var pos: Vector3 = sample_curve.sample_baked(offset)
+	var ahead: float = minf(offset + 1.0, total)
+	var behind: float = maxf(offset - 1.0, 0.0)
+	var fwd: Vector3 = sample_curve.sample_baked(ahead) - sample_curve.sample_baked(behind)
+	fwd.y = 0.0
+	if fwd.length_squared() < 0.0001:
+		fwd = Vector3.FORWARD
+	fwd = fwd.normalized()
+	var right := Vector3.UP.cross(fwd).normalized()
+	return Transform3D(Basis(right, Vector3.UP, fwd), pos)
+
+
+func _find_first_mesh_and_xf_preview(node: Node, parent_xf: Transform3D) -> Array:
+	var cur := parent_xf
+	if node is Node3D:
+		cur = parent_xf * (node as Node3D).transform
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+		return [(node as MeshInstance3D).mesh, cur]
+	for c in node.get_children():
+		var r := _find_first_mesh_and_xf_preview(c, cur)
+		if r.size() > 0:
+			return r
+	return []
+
+
+func _build_preview_deformed_section_mesh(world_curve: Curve3D, total_len: float, section_scene: PackedScene) -> ArrayMesh:
+	var temp: Node = section_scene.instantiate()
+	var found := _find_first_mesh_and_xf_preview(temp, Transform3D.IDENTITY)
+	if found.size() == 0:
+		temp.queue_free()
+		return null
+	var src_mesh: Mesh = found[0]
+	var src_xf: Transform3D = found[1]
+	temp.queue_free()
+
+	var src_aabb: AABB = _transform_aabb(src_mesh.get_aabb(), src_xf)
+	var tile_len: float = maxf(src_aabb.size.x, 0.05)
+	var x_min: float = src_aabb.position.x
+	var tile_count: int = int(floor(total_len / tile_len))
+	if tile_count <= 0:
+		tile_count = 1
+
+	var out_mesh := ArrayMesh.new()
+	var surf_count: int = src_mesh.get_surface_count()
+	for surf in range(surf_count):
+		var arrays: Array = src_mesh.surface_get_arrays(surf)
+		if arrays.is_empty():
+			continue
+		var src_verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var vc: int = src_verts.size()
+		if vc == 0:
+			continue
+		var has_norms: bool = arrays[Mesh.ARRAY_NORMAL] != null
+		var src_norms: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL] if has_norms else PackedVector3Array()
+		var has_uvs: bool = arrays[Mesh.ARRAY_TEX_UV] != null
+		var src_uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV] if has_uvs else PackedVector2Array()
+		var has_idx: bool = arrays[Mesh.ARRAY_INDEX] != null
+		var src_idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if has_idx else PackedInt32Array()
+
+		var out_verts := PackedVector3Array()
+		var out_norms := PackedVector3Array()
+		var out_uvs := PackedVector2Array()
+		var out_idx := PackedInt32Array()
+
+		for tile in range(tile_count):
+			var base_arc: float = float(tile) * tile_len
+			var base_idx: int = out_verts.size()
+			for i in range(vc):
+				var v_local: Vector3 = src_xf * src_verts[i]
+				var along: float = base_arc + (v_local.x - x_min)
+				along = clampf(along, 0.0, total_len)
+				var lateral: float = -v_local.z
+				var vertical: float = v_local.y
+				var t := _sample_track_transform_from_curve(world_curve, along, preview_follow_pitch)
+				var right: Vector3 = t.basis.x
+				var up: Vector3 = t.basis.y
+				var world_p: Vector3 = t.origin + right * lateral + up * vertical
+				out_verts.push_back(world_p)
+				if has_norms:
+					var n_local: Vector3 = (src_xf.basis * src_norms[i]).normalized()
+					var n_track := Vector3(-n_local.z, n_local.y, n_local.x)
+					var world_n: Vector3 = (t.basis * n_track).normalized()
+					out_norms.push_back(world_n)
+				if has_uvs:
+					out_uvs.push_back(src_uvs[i])
+			if has_idx:
+				for i in range(src_idx.size()):
+					out_idx.push_back(base_idx + src_idx[i])
+			else:
+				for i in range(vc):
+					out_idx.push_back(base_idx + i)
+
+		var out_arrays: Array = []
+		out_arrays.resize(Mesh.ARRAY_MAX)
+		out_arrays[Mesh.ARRAY_VERTEX] = out_verts
+		if out_norms.size() > 0:
+			out_arrays[Mesh.ARRAY_NORMAL] = out_norms
+		if out_uvs.size() > 0:
+			out_arrays[Mesh.ARRAY_TEX_UV] = out_uvs
+		out_arrays[Mesh.ARRAY_INDEX] = out_idx
+		out_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, out_arrays)
+		var src_mat: Material = src_mesh.surface_get_material(surf)
+		if src_mat != null:
+			out_mesh.surface_set_material(surf, src_mat)
+	return out_mesh
+
+
+func _get_preview_section_scene() -> PackedScene:
+	if _preview_section_scene != null:
+		return _preview_section_scene
+	if not ResourceLoader.exists(RAIL_SECTION_SCENE_PATH):
+		return null
+	var packed := load(RAIL_SECTION_SCENE_PATH) as PackedScene
+	if packed == null:
+		return null
+	_preview_section_scene = packed
+	_preview_section_length_cache = -1.0
+	return _preview_section_scene
+
+
+func _get_preview_section_length() -> float:
+	if not preview_real_auto_section_length:
+		return maxf(preview_real_section_length, 0.2)
+	if _preview_section_length_cache > 0.0:
+		return _preview_section_length_cache
+	var section_scene := _get_preview_section_scene()
+	if section_scene == null:
+		return maxf(preview_real_section_length, 0.2)
+	var instance: Node = section_scene.instantiate()
+	if instance == null:
+		return maxf(preview_real_section_length, 0.2)
+	var bounds: Variant = _compute_scene_local_bounds(instance, Transform3D.IDENTITY)
+	instance.queue_free()
+	if bounds == null:
+		return maxf(preview_real_section_length, 0.2)
+	var aabb: AABB = bounds
+	var inferred := maxf(aabb.size.x, aabb.size.z)
+	if inferred <= 0.05:
+		inferred = maxf(preview_real_section_length, 0.2)
+	_preview_section_length_cache = maxf(inferred, 0.2)
+	return _preview_section_length_cache
+
+
+func _compute_scene_local_bounds(node: Node, parent_xf: Transform3D) -> Variant:
+	var current_xf := parent_xf
+	if node is Node3D:
+		current_xf = parent_xf * (node as Node3D).transform
+
+	var merged: Variant = null
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null:
+			merged = _transform_aabb(mi.mesh.get_aabb(), current_xf)
+
+	for child in node.get_children():
+		var child_bounds: Variant = _compute_scene_local_bounds(child, current_xf)
+		if child_bounds == null:
+			continue
+		if merged == null:
+			merged = child_bounds
+		else:
+			merged = (merged as AABB).merge(child_bounds as AABB)
+	return merged
+
+
+func _transform_aabb(aabb: AABB, xf: Transform3D) -> AABB:
+	var p := aabb.position
+	var s := aabb.size
+	var corners := [
+		xf * Vector3(p.x, p.y, p.z),
+		xf * Vector3(p.x + s.x, p.y, p.z),
+		xf * Vector3(p.x, p.y + s.y, p.z),
+		xf * Vector3(p.x, p.y, p.z + s.z),
+		xf * Vector3(p.x + s.x, p.y + s.y, p.z),
+		xf * Vector3(p.x + s.x, p.y, p.z + s.z),
+		xf * Vector3(p.x, p.y + s.y, p.z + s.z),
+		xf * Vector3(p.x + s.x, p.y + s.y, p.z + s.z),
+	]
+	var out := AABB(corners[0], Vector3.ZERO)
+	for i in range(1, corners.size()):
+		out = out.expand(corners[i])
+	return out
+
+
+func _build_preview_rails_mesh() -> ArrayMesh:
+	var total_len := curve.get_baked_length()
+	var step := maxf(preview_sample_step, 0.1)
+	var half_gauge := maxf(preview_rail_gauge * 0.5, 0.05)
+
+	var left_points: Array[Vector3] = []
+	var right_points: Array[Vector3] = []
+	var offset := 0.0
+	while offset <= total_len:
+		var frame := _sample_preview_frame(offset, total_len)
+		var pos: Vector3 = frame["pos"]
+		var right: Vector3 = frame["right"]
+		left_points.append(pos - right * half_gauge)
+		right_points.append(pos + right * half_gauge)
+		offset += _adaptive_preview_step(offset, step, total_len)
+	if left_points.size() == 0:
+		return ArrayMesh.new()
+	if left_points[-1].distance_to(curve.sample_baked(total_len) - _sample_preview_frame(total_len, total_len)["right"] * half_gauge) > 0.001:
+		var frame_end := _sample_preview_frame(total_len, total_len)
+		left_points.append(frame_end["pos"] - frame_end["right"] * half_gauge)
+		right_points.append(frame_end["pos"] + frame_end["right"] * half_gauge)
+
+	var vertices := PackedVector3Array()
+	for i in range(left_points.size() - 1):
+		vertices.push_back(left_points[i])
+		vertices.push_back(left_points[i + 1])
+		vertices.push_back(right_points[i])
+		vertices.push_back(right_points[i + 1])
+
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	var mesh := ArrayMesh.new()
+	if vertices.size() > 1:
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
+	return mesh
+
+
+func _build_preview_ties_mesh() -> ArrayMesh:
+	var total_len := curve.get_baked_length()
+	var spacing := maxf(preview_tie_spacing, 0.1)
+	var half_gauge := maxf(preview_rail_gauge * 0.5, 0.05)
+
+	var vertices := PackedVector3Array()
+	var offset := 0.0
+	while offset <= total_len:
+		var frame := _sample_preview_frame(offset, total_len)
+		var pos: Vector3 = frame["pos"]
+		var right: Vector3 = frame["right"]
+		vertices.push_back(pos - right * (half_gauge + 0.35))
+		vertices.push_back(pos + right * (half_gauge + 0.35))
+		offset += spacing
+
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	var mesh := ArrayMesh.new()
+	if vertices.size() > 1:
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_LINES, arrays)
+	return mesh

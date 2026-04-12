@@ -5,7 +5,7 @@ signal floor_placed(grid_pos: Vector2i)
 signal speed_changed(speed: float)
 
 const GRID_SIZE: float = 1.0
-const BUILD_SURFACE_LOCAL_Y: float = 0.28
+const BUILD_SURFACE_LOCAL_Y: float = 0.22
 
 @export var max_width: int = 5
 @export var max_length: int = 3
@@ -71,11 +71,15 @@ func _physics_process(delta: float) -> void:
 		var ahead: float = minf(rail_progress + 1.0, total)
 		var behind: float = maxf(rail_progress - 1.0, 0.0)
 		var fwd: Vector3 = rail_curve.sample_baked(ahead) - rail_curve.sample_baked(behind)
-		fwd.y = 0.0
 		global_position = pos
 		if fwd.length_squared() > 0.0001:
 			fwd = fwd.normalized()
-			var target_basis := Basis.looking_at(fwd, Vector3.UP)
+			var rt: Vector3 = Vector3.UP.cross(fwd)
+			if rt.length_squared() < 0.0001:
+				rt = Vector3.RIGHT
+			rt = rt.normalized()
+			var up_v: Vector3 = fwd.cross(rt).normalized()
+			var target_basis := Basis(rt, up_v, fwd)
 			basis = basis.slerp(target_basis, minf(delta * 8.0, 1.0))
 	else:
 		global_position.z += ds
@@ -102,9 +106,14 @@ func snap_to_rails() -> void:
 			var ahead: float = minf(rail_progress + 1.0, total)
 			var behind: float = maxf(rail_progress - 1.0, 0.0)
 			var fwd: Vector3 = rail_curve.sample_baked(ahead) - rail_curve.sample_baked(behind)
-			fwd.y = 0.0
 			if fwd.length_squared() > 0.0001:
-				basis = Basis.looking_at(fwd.normalized(), Vector3.UP)
+				fwd = fwd.normalized()
+				var rt: Vector3 = Vector3.UP.cross(fwd)
+				if rt.length_squared() < 0.0001:
+					rt = Vector3.RIGHT
+				rt = rt.normalized()
+				var up_v: Vector3 = fwd.cross(rt).normalized()
+				basis = Basis(rt, up_v, fwd)
 
 func _find_terrain() -> TerrainGenerator:
 	var nodes := get_tree().get_nodes_in_group("terrain")

@@ -168,7 +168,6 @@ func update_preview_on_ground(hit_point: Vector3, hit_normal: Vector3) -> void:
 			var ahead: float = minf(offset + 1.0, total)
 			var behind: float = maxf(offset - 1.0, 0.0)
 			fwd = curve.sample_baked(ahead) - curve.sample_baked(behind)
-			fwd.y = 0.0
 			if fwd.length_squared() < 0.0001:
 				fwd = Vector3.FORWARD
 			fwd = fwd.normalized()
@@ -178,7 +177,12 @@ func update_preview_on_ground(hit_point: Vector3, hit_normal: Vector3) -> void:
 	preview_instance.visible = true
 	preview_instance.global_position = final_pos
 	if fwd.length_squared() > 0.0001:
-		preview_instance.basis = Basis.looking_at(fwd, Vector3.UP)
+		var right: Vector3 = Vector3.UP.cross(fwd)
+		if right.length_squared() < 0.0001:
+			right = Vector3.RIGHT
+		right = right.normalized()
+		var up: Vector3 = fwd.cross(right).normalized()
+		preview_instance.basis = Basis(right, up, fwd)
 	_set_preview_validity(near_rails and Inventory.has_resources(CHASSIS_COST))
 
 func _find_terrain() -> TerrainGenerator:

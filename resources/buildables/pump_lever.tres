@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="BuildableData" load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/building/pump_lever.tscn" id="1"]
+[ext_resource type="Script" path="res://scripts/building/buildable_data.gd" id="2"]
+
+[resource]
+script = ExtResource("2")
+id = "pump_lever"
+display_name = "Pump Lever"
+description = "Hand-pump drive for the handcar. Interact to push the train forward."
+scene = ExtResource("1")
+category = 5
+health = 60.0
+build_weight = 3
+cost = { "wood": 3, "metal": 5 }
+can_rotate = true

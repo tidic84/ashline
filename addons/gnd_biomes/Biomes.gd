@@ -425,12 +425,34 @@ func _generate() -> void:
     var min_cell_z := int(floor(generation_min_z / cell_size))
     var max_cell_z := int(ceil(generation_max_z / cell_size))
 
+    # Rail exclusion: convert rail sculpt points to Biomes-local coords
+    var rail_excl_points: PackedVector3Array = PackedVector3Array()
+    var rail_excl_radius_sq := 0.0
+    var terrain_patch := _find_terrain_patch_node()
+    if terrain_patch != null and terrain_patch._rail_sculpt_points.size() >= 2:
+        var excl_r: float = terrain_patch.get_rail_exclusion_radius()
+        rail_excl_radius_sq = excl_r * excl_r
+        for rp in terrain_patch._rail_sculpt_points:
+            var world_p: Vector3 = terrain_patch.to_global(rp)
+            rail_excl_points.append(to_local(world_p))
+    var has_rail_exclusion := rail_excl_points.size() >= 2
+
     for cell_x in range(min_cell_x, max_cell_x):
         for cell_z in range(min_cell_z, max_cell_z):
             var local_x := (float(cell_x) + _hash01(seed, cell_x, cell_z, 11)) * cell_size
             var local_z := (float(cell_z) + _hash01(seed, cell_x, cell_z, 17)) * cell_size
             if local_x < generation_min_x or local_x > generation_max_x or local_z < generation_min_z or local_z > generation_max_z:
                 continue
+            if has_rail_exclusion:
+                var near_rail := false
+                for ri in range(rail_excl_points.size()):
+                    var rdx := local_x - rail_excl_points[ri].x
+                    var rdz := local_z - rail_excl_points[ri].z
+                    if rdx * rdx + rdz * rdz < rail_excl_radius_sq:
+                        near_rail = true
+                        break
+                if near_rail:
+                    continue
             var mask_density := _sample_mask_density_weight_from_local_position(Vector3(local_x, 0.0, local_z))
             if mask_density <= 0.0:
                 continue
@@ -1126,6 +1148,16 @@ func _sanitize_collision_transform(source_transform: Transform3D) -> Transform3D
     var vertical_scale := maxf(absf(scale.y), 0.0001)
     var sanitized_basis := basis.orthonormalized().scaled(Vector3(horizontal_scale, vertical_scale, horizontal_scale))
     return Transform3D(sanitized_basis, source_transform.origin)
+
+
+func _find_terrain_patch_node() -> Node:
+    var parent := get_parent()
+    if parent == null:
+        return null
+    for child in parent.get_children():
+        if child is TerrainPatch3D:
+            return child
+    return null
 
 
 func _clear_generated() -> void:

@@ -23,31 +23,31 @@ collision_mask = 1
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 shape = SubResource("BoxShape3D_base")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.28, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.22, 0)
 
 [node name="FrameLeft" type="CSGBox3D" parent="."]
 size = Vector3(0.10, 0.12, 3.0)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.30, 0.28, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.30, 0.22, 0)
 material = ExtResource("2_metal")
 
 [node name="FrameRight" type="CSGBox3D" parent="."]
 size = Vector3(0.10, 0.12, 3.0)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.30, 0.28, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.30, 0.22, 0)
 material = ExtResource("2_metal")
 
 [node name="CrossBeamFront" type="CSGBox3D" parent="."]
 size = Vector3(2.7, 0.08, 0.08)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.28, -1.35)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.22, -1.35)
 material = ExtResource("2_metal")
 
 [node name="CrossBeamBack" type="CSGBox3D" parent="."]
 size = Vector3(2.7, 0.08, 0.08)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.28, 1.35)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.22, 1.35)
 material = ExtResource("2_metal")
 
 [node name="CrossBeamMid" type="CSGBox3D" parent="."]
 size = Vector3(2.7, 0.06, 0.06)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.28, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.22, 0)
 material = ExtResource("2_metal")
 
 [node name="WheelFL" type="CSGCylinder3D" parent="."]

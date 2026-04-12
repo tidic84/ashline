@@ -13,6 +13,15 @@ enum SegmentType { GROUND, BRIDGE, TUNNEL }
 @export var roadbed_half_width: float = 2.5
 @export var roadbed_blend_width: float = 3.5
 @export var rail_gauge: float = 1.0
+@export var rail_follow_pitch: bool = true
+@export var rail_use_deformed_mesh: bool = true
+@export var rail_auto_section_length: bool = true
+@export_range(0.2, 10.0, 0.01) var rail_section_length: float = 2.4
+@export var rail_adaptive_sampling: bool = true
+@export_range(0.2, 5.0, 0.01) var rail_adaptive_min_step: float = 0.45
+@export_range(0.5, 12.0, 0.01) var rail_adaptive_max_step: float = 2.4
+@export_range(0.0, 6.0, 0.01) var rail_curve_influence: float = 2.2
+@export_range(0.0, 6.0, 0.01) var rail_pitch_influence: float = 1.8
 @export var bridge_threshold: float = 2.0
 @export var tunnel_threshold: float = 3.5
 ## Optional explicit reference — if null, scans the "rail_path" group
@@ -57,7 +66,7 @@ func _load_curve_from_rail_path() -> bool:
 		push_warning("RailPath found but curve is empty")
 		return false
 	var world_curve := Curve3D.new()
-	world_curve.bake_interval = 0.5
+	world_curve.bake_interval = maxf(path.curve.bake_interval, 0.05)
 	for i in range(path.curve.point_count):
 		var p: Vector3 = path.to_global(path.curve.get_point_position(i))
 		var t_in: Vector3 = path.global_basis * path.curve.get_point_in(i)
@@ -74,7 +83,7 @@ func _load_curve_from_rail_path() -> bool:
 		_rail_points.append(_rail_curve.sample_baked(total_len))
 	if _terrain_patch and _terrain_patch.has_method("sculpt_terrain_for_rails"):
 		_terrain_patch.sculpt_terrain_for_rails(
-			_rail_points, roadbed_half_width, roadbed_blend_width
+			_rail_points, roadbed_half_width, roadbed_blend_width, ground_offset
 		)
 	_classify_segments_from_curve()
 	_build_rail_meshes()
@@ -129,20 +138,62 @@ func sample_rail_progress(world_pos: Vector3) -> float:
 	return _rail_curve.get_closest_offset(world_pos)
 
 
-# --- Flat transform (Y = world up) ---
+# --- Track transform ---
 
-func _sample_flat_transform(offset: float) -> Transform3D:
+func _sample_track_transform(offset: float) -> Transform3D:
 	var total: float = _rail_curve.get_baked_length()
 	var pos: Vector3 = _rail_curve.sample_baked(offset)
 	var ahead: float = minf(offset + 1.0, total)
 	var behind: float = maxf(offset - 1.0, 0.0)
 	var fwd: Vector3 = _rail_curve.sample_baked(ahead) - _rail_curve.sample_baked(behind)
-	fwd.y = 0.0
+	if not rail_follow_pitch:
+		fwd.y = 0.0
 	if fwd.length_squared() < 0.0001:
 		fwd = Vector3.FORWARD
 	fwd = fwd.normalized()
-	var right := Vector3.UP.cross(fwd).normalized()
-	return Transform3D(Basis(right, Vector3.UP, fwd), pos)
+	var right := Vector3.UP.cross(fwd)
+	if right.length_squared() < 0.0001:
+		right = Vector3.RIGHT
+	right = right.normalized()
+	var up := Vector3.UP if not rail_follow_pitch else fwd.cross(right).normalized()
+	return Transform3D(Basis(right, up, fwd), pos)
+
+
+func _adaptive_step_at_offset(offset: float, base_step: float, total_len: float) -> float:
+	if not rail_adaptive_sampling:
+		return maxf(base_step, 0.05)
+	var complexity := _track_complexity_at_offset(offset, total_len)
+	var min_step := minf(rail_adaptive_min_step, rail_adaptive_max_step)
+	var max_step := maxf(rail_adaptive_min_step, rail_adaptive_max_step)
+	var target := base_step / (1.0 + complexity)
+	return clampf(target, min_step, max_step)
+
+
+func _track_complexity_at_offset(offset: float, total_len: float) -> float:
+	var d := 1.0
+	var p0 := maxf(offset - d, 0.0)
+	var p1 := offset
+	var p2 := minf(offset + d, total_len)
+	var f0 := _rail_curve.sample_baked(p1) - _rail_curve.sample_baked(p0)
+	var f1 := _rail_curve.sample_baked(p2) - _rail_curve.sample_baked(p1)
+	if f0.length_squared() < 0.00001 or f1.length_squared() < 0.00001:
+		return 0.0
+	var h0 := Vector3(f0.x, 0.0, f0.z)
+	var h1 := Vector3(f1.x, 0.0, f1.z)
+	var yaw_delta := 0.0
+	if h0.length_squared() > 0.00001 and h1.length_squared() > 0.00001:
+		yaw_delta = rad_to_deg(h0.normalized().angle_to(h1.normalized()))
+	var pitch0 := _pitch_of_vector(f0)
+	var pitch1 := _pitch_of_vector(f1)
+	var pitch_delta := absf(pitch1 - pitch0)
+	return (yaw_delta / 45.0) * rail_curve_influence + (pitch_delta / 20.0) * rail_pitch_influence
+
+
+func _pitch_of_vector(v: Vector3) -> float:
+	var h := Vector2(v.x, v.z).length()
+	if h < 0.0001:
+		return 0.0 if absf(v.y) < 0.0001 else (90.0 if v.y > 0.0 else -90.0)
+	return rad_to_deg(atan2(v.y, h))
 
 
 # --- Rail mesh building ---
@@ -167,27 +218,43 @@ func _build_rail_meshes() -> void:
 	# Try tiled rail sections from glb asset, fall back to procedural strips
 	if ResourceLoader.exists("res://assets/models/rails/rail_section.glb"):
 		_rail_section_scene = load("res://assets/models/rails/rail_section.glb")
+
+	if rail_use_deformed_mesh and _rail_section_scene != null:
+		var deformed_mesh := _build_deformed_rail_section_mesh(total_len, _rail_section_scene)
+		if deformed_mesh != null:
+			var mi_def := MeshInstance3D.new()
+			mi_def.name = "RailsDeformed"
+			mi_def.mesh = deformed_mesh
+			mi_def.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+			rail_container.add_child(mi_def)
+			mi_def.global_transform = Transform3D.IDENTITY
+			return
+
 	if _rail_section_scene != null:
-		var section_length: float = 2.4
-		var section_count: int = int(ceil(total_len / section_length))
-		if section_count > 0:
-			var temp_instance := _rail_section_scene.instantiate()
-			var rail_mesh: Mesh = null
-			for child in temp_instance.get_children():
-				if child is MeshInstance3D:
-					rail_mesh = child.mesh
-					break
+		var section_length: float = maxf(rail_section_length, 0.2)
+		if total_len > 0.0:
+			var temp_instance: Node = _rail_section_scene.instantiate()
+			var rail_mesh: Mesh = _find_first_mesh_recursive(temp_instance)
+			if rail_auto_section_length:
+				section_length = _compute_section_length_from_instance(temp_instance, section_length)
 			temp_instance.queue_free()
 			if rail_mesh != null:
+				var offsets := PackedFloat32Array()
+				var o := section_length * 0.5
+				while o <= total_len + 0.0001:
+					offsets.push_back(minf(o, total_len))
+					o += _adaptive_step_at_offset(o, section_length, total_len)
+				if offsets.size() == 0:
+					offsets.push_back(total_len * 0.5)
+				var section_count: int = offsets.size()
 				var mm := MultiMesh.new()
 				mm.transform_format = MultiMesh.TRANSFORM_3D
 				mm.mesh = rail_mesh
 				mm.instance_count = section_count
 				var rot90 := Basis(Vector3.UP, -PI / 2.0)
 				for i in range(section_count):
-					var t_offset: float = float(i) * section_length + section_length * 0.5
-					t_offset = minf(t_offset, total_len)
-					var t := _sample_flat_transform(t_offset)
+					var t_offset: float = offsets[i]
+					var t := _sample_track_transform(t_offset)
 					t.basis = t.basis * rot90
 					mm.set_instance_transform(i, t)
 				var mmi := MultiMeshInstance3D.new()
@@ -200,12 +267,14 @@ func _build_rail_meshes() -> void:
 
 
 func _build_fallback_rails(rail_container: Node3D, total_len: float) -> void:
-	var step: float = 0.5
+	var step: float = maxf(rail_section_length * 0.25, 0.2)
 	var samples: Array[Transform3D] = []
 	var offset: float = 0.0
 	while offset <= total_len:
-		samples.append(_sample_flat_transform(offset))
-		offset += step
+		samples.append(_sample_track_transform(offset))
+		offset += _adaptive_step_at_offset(offset, step, total_len)
+	if samples.size() == 0 or samples[-1].origin.distance_to(_rail_curve.sample_baked(total_len)) > 0.01:
+		samples.append(_sample_track_transform(total_len))
 	if samples.size() < 2:
 		return
 
@@ -213,18 +282,6 @@ func _build_fallback_rails(rail_container: Node3D, total_len: float) -> void:
 	rail_mat.albedo_color = Color(0.28, 0.26, 0.24)
 	rail_mat.metallic = 0.88
 	rail_mat.roughness = 0.28
-
-	var gravel_mat: Material = null
-	if ResourceLoader.exists("res://textures/rails/M_gravel.tres"):
-		gravel_mat = load("res://textures/rails/M_gravel.tres")
-	if gravel_mat == null:
-		gravel_mat = StandardMaterial3D.new()
-
-	var ballast_mesh := _build_ballast_strip(samples, gravel_mat)
-	var ballast_mi := MeshInstance3D.new()
-	ballast_mi.name = "Ballast"
-	ballast_mi.mesh = ballast_mesh
-	rail_container.add_child(ballast_mi)
 
 	var tie_mat: Material = null
 	if ResourceLoader.exists("res://textures/rails/wood_tie/M_wood_tie.tres"):
@@ -242,7 +299,7 @@ func _build_fallback_rails(rail_container: Node3D, total_len: float) -> void:
 		tmm.mesh = tm
 		tmm.instance_count = tie_count
 		for i in range(tie_count):
-			var t := _sample_flat_transform(float(i) * tie_spacing)
+			var t := _sample_track_transform(float(i) * tie_spacing)
 			tmm.set_instance_transform(i, t)
 		var tmmi := MultiMeshInstance3D.new()
 		tmmi.name = "Ties"
@@ -258,43 +315,169 @@ func _build_fallback_rails(rail_container: Node3D, total_len: float) -> void:
 		rail_container.add_child(mi)
 
 
-func _build_ballast_strip(samples: Array[Transform3D], mat: Material) -> ArrayMesh:
-	var half_w: float = 1.1
-	var verts := PackedVector3Array()
-	var norms := PackedVector3Array()
-	var uvs_arr := PackedVector2Array()
-	var indices := PackedInt32Array()
-	var n: int = samples.size()
-	for i in range(n):
-		var t: Transform3D = samples[i]
-		var right: Vector3 = t.basis.x.normalized()
-		var center: Vector3 = t.origin
-		center.y -= 0.02
-		var uv_v: float = float(i) * 0.5
-		verts.append(center - right * half_w)
-		verts.append(center + right * half_w)
-		norms.append(Vector3.UP)
-		norms.append(Vector3.UP)
-		uvs_arr.append(Vector2(0.0, uv_v))
-		uvs_arr.append(Vector2(1.0, uv_v))
-	for i in range(n - 1):
-		var b: int = i * 2
-		indices.append(b)
-		indices.append(b + 1)
-		indices.append(b + 3)
-		indices.append(b)
-		indices.append(b + 3)
-		indices.append(b + 2)
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_NORMAL] = norms
-	arrays[Mesh.ARRAY_TEX_UV] = uvs_arr
-	arrays[Mesh.ARRAY_INDEX] = indices
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	mesh.surface_set_material(0, mat)
-	return mesh
+func _find_first_mesh_recursive(node: Node) -> Mesh:
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null:
+			return mi.mesh
+	for child in node.get_children():
+		var found := _find_first_mesh_recursive(child)
+		if found != null:
+			return found
+	return null
+
+
+func _compute_section_length_from_instance(instance: Node, fallback_length: float) -> float:
+	var bounds: Variant = _compute_scene_local_bounds(instance, Transform3D.IDENTITY)
+	if bounds == null:
+		return maxf(fallback_length, 0.2)
+	var aabb: AABB = bounds
+	var inferred := maxf(aabb.size.x, aabb.size.z)
+	if inferred <= 0.05:
+		return maxf(fallback_length, 0.2)
+	return maxf(inferred, 0.2)
+
+
+func _find_first_mesh_and_xf(node: Node, parent_xf: Transform3D) -> Array:
+	var cur := parent_xf
+	if node is Node3D:
+		cur = parent_xf * (node as Node3D).transform
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+		return [(node as MeshInstance3D).mesh, cur]
+	for c in node.get_children():
+		var r := _find_first_mesh_and_xf(c, cur)
+		if r.size() > 0:
+			return r
+	return []
+
+
+func _build_deformed_rail_section_mesh(total_len: float, section_scene: PackedScene) -> ArrayMesh:
+	if _rail_curve == null or total_len <= 0.001:
+		return null
+	var temp: Node = section_scene.instantiate()
+	var found := _find_first_mesh_and_xf(temp, Transform3D.IDENTITY)
+	if found.size() == 0:
+		temp.queue_free()
+		return null
+	var src_mesh: Mesh = found[0]
+	var src_xf: Transform3D = found[1]
+	temp.queue_free()
+
+	var src_aabb: AABB = _transform_aabb(src_mesh.get_aabb(), src_xf)
+	var tile_len: float = maxf(src_aabb.size.x, 0.05)
+	var x_min: float = src_aabb.position.x
+	var tile_count: int = int(floor(total_len / tile_len))
+	if tile_count <= 0:
+		tile_count = 1
+
+	var out_mesh := ArrayMesh.new()
+	var surf_count: int = src_mesh.get_surface_count()
+	for surf in range(surf_count):
+		var arrays: Array = src_mesh.surface_get_arrays(surf)
+		if arrays.is_empty():
+			continue
+		var src_verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var vc: int = src_verts.size()
+		if vc == 0:
+			continue
+		var has_norms: bool = arrays[Mesh.ARRAY_NORMAL] != null
+		var src_norms: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL] if has_norms else PackedVector3Array()
+		var has_uvs: bool = arrays[Mesh.ARRAY_TEX_UV] != null
+		var src_uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV] if has_uvs else PackedVector2Array()
+		var has_idx: bool = arrays[Mesh.ARRAY_INDEX] != null
+		var src_idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if has_idx else PackedInt32Array()
+
+		var out_verts := PackedVector3Array()
+		var out_norms := PackedVector3Array()
+		var out_uvs := PackedVector2Array()
+		var out_idx := PackedInt32Array()
+
+		for tile in range(tile_count):
+			var base_arc: float = float(tile) * tile_len
+			var base_idx: int = out_verts.size()
+			for i in range(vc):
+				var v_local: Vector3 = src_xf * src_verts[i]
+				var along: float = base_arc + (v_local.x - x_min)
+				along = clampf(along, 0.0, total_len)
+				var lateral: float = -v_local.z
+				var vertical: float = v_local.y
+				var t := _sample_track_transform(along)
+				var right: Vector3 = t.basis.x
+				var up: Vector3 = t.basis.y
+				var world_p: Vector3 = t.origin + right * lateral + up * vertical
+				out_verts.push_back(world_p)
+				if has_norms:
+					var n_local: Vector3 = (src_xf.basis * src_norms[i]).normalized()
+					var n_track := Vector3(-n_local.z, n_local.y, n_local.x)
+					var world_n: Vector3 = (t.basis * n_track).normalized()
+					out_norms.push_back(world_n)
+				if has_uvs:
+					out_uvs.push_back(src_uvs[i])
+			if has_idx:
+				for i in range(src_idx.size()):
+					out_idx.push_back(base_idx + src_idx[i])
+			else:
+				for i in range(vc):
+					out_idx.push_back(base_idx + i)
+
+		var out_arrays: Array = []
+		out_arrays.resize(Mesh.ARRAY_MAX)
+		out_arrays[Mesh.ARRAY_VERTEX] = out_verts
+		if out_norms.size() > 0:
+			out_arrays[Mesh.ARRAY_NORMAL] = out_norms
+		if out_uvs.size() > 0:
+			out_arrays[Mesh.ARRAY_TEX_UV] = out_uvs
+		out_arrays[Mesh.ARRAY_INDEX] = out_idx
+		out_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, out_arrays)
+		var src_mat: Material = src_mesh.surface_get_material(surf)
+		if src_mat != null:
+			out_mesh.surface_set_material(surf, src_mat)
+	return out_mesh
+
+
+
+
+func _compute_scene_local_bounds(node: Node, parent_xf: Transform3D) -> Variant:
+	var current_xf := parent_xf
+	if node is Node3D:
+		current_xf = parent_xf * (node as Node3D).transform
+
+	var merged: Variant = null
+	if node is MeshInstance3D:
+		var mi := node as MeshInstance3D
+		if mi.mesh != null:
+			merged = _transform_aabb(mi.mesh.get_aabb(), current_xf)
+
+	for child in node.get_children():
+		var child_bounds: Variant = _compute_scene_local_bounds(child, current_xf)
+		if child_bounds == null:
+			continue
+		if merged == null:
+			merged = child_bounds
+		else:
+			merged = (merged as AABB).merge(child_bounds as AABB)
+	return merged
+
+
+func _transform_aabb(aabb: AABB, xf: Transform3D) -> AABB:
+	var p := aabb.position
+	var s := aabb.size
+	var corners := [
+		xf * Vector3(p.x, p.y, p.z),
+		xf * Vector3(p.x + s.x, p.y, p.z),
+		xf * Vector3(p.x, p.y + s.y, p.z),
+		xf * Vector3(p.x, p.y, p.z + s.z),
+		xf * Vector3(p.x + s.x, p.y + s.y, p.z),
+		xf * Vector3(p.x + s.x, p.y, p.z + s.z),
+		xf * Vector3(p.x, p.y + s.y, p.z + s.z),
+		xf * Vector3(p.x + s.x, p.y + s.y, p.z + s.z),
+	]
+	var out := AABB(corners[0], Vector3.ZERO)
+	for i in range(1, corners.size()):
+		out = out.expand(corners[i])
+	return out
+
+
 
 
 func _build_rail_strip(samples: Array[Transform3D], lateral_offset: float, mat: Material) -> ArrayMesh:
