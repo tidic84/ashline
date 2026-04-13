@@ -28,7 +28,10 @@ var rail_curve: Curve3D = null
 var rail_progress: float = 0.0
 var current_rail_path: Node = null  # RailPath node we're currently on
 
+var _basis_scale: Vector3 = Vector3.ONE  # preserved from tscn
+
 func _ready() -> void:
+	_basis_scale = basis.get_scale()
 	if get_meta("is_preview", false):
 		collision_layer = 0
 		collision_mask = 0
@@ -92,7 +95,7 @@ func _physics_process(delta: float) -> void:
 			rt = rt.normalized()
 			var up_v: Vector3 = fwd.cross(rt).normalized()
 			var target_basis := Basis(rt, up_v, fwd)
-			basis = basis.slerp(target_basis, minf(delta * 8.0, 1.0))
+			basis = basis.orthonormalized().slerp(target_basis, minf(delta * 8.0, 1.0)).scaled(_basis_scale)
 	else:
 		global_position.z += ds
 
@@ -207,7 +210,7 @@ func _orient_to_curve() -> void:
 			rt = Vector3.RIGHT
 		rt = rt.normalized()
 		var up_v: Vector3 = fwd.cross(rt).normalized()
-		basis = Basis(rt, up_v, fwd)
+		basis = Basis(rt, up_v, fwd).scaled(_basis_scale)
 
 func _find_terrain() -> TerrainGenerator:
 	var nodes := get_tree().get_nodes_in_group("terrain")

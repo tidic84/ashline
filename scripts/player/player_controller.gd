@@ -176,29 +176,28 @@ func _try_build() -> void:
 
 	match BuildSystem.mode:
 		BuildSystem.BuildMode.CHASSIS:
-			if collider.is_in_group("ground"):
-				BuildSystem.try_place_chassis(hit_point)
+			BuildSystem.try_place_chassis(hit_point)
 		BuildSystem.BuildMode.FLOOR:
-			var chassis := _find_chassis(collider)
-			if chassis:
-				var p: Variant = _get_build_point_on_chassis(chassis)
+			var target := _find_build_target(collider as Node)
+			if target:
+				var p: Variant = _get_build_point_on_target(target)
 				if p is Vector3:
 					hit_point = p
-				BuildSystem.try_place_floor(hit_point, chassis)
+				BuildSystem.try_place_floor(hit_point, target)
 		BuildSystem.BuildMode.ITEM:
-			var chassis := _find_chassis(collider)
-			if chassis:
-				var p: Variant = _get_build_point_on_chassis(chassis)
+			var target := _find_build_target(collider as Node)
+			if target:
+				var p: Variant = _get_build_point_on_target(target)
 				if p is Vector3:
 					hit_point = p
-				BuildSystem.try_place_item(hit_point, chassis)
+				BuildSystem.try_place_item(hit_point, target)
 		BuildSystem.BuildMode.DEMOLISH:
-			var chassis := _find_chassis(collider)
-			if chassis:
-				var p: Variant = _get_build_point_on_chassis(chassis)
+			var target := _find_build_target(collider as Node)
+			if target:
+				var p: Variant = _get_build_point_on_target(target)
 				if p is Vector3:
 					hit_point = p
-				BuildSystem.try_demolish(hit_point, chassis)
+				BuildSystem.try_demolish(hit_point, target)
 
 func _update_build_preview() -> void:
 	if not build_ray.is_colliding():
@@ -218,49 +217,59 @@ func _update_build_preview() -> void:
 			else:
 				BuildSystem.hide_preview()
 		BuildSystem.BuildMode.FLOOR, BuildSystem.BuildMode.ITEM:
-			var chassis := _find_chassis(collider)
-			if chassis:
-				var p: Variant = _get_build_point_on_chassis(chassis)
+			var target := _find_build_target(collider as Node)
+			if target:
+				var p: Variant = _get_build_point_on_target(target)
 				if p is Vector3:
 					hit_point = p
-					hit_normal = chassis.get_build_surface_normal_world()
-				BuildSystem.update_preview_on_chassis(hit_point, hit_normal, chassis)
+					hit_normal = target.get_build_surface_normal_world()
+				BuildSystem.update_preview_on_target(hit_point, hit_normal, target)
 			else:
 				BuildSystem.hide_preview()
 		BuildSystem.BuildMode.DEMOLISH:
-			var chassis := _find_chassis(collider)
-			if chassis:
-				var p: Variant = _get_build_point_on_chassis(chassis)
+			var target := _find_build_target(collider as Node)
+			if target:
+				var p: Variant = _get_build_point_on_target(target)
 				if p is Vector3:
 					hit_point = p
-					hit_normal = chassis.get_build_surface_normal_world()
-				BuildSystem.update_preview_on_chassis(hit_point, hit_normal, chassis)
+					hit_normal = target.get_build_surface_normal_world()
+				BuildSystem.update_preview_on_target(hit_point, hit_normal, target)
 			else:
 				BuildSystem.hide_preview()
 		_:
 			BuildSystem.hide_preview()
 
-func _find_chassis(node: Node) -> TrainChassis:
+func _find_build_target(node: Node) -> Node:
 	var current: Node = node
 	while current:
+		if current is WagonFrame:
+			return current
 		if current is TrainChassis:
+			var p: Node = current.get_parent()
+			if p is WagonFrame:
+				return p
 			return current
 		current = current.get_parent()
 	return null
 
-func _get_build_point_on_chassis(chassis: TrainChassis) -> Variant:
+func _get_build_point_on_target(target: Node) -> Variant:
 	var origin: Vector3 = build_ray.global_transform.origin
 	var dir: Vector3 = -build_ray.global_transform.basis.z
 	if dir.length_squared() < 0.0001:
 		return null
 	dir = dir.normalized()
-	return _ray_plane_intersection(
-		origin,
-		dir,
-		chassis.get_build_surface_point_world(),
-		chassis.get_build_surface_normal_world(),
-		build_ray.target_position.length() + 0.25
-	)
+	var plane_point: Vector3
+	var plane_normal: Vector3
+	if target is WagonFrame:
+		var wf := target as WagonFrame
+		plane_point = wf.to_global(Vector3(0.0, WagonFrame.BUILD_SURFACE_LOCAL_Y, 0.0))
+		plane_normal = wf.get_build_surface_normal_world()
+	elif target is TrainChassis:
+		plane_point = (target as TrainChassis).get_build_surface_point_world()
+		plane_normal = (target as TrainChassis).get_build_surface_normal_world()
+	else:
+		return null
+	return _ray_plane_intersection(origin, dir, plane_point, plane_normal, build_ray.target_position.length() + 0.25)
 
 func _ray_plane_intersection(
 	ray_origin: Vector3,

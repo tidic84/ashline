@@ -229,7 +229,8 @@ func update_preview_on_ground(hit_point: Vector3, _hit_normal: Vector3) -> void:
 			right = Vector3.RIGHT
 		right = right.normalized()
 		var up: Vector3 = fwd.cross(right).normalized()
-		preview_instance.basis = Basis(right, up, fwd)
+		var sc: Vector3 = preview_instance.basis.get_scale()
+		preview_instance.basis = Basis(right, up, fwd).scaled(sc)
 	_set_preview_validity(near_rails and Inventory.has_resources(CHASSIS_COST) and _has_build_tool())
 
 
@@ -274,7 +275,8 @@ func _update_second_bogie_preview(hit_point: Vector3) -> void:
 		right = Vector3.RIGHT
 	right = right.normalized()
 	var up: Vector3 = fwd.cross(right).normalized()
-	_second_bogie_preview.basis = Basis(right, up, fwd)
+	var sc2: Vector3 = _second_bogie_preview.basis.get_scale()
+	_second_bogie_preview.basis = Basis(right, up, fwd).scaled(sc2)
 	var valid: bool = distance >= min_dist and Inventory.has_resources(CHASSIS_COST) and _has_build_tool()
 	_apply_material(_second_bogie_preview, preview_material_valid if valid else preview_material_invalid)
 	can_place = valid
@@ -452,9 +454,13 @@ func _place_second_bogie(hit_point: Vector3) -> Node3D:
 		second_progress = clampf(_first_bogie_progress - distance, 0.0, total)
 
 	# Ensure front bogie has higher progress (closer to end of track)
-	var front_progress: float = maxf(_first_bogie_progress, second_progress)
-	var rear_progress: float = minf(_first_bogie_progress, second_progress)
-	var wagon_tiles: int = clampi(int(round(absf(front_progress - rear_progress))), 2, 8)
+	var raw_front: float = maxf(_first_bogie_progress, second_progress)
+	var raw_rear: float = minf(_first_bogie_progress, second_progress)
+	var wagon_tiles: int = clampi(int(round(absf(raw_front - raw_rear))), 2, 8)
+	# Snap bogie spacing to exact tile count so placement matches physics loop
+	var spacing: float = float(wagon_tiles) * WagonFrame.GRID_SIZE
+	var front_progress: float = raw_front
+	var rear_progress: float = front_progress - spacing
 
 	# Create second bogie
 	var second_bogie := chassis_scene.instantiate() as TrainChassis
@@ -477,7 +483,7 @@ func _place_second_bogie(hit_point: Vector3) -> Node3D:
 	frame.wagon_length = wagon_tiles
 	get_tree().current_scene.add_child(frame)
 
-	# Position frame at midpoint
+	# Position frame at midpoint — use snapped progress values
 	var front_pos: Vector3 = curve.sample_baked(front_progress)
 	var rear_pos: Vector3 = curve.sample_baked(rear_progress)
 	frame.global_position = (front_pos + rear_pos) * 0.5
@@ -491,14 +497,25 @@ func _place_second_bogie(hit_point: Vector3) -> Node3D:
 		var up_v: Vector3 = fwd.cross(rt).normalized()
 		frame.basis = Basis(rt, up_v, fwd)
 
-	# Reparent bogies under frame
+	# Move bogies to snapped positions before reparenting
+	front.global_position = front_pos
+	_orient_node_on_curve(front, curve, front_progress)
+	rear.global_position = rear_pos
+	_orient_node_on_curve(rear, curve, rear_progress)
+
+	# Reparent bogies under frame — save global basis before reparenting
+	var front_global_basis: Basis = front.global_basis
+	var rear_global_basis: Basis = rear.global_basis
+
 	front.get_parent().remove_child(front)
 	frame.add_child(front)
 	front.position = frame.to_local(front_pos)
+	front.global_basis = front_global_basis
 
 	rear.get_parent().remove_child(rear)
 	frame.add_child(rear)
 	rear.position = frame.to_local(rear_pos)
+	rear.global_basis = rear_global_basis
 
 	# Initialize frame
 	frame.front_bogie = front
@@ -514,6 +531,9 @@ func _place_second_bogie(hit_point: Vector3) -> Node3D:
 	rear.rail_curve = curve
 	rear.rail_progress = rear_progress
 	rear.current_rail_path = _first_bogie_rail_path
+
+	# Activate the frame on rails
+	frame.is_on_rails = true
 
 	# Clean up second preview
 	_clear_second_bogie_preview()
@@ -538,7 +558,8 @@ func _orient_node_on_curve(node: Node3D, curve: Curve3D, offset: float) -> void:
 			rt = Vector3.RIGHT
 		rt = rt.normalized()
 		var up_v: Vector3 = fwd.cross(rt).normalized()
-		node.basis = Basis(rt, up_v, fwd)
+		var sc: Vector3 = node.basis.get_scale()
+		node.basis = Basis(rt, up_v, fwd).scaled(sc)
 
 
 func _build_world_curve(path_node: Node) -> Curve3D:

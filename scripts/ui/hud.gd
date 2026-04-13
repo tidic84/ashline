@@ -20,7 +20,7 @@ const HOTBAR_KEY_LABELS: Array[String] = ["1", "2", "3", "4", "5", "6", "7", "8"
 @onready var inventory_recipes_label: Label = $InventoryPanel/Margin/VBox/Right/RecipeList
 @onready var craft_preview_label: Label = $InventoryPanel/Margin/VBox/Right/CraftInfo
 
-var tracked_chassis: TrainChassis = null
+var tracked_chassis: Node = null  # TrainChassis or WagonFrame
 var _hud_refresh_accum: float = 0.0
 const HUD_REFRESH_INTERVAL: float = 0.1
 
@@ -74,12 +74,28 @@ func _process(delta: float) -> void:
 
 	if tracked_chassis == null or not is_instance_valid(tracked_chassis):
 		tracked_chassis = _find_nearest_chassis()
-	if tracked_chassis and is_instance_valid(tracked_chassis) and tracked_chassis.is_on_rails:
-		speed_label.visible = true
-		distance_label.visible = true
-		var spd: float = absf(tracked_chassis.speed)
-		speed_label.text = "%.1f m/s" % spd
-		distance_label.text = "%d m" % int(tracked_chassis.distance_traveled)
+	if tracked_chassis and is_instance_valid(tracked_chassis):
+		var on_rails: bool = false
+		var spd: float = 0.0
+		var dist: float = 0.0
+		if tracked_chassis is WagonFrame:
+			var wf := tracked_chassis as WagonFrame
+			on_rails = wf.is_on_rails and wf.front_bogie != null
+			if on_rails:
+				spd = absf(wf.front_bogie.speed)
+				dist = wf.front_bogie.distance_traveled
+		elif tracked_chassis is TrainChassis:
+			on_rails = (tracked_chassis as TrainChassis).is_on_rails
+			spd = absf((tracked_chassis as TrainChassis).speed)
+			dist = (tracked_chassis as TrainChassis).distance_traveled
+		if on_rails:
+			speed_label.visible = true
+			distance_label.visible = true
+			speed_label.text = "%.1f m/s" % spd
+			distance_label.text = "%d m" % int(dist)
+		else:
+			speed_label.visible = false
+			distance_label.visible = false
 	else:
 		speed_label.visible = false
 		distance_label.visible = false
@@ -91,7 +107,11 @@ func _process(delta: float) -> void:
 		time_label.modulate = Color(0.6, 0.7, 1.0) if night else Color(1, 0.95, 0.7)
 
 
-func _find_nearest_chassis() -> TrainChassis:
+func _find_nearest_chassis() -> Node:
+	# Prefer WagonFrame (the main movable unit) over standalone bogies.
+	var frames := get_tree().get_nodes_in_group("wagon_frame")
+	if not frames.is_empty():
+		return frames[0]
 	var nodes := get_tree().get_nodes_in_group("chassis")
 	return nodes[0] as TrainChassis if not nodes.is_empty() else null
 

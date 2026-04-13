@@ -92,12 +92,19 @@ func _physics_process(delta: float) -> void:
 				_set_platform_velocity(Vector3.ZERO)
 				return
 		else:
-			# Clamp — rear bogie can't go before 0
-			front_bogie.rail_progress = spacing
-			front_bogie.speed = 0.0
-			front_bogie.speed_changed.emit(0.0)
-			_set_platform_velocity(Vector3.ZERO)
-			return
+			# Going backward — rear bogie would leave the path start.
+			# Try transitioning: front bogie enters the previous path at its end.
+			var overflow: float = spacing - raw_progress  # how far rear overshot start
+			if front_bogie._try_path_transition(0, overflow):
+				curve = front_bogie.rail_curve
+				total = curve.get_baked_length()
+			else:
+				# No connected path — stop at boundary
+				front_bogie.rail_progress = spacing
+				front_bogie.speed = 0.0
+				front_bogie.speed_changed.emit(0.0)
+				_set_platform_velocity(Vector3.ZERO)
+				return
 	else:
 		front_bogie.rail_progress = raw_progress
 
@@ -152,7 +159,7 @@ func _orient_bogie(bogie: TrainChassis, progress: float, curve: Curve3D, total: 
 		rt = rt.normalized()
 		var up_v: Vector3 = fwd.cross(rt).normalized()
 		var target_b := Basis(rt, up_v, fwd)
-		bogie.global_basis = bogie.global_basis.slerp(target_b, minf(delta * 8.0, 1.0))
+		bogie.global_basis = bogie.global_basis.orthonormalized().slerp(target_b, minf(delta * 8.0, 1.0)).scaled(bogie._basis_scale)
 
 
 func _set_platform_velocity(vel: Vector3) -> void:
@@ -168,6 +175,7 @@ func _set_platform_velocity(vel: Vector3) -> void:
 func snap_to_rails() -> void:
 	if front_bogie == null:
 		return
+	is_on_rails = true
 	# Let front bogie find the best rail path
 	front_bogie.is_on_rails = true
 	front_bogie.snap_to_rails()

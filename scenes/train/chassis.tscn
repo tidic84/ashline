@@ -1,32 +1,32 @@
 [gd_scene format=3 uid="uid://chassis001"]
 
-[ext_resource type="Script" path="res://scripts/train/chassis.gd" id="1"]
-[ext_resource type="PackedScene" path="res://assets/models/train/chassis_train.glb" id="2_body"]
-[ext_resource type="PackedScene" path="res://assets/models/train/chassis_wheel.glb" id="3_wheel"]
+[ext_resource type="Script" uid="uid://bp0yhr8gjpfxw" path="res://scripts/train/chassis.gd" id="1"]
+[ext_resource type="PackedScene" uid="uid://eiqpfsdikqas" path="res://assets/models/train/chassis_train.glb" id="2_body"]
+[ext_resource type="PackedScene" uid="uid://dun3ai0hluacq" path="res://assets/models/train/chassis_wheel.glb" id="3_wheel"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_base"]
-size = Vector3(0.90, 0.25, 0.55)
+size = Vector3(0.9, 0.25, 0.55)
 
-[node name="Chassis" type="StaticBody3D"]
-script = ExtResource("1")
+[node name="Chassis" type="StaticBody3D" unique_id=1638682682]
+transform = Transform3D(1.5, 0, 0, 0, 1.5, 0, 0, 0, 1.5, 0, 0, 0)
 collision_layer = 8
-collision_mask = 1
+script = ExtResource("1")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=503336864]
+transform = Transform3D(1, 0, 0, 0, 0.41, 0, 0, 0, 1, 0, 0.050304197, 0)
 shape = SubResource("BoxShape3D_base")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.12, 0)
 
-[node name="ChassisBody" parent="." instance=ExtResource("2_body")]
-transform = Transform3D(0, 0, 0.575, 0, 0.575, 0, -0.575, 0, 0, 0, 0.052, 0)
+[node name="ChassisBody" parent="." unique_id=1411508706 instance=ExtResource("2_body")]
+transform = Transform3D(-2.5134048e-08, 0, 0.575, 0, 0.575, 0, -0.575, 0, -2.5134048e-08, 0, 0.15, 0)
 
-[node name="Axle_OuterRear" parent="." instance=ExtResource("3_wheel")]
-transform = Transform3D(0, 0, 0.575, 0, 0.575, 0, -0.575, 0, 0, 0, 0.052, -0.230)
+[node name="Axle_OuterRear" parent="." unique_id=1186519451 instance=ExtResource("3_wheel")]
+transform = Transform3D(-2.5134048e-08, 0, 0.575, 0, 0.575, 0, -0.575, 0, -2.5134048e-08, 0, 0.15, -0.25850576)
 
-[node name="Axle_InnerRear" parent="." instance=ExtResource("3_wheel")]
-transform = Transform3D(0, 0, 0.575, 0, 0.575, 0, -0.575, 0, 0, 0, 0.052, -0.127)
+[node name="Axle_InnerRear" parent="." unique_id=1200064177 instance=ExtResource("3_wheel")]
+transform = Transform3D(-2.5134048e-08, 0, 0.575, 0, 0.575, 0, -0.575, 0, -2.5134048e-08, 0, 0.15, -0.06982978)
 
-[node name="Axle_InnerFront" parent="." instance=ExtResource("3_wheel")]
-transform = Transform3D(0, 0, 0.575, 0, 0.575, 0, -0.575, 0, 0, 0, 0.052, 0.127)
+[node name="Axle_InnerFront" parent="." unique_id=1633488889 instance=ExtResource("3_wheel")]
+transform = Transform3D(-2.5134048e-08, 0, 0.575, 0, 0.575, 0, -0.575, 0, -2.5134048e-08, 0, 0.15, 0.07629396)
 
-[node name="Axle_OuterFront" parent="." instance=ExtResource("3_wheel")]
-transform = Transform3D(0, 0, 0.575, 0, 0.575, 0, -0.575, 0, 0, 0, 0.052, 0.230)
+[node name="Axle_OuterFront" parent="." unique_id=1388475845 instance=ExtResource("3_wheel")]
+transform = Transform3D(-2.5134048e-08, 0, 0.575, 0, 0.575, 0, -0.575, 0, -2.5134048e-08, 0, 0.15, 0.26269102)
