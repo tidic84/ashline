@@ -2,9 +2,12 @@ extends StaticBody3D
 class_name Harvestable
 
 @export var resource_id: String = "wood"
+@export var drop_item_id: String = ""
 @export var amount: int = 5
 @export var hits_to_harvest: int = 3
 @export var respawn_time: float = 0.0 # 0 = no respawn
+@export var required_tool_id: String = ""
+@export var interact_label: String = "Harvest"
 
 var hits_remaining: int
 var is_depleted: bool = false
@@ -18,16 +21,26 @@ func _ready() -> void:
 func interact(_player: CharacterBody3D) -> void:
 	if is_depleted:
 		return
+	if required_tool_id != "" and Inventory.get_selected_item() != required_tool_id:
+		AudioManager.play_sfx("metal_hit", 0.0, 0.85)
+		return
 	hits_remaining -= 1
 	_play_hit_sfx()
 	_on_hit()
 	if hits_remaining <= 0:
 		_harvest()
 
+func get_interact_text() -> String:
+	if required_tool_id == "":
+		return "[E] %s" % interact_label
+	var tool_name: String = Inventory.get_item_name(required_tool_id)
+	return "[E] %s (%s required)" % [interact_label, tool_name]
+
 func _play_hit_sfx() -> void:
-	match resource_id:
-		"wood": AudioManager.play_sfx("chop", 0.0, randf_range(0.95, 1.05))
-		"metal": AudioManager.play_sfx("metal_hit", 0.0, randf_range(0.9, 1.1))
+	var kind: String = resource_id if drop_item_id == "" else drop_item_id
+	match kind:
+		"wood", "branch", "log": AudioManager.play_sfx("chop", 0.0, randf_range(0.95, 1.05))
+		"metal", "metal_scrap", "stone": AudioManager.play_sfx("metal_hit", 0.0, randf_range(0.9, 1.1))
 		_: AudioManager.play_sfx("harvest", 0.0, randf_range(0.9, 1.1))
 
 func _on_hit() -> void:
@@ -39,7 +52,10 @@ func _on_hit() -> void:
 
 func _harvest() -> void:
 	is_depleted = true
-	Inventory.add_resource(resource_id, amount)
+	if drop_item_id != "":
+		Inventory.add_item(drop_item_id, amount)
+	elif resource_id != "":
+		Inventory.add_resource(resource_id, amount)
 	if respawn_time > 0:
 		visible = false
 		var col: Node = get_node_or_null("CollisionShape3D")

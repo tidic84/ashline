@@ -27,6 +27,7 @@
 [ext_resource type="Script" uid="uid://bib4e6vre4okx" path="res://scenes/environment/rail_path.gd" id="29_railpath"]
 [ext_resource type="Script" uid="uid://c5qvicfnpmm3v" path="res://scripts/player/build_controller.gd" id="30_buildctrl"]
 [ext_resource type="PackedScene" uid="uid://cggqb75a8w8r" path="res://addons/debug_menu/debug_menu.tscn" id="31_debug"]
+[ext_resource type="Script" uid="uid://ck00bpv2e6qsb" path="res://scripts/world/resource_spawner.gd" id="32_spawner"]
 
 [sub_resource type="CameraAttributesPractical" id="CameraAttributesPractical_001"]
 auto_exposure_enabled = true
@@ -88,10 +89,10 @@ noise_type = 3
 
 [sub_resource type="Curve3D" id="Curve3D_0bhws"]
 _data = {
-"points": PackedVector3Array(0, 0, 0, 0, 0, 0, -1.1860757, -2.6284838, -5.208562, 2.2408514, -0.6477665, -3.7795749, -2.2408514, 0.6477665, 3.7795749, -12.972387, -0.7649896, 9.403923, 1.1442288, -0.5649545, -4.2541475, -1.1442288, 0.5649545, 4.2541475, -16.653488, 1.1066623, 18.368284, -0.10626508, 0.40671143, -4.480323, 0.10626508, -0.40671143, 4.480323, -19.90218, 2.580826, 41.772346, 0, 0, 0, 0, 0, 0, -13.311123, -5.998437, 76.065926),
-"tilts": PackedFloat32Array(0, 0, 0, 0, 0)
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, -1.1860757, -2.6284838, -5.208562, 2.2408514, -0.6477665, -3.7795749, -2.2408514, 0.6477665, 3.7795749, -12.972387, -0.7649896, 9.403923, 1.1442288, -0.5649545, -4.2541475, -1.1442288, 0.5649545, 4.2541475, -16.653488, 1.1066623, 18.368284, -0.10626508, 0.40671143, -4.480323, 0.10626508, -0.40671143, 4.480323, -19.90218, 2.580826, 41.772346, -0.84317935, 0.5407236, -4.387102, 0.84317935, -0.5407236, 4.387102, -13.311123, -5.998437, 76.065926, 0, 0, 0, 0, 0, 0, -11.046234, -5.998437, 87.85025),
+"tilts": PackedFloat32Array(0, 0, 0, 0, 0, 0)
 }
-point_count = 5
+point_count = 6
 
 [node name="Main" type="Node3D" unique_id=1921519102]
 script = ExtResource("1_main")
@@ -173,10 +174,15 @@ curve = SubResource("Curve3D_0bhws")
 script = ExtResource("29_railpath")
 smoothing_mode = 2
 smooth_length = 4.5
-max_curvature_deg_per_m = null
-max_pitch_curvature_deg_per_m = null
 snap_to_ground = true
-action_apply_smoothing = null
+
+[node name="RailPath2" type="Path3D" parent="." unique_id=1800218433]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.3512056, 0.24265432)
+curve = SubResource("Curve3D_0bhws")
+script = ExtResource("29_railpath")
+smoothing_mode = 2
+smooth_length = 4.5
+snap_to_ground = true
 
 [node name="RailGenerator" type="Node3D" parent="." unique_id=1492007744]
 script = ExtResource("28_railgen")
@@ -186,7 +192,7 @@ rail_curve_influence = 2.6
 rail_pitch_influence = 2.0
 
 [node name="UP_FPSController_Prefab" parent="." unique_id=1209285326 instance=ExtResource("26_fps")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 6.284868, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 13.138102, 0)
 collision_mask = 9
 floor_constant_speed = true
 speed_factor = 1.4
@@ -207,5 +213,6 @@ fps_controller_path = NodePath("../UP_FPSController_Prefab")
 [node name="Players" type="Node3D" parent="." unique_id=632363353]
 
 [node name="Resources" type="Node3D" parent="." unique_id=121511119]
+script = ExtResource("32_spawner")
 
 [node name="CanvasLayer" parent="." unique_id=1602580574 instance=ExtResource("31_debug")]

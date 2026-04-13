@@ -49,6 +49,8 @@ func _ready() -> void:
 	_hud = hud_scene.instantiate() as Control
 	_hud_layer.add_child(_hud)
 	_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if _hud.has_signal("inventory_toggle_requested"):
+		_hud.connect("inventory_toggle_requested", _on_inventory_toggle_requested)
 
 	# Wire build menu signals
 	var build_menu: Node = _hud.get_node_or_null("BuildMenu")
@@ -67,6 +69,35 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if _camera == null:
+		return
+
+	if event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			Inventory.cycle_hotbar(-1)
+			return
+		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			Inventory.cycle_hotbar(1)
+			return
+
+	if event is InputEventKey and event.pressed and not event.echo:
+		var hotbar_index: int = _hotbar_index_from_key(event.keycode)
+		if hotbar_index >= 0:
+			Inventory.select_hotbar_slot(hotbar_index)
+			return
+
+	if event.is_action_pressed("inventory"):
+		_toggle_inventory_panel()
+		return
+
+	if _is_inventory_open():
+		if event is InputEventKey and event.pressed and not event.echo:
+			match event.keycode:
+				KEY_LEFT, KEY_Q:
+					_hud.select_previous_recipe()
+				KEY_RIGHT, KEY_D:
+					_hud.select_next_recipe()
+				KEY_ENTER, KEY_KP_ENTER, KEY_F:
+					_hud.craft_selected_recipe()
 		return
 
 	if event.is_action_pressed("build_mode"):
@@ -88,9 +119,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			_on_build_exit_requested()
 
 	if event.is_action_pressed("interact"):
+		if _is_inventory_open():
+			return
 		_try_interact()
 
 	if event.is_action_pressed("shoot"):
+		if _is_inventory_open():
+			return
 		var bm3: Node = _hud.get_node_or_null("BuildMenu")
 		if bm3 and bm3.visible:
 			return
@@ -118,6 +153,9 @@ func _physics_process(delta: float) -> void:
 	if _camera == null:
 		return
 	if BuildSystem.is_building:
+		if _is_inventory_open():
+			BuildSystem.hide_preview()
+			return
 		_build_preview_accum += delta
 		if _build_preview_accum >= BUILD_PREVIEW_INTERVAL:
 			_build_preview_accum = 0.0
@@ -153,7 +191,6 @@ func _try_build() -> void:
 	if hit.is_empty():
 		return
 	var hit_point: Vector3 = hit["position"]
-	var hit_normal: Vector3 = hit["normal"]
 	var collider: Object = hit["collider"]
 	if collider == null:
 		return
@@ -162,29 +199,26 @@ func _try_build() -> void:
 		BuildSystem.BuildMode.CHASSIS:
 			BuildSystem.try_place_chassis(hit_point)
 		BuildSystem.BuildMode.FLOOR:
-			var chassis := _find_chassis(collider)
-			if chassis:
-				var p: Variant = _get_build_point_on_chassis(chassis)
+			var target := _find_build_target(collider as Node)
+			if target:
+				var p: Variant = _get_build_point_on_target(target)
 				if p is Vector3:
 					hit_point = p
-					hit_normal = chassis.get_build_surface_normal_world()
-				BuildSystem.try_place_floor(hit_point, chassis)
+				BuildSystem.try_place_floor(hit_point, target)
 		BuildSystem.BuildMode.ITEM:
-			var chassis2 := _find_chassis(collider)
-			if chassis2:
-				var p2: Variant = _get_build_point_on_chassis(chassis2)
+			var target2 := _find_build_target(collider as Node)
+			if target2:
+				var p2: Variant = _get_build_point_on_target(target2)
 				if p2 is Vector3:
 					hit_point = p2
-					hit_normal = chassis2.get_build_surface_normal_world()
-				BuildSystem.try_place_item(hit_point, chassis2)
+				BuildSystem.try_place_item(hit_point, target2)
 		BuildSystem.BuildMode.DEMOLISH:
-			var chassis3 := _find_chassis(collider)
-			if chassis3:
-				var p3: Variant = _get_build_point_on_chassis(chassis3)
+			var target3 := _find_build_target(collider as Node)
+			if target3:
+				var p3: Variant = _get_build_point_on_target(target3)
 				if p3 is Vector3:
 					hit_point = p3
-					hit_normal = chassis3.get_build_surface_normal_world()
-				BuildSystem.try_demolish(hit_point, chassis3)
+				BuildSystem.try_demolish(hit_point, target3)
 
 
 func _update_build_preview() -> void:
@@ -203,23 +237,23 @@ func _update_build_preview() -> void:
 		BuildSystem.BuildMode.CHASSIS:
 			BuildSystem.update_preview_on_ground(hit_point, hit_normal)
 		BuildSystem.BuildMode.FLOOR, BuildSystem.BuildMode.ITEM:
-			var chassis := _find_chassis(collider)
-			if chassis:
-				var p: Variant = _get_build_point_on_chassis(chassis)
+			var target := _find_build_target(collider as Node)
+			if target:
+				var p: Variant = _get_build_point_on_target(target)
 				if p is Vector3:
 					hit_point = p
-					hit_normal = chassis.get_build_surface_normal_world()
-				BuildSystem.update_preview_on_chassis(hit_point, hit_normal, chassis)
+					hit_normal = target.get_build_surface_normal_world()
+				BuildSystem.update_preview_on_target(hit_point, hit_normal, target)
 			else:
 				BuildSystem.hide_preview()
 		BuildSystem.BuildMode.DEMOLISH:
-			var chassis2 := _find_chassis(collider)
-			if chassis2:
-				var p2: Variant = _get_build_point_on_chassis(chassis2)
+			var target2 := _find_build_target(collider as Node)
+			if target2:
+				var p2: Variant = _get_build_point_on_target(target2)
 				if p2 is Vector3:
 					hit_point = p2
-					hit_normal = chassis2.get_build_surface_normal_world()
-				BuildSystem.update_preview_on_chassis(hit_point, hit_normal, chassis2)
+					hit_normal = target2.get_build_surface_normal_world()
+				BuildSystem.update_preview_on_target(hit_point, hit_normal, target2)
 			else:
 				BuildSystem.hide_preview()
 		_:
@@ -237,10 +271,10 @@ func _try_deconstruct() -> void:
 	var node: Node = collider as Node
 
 	# Walk up to find what we're deconstructing: a placed item, a floor piece, or a chassis
-	var chassis := _find_chassis(node)
-	if chassis == null:
+	var target := _find_build_target(node)
+	if target == null:
 		return
-	BuildSystem.try_demolish(hit_point, chassis)
+	BuildSystem.try_demolish(hit_point, target)
 
 
 func _find_chassis(node: Node) -> TrainChassis:
@@ -250,6 +284,42 @@ func _find_chassis(node: Node) -> TrainChassis:
 			return current
 		current = current.get_parent()
 	return null
+
+
+func _find_build_target(node: Node) -> Node:
+	# Walk up parents looking for WagonFrame or TrainChassis.
+	# WagonFrame takes priority (its build surface is what raycasts hit).
+	var current: Node = node
+	while current:
+		if current is WagonFrame:
+			return current
+		if current is TrainChassis:
+			var p: Node = current.get_parent()
+			if p is WagonFrame:
+				return p
+			return current
+		current = current.get_parent()
+	return null
+
+
+func _get_build_point_on_target(target: Node) -> Variant:
+	var origin: Vector3 = _camera.global_transform.origin
+	var dir: Vector3 = -_camera.global_transform.basis.z
+	if dir.length_squared() < 0.0001:
+		return null
+	dir = dir.normalized()
+	var plane_point: Vector3
+	var plane_normal: Vector3
+	if target is WagonFrame:
+		var wf := target as WagonFrame
+		plane_point = wf.to_global(Vector3(0.0, WagonFrame.BUILD_SURFACE_LOCAL_Y, 0.0))
+		plane_normal = wf.get_build_surface_normal_world()
+	elif target is TrainChassis:
+		plane_point = (target as TrainChassis).get_build_surface_point_world()
+		plane_normal = (target as TrainChassis).get_build_surface_normal_world()
+	else:
+		return null
+	return _ray_plane_intersection(origin, dir, plane_point, plane_normal, BUILD_RAY_LENGTH + 0.25)
 
 
 func _get_build_point_on_chassis(chassis: TrainChassis) -> Variant:
@@ -284,6 +354,9 @@ func _ray_plane_intersection(
 
 
 func _update_interact_hint() -> void:
+	if _is_inventory_open():
+		_hud.hide_interact_hint()
+		return
 	var hit := _camera_ray(INTERACT_RAY_LENGTH, INTERACT_COLLISION_MASK)
 	if not hit.is_empty():
 		var collider: Object = hit.get("collider")
@@ -291,6 +364,12 @@ func _update_interact_hint() -> void:
 			var text := "[E] Interact"
 			if collider is PumpLever:
 				text = "[E] Pump"
+			elif collider is DirectionLever:
+				text = "[E] Direction"
+			elif collider is RailSwitch:
+				text = "[E] Switch"
+			elif collider.has_method("get_interact_text"):
+				text = collider.get_interact_text()
 			elif collider is Harvestable:
 				text = "[E] Harvest"
 			_hud.show_interact_hint(text)
@@ -337,6 +416,8 @@ func _set_player_look_enabled(enabled: bool) -> void:
 
 
 func _open_build_menu() -> void:
+	if _is_inventory_open():
+		_hud.toggle_inventory_panel(false)
 	var bm: Node = _hud.get_node_or_null("BuildMenu")
 	if bm:
 		bm.show_menu()
@@ -351,6 +432,42 @@ func _close_build_menu() -> void:
 		bm.hide_menu()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	_set_player_look_enabled(true)
+
+
+func _hotbar_index_from_key(keycode: Key) -> int:
+	match keycode:
+		KEY_1: return 0
+		KEY_2: return 1
+		KEY_3: return 2
+		KEY_4: return 3
+		KEY_5: return 4
+		KEY_6: return 5
+		KEY_7: return 6
+		KEY_8: return 7
+		KEY_9: return 8
+		_: return -1
+
+
+func _is_inventory_open() -> bool:
+	if _hud == null or not _hud.has_method("is_inventory_open"):
+		return false
+	return _hud.is_inventory_open()
+
+
+func _toggle_inventory_panel() -> void:
+	if _hud == null or not _hud.has_method("toggle_inventory_panel"):
+		return
+	var open: bool = _hud.toggle_inventory_panel()
+	if open:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		_set_player_look_enabled(false)
+		BuildSystem.hide_preview()
+	else:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		_set_player_look_enabled(true)
+
+func _on_inventory_toggle_requested() -> void:
+	_toggle_inventory_panel()
 
 
 func _on_build_item_selected(buildable_id: String) -> void:

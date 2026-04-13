@@ -12,10 +12,21 @@ func _ready() -> void:
 	if multiplayer.has_multiplayer_peer():
 		_spawn_multiplayer_players()
 
-	Inventory.add_resource("wood", 1000)
-	Inventory.add_resource("metal", 800)
-	Inventory.add_resource("components", 400)
-	Inventory.add_resource("fuel", 600)
+	# Generous starter stock for fast early progression.
+	Inventory.add_resource("wood", 800)
+	Inventory.add_resource("metal", 600)
+	Inventory.add_resource("components", 250)
+	Inventory.add_resource("fuel", 500)
+
+	# Extra raw materials for immediate crafting.
+	Inventory.add_item("branch", 180)
+	Inventory.add_item("log", 140)
+	Inventory.add_item("stone", 220)
+	Inventory.add_item("metal_scrap", 160)
+	Inventory.add_item("axe", 1)
+	Inventory.add_item("pickaxe", 1)
+	Inventory.add_item("hammer", 1)
+	Inventory.select_hotbar_item("hammer")
 
 	GraphicsSettings.apply_all()
 	GameManager.start_game()

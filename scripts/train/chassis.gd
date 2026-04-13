@@ -3,18 +3,20 @@ class_name TrainChassis
 
 signal floor_placed(grid_pos: Vector2i)
 signal speed_changed(speed: float)
+signal direction_changed(dir: float)
 
 const GRID_SIZE: float = 1.0
 const BUILD_SURFACE_LOCAL_Y: float = 0.22
 
-@export var max_width: int = 5
-@export var max_length: int = 3
+@export var max_width: int = 3
+@export var max_length: int = 1
 
 var grid_cells: Dictionary = {} # Vector2i -> { "floor": bool, "item": Node3D, "edges": {}, "floor_node": Node3D }
 var floor_count: int = 0
 var is_on_rails: bool = false
 
 # Movement
+var travel_direction: float = 1.0  # 1.0 = forward, -1.0 = reverse
 var speed: float = 0.0
 var max_speed: float = 4.0  # Handcar cap — upgrade to engine for more
 var pump_impulse: float = 0.45  # Small per-pump kick
@@ -24,6 +26,7 @@ var distance_traveled: float = 0.0
 # Path following
 var rail_curve: Curve3D = null
 var rail_progress: float = 0.0
+var current_rail_path: Node = null  # RailPath node we're currently on
 
 func _ready() -> void:
 	if get_meta("is_preview", false):
@@ -58,14 +61,23 @@ func _physics_process(delta: float) -> void:
 
 	if rail_curve != null and rail_curve.get_baked_length() > 0.0:
 		var total: float = rail_curve.get_baked_length()
-		var new_progress: float = clampf(rail_progress + ds, 0.0, total)
-		# Blocked at rail boundary — stop the train
-		if is_equal_approx(new_progress, rail_progress):
-			speed = 0.0
-			speed_changed.emit(0.0)
-			_set_platform_velocity(Vector3.ZERO)
-			return
-		rail_progress = new_progress
+		var raw_progress: float = rail_progress + ds
+		# Try path transition at boundaries
+		if raw_progress < 0.0 or raw_progress > total:
+			var at_end: int = 0 if raw_progress < 0.0 else 1
+			var overflow: float = -raw_progress if at_end == 0 else raw_progress - total
+			if _try_path_transition(at_end, overflow):
+				# Transition succeeded — skip normal clamped movement
+				pass
+			else:
+				# No connected path — stop at boundary
+				rail_progress = 0.0 if at_end == 0 else total
+				speed = 0.0
+				speed_changed.emit(0.0)
+				_set_platform_velocity(Vector3.ZERO)
+				return
+		else:
+			rail_progress = raw_progress
 		# Sample position and derive forward from nearby points (avoids look_at jumps)
 		var pos: Vector3 = rail_curve.sample_baked(rail_progress)
 		var ahead: float = minf(rail_progress + 1.0, total)
@@ -88,32 +100,114 @@ func _physics_process(delta: float) -> void:
 	var actual_vel: Vector3 = (global_position - old_pos) / delta
 	_set_platform_velocity(actual_vel)
 
-func pump(direction: float = 1.0) -> void:
+func pump() -> void:
 	if not is_on_rails:
 		return
-	speed = clampf(speed + pump_impulse * direction, -max_speed, max_speed)
+	speed = clampf(speed + pump_impulse * travel_direction, -max_speed, max_speed)
 	speed_changed.emit(speed)
+
+func set_direction(dir: float) -> void:
+	travel_direction = signf(dir) if dir != 0.0 else 1.0
+	direction_changed.emit(travel_direction)
+
+func _try_path_transition(at_end: int, overflow: float) -> bool:
+	if current_rail_path == null:
+		return false
+	var route: Dictionary = RailNetwork.get_active_route(current_rail_path, at_end)
+	if route.is_empty():
+		return false
+	var next_path: Node = route.path
+	if not is_instance_valid(next_path) or not next_path.has_method("get_rail_curve"):
+		return false
+	var next_curve: Curve3D = next_path.get_rail_curve()
+	if next_curve == null or next_curve.get_baked_length() < 0.1:
+		return false
+	# Build a world-space curve for the next path (same as terrain_generator does)
+	var world_curve := _build_world_curve(next_path)
+	if world_curve == null:
+		return false
+	var next_total: float = world_curve.get_baked_length()
+	var target_end: int = route.end
+	# If we connect to the target's start (end=0), we enter from offset 0 moving forward.
+	# If we connect to the target's end (end=1), we enter from the end moving backward.
+	if target_end == 0:
+		rail_progress = overflow
+	else:
+		rail_progress = next_total - overflow
+	rail_progress = clampf(rail_progress, 0.0, next_total)
+	rail_curve = world_curve
+	current_rail_path = next_path
+	return true
+
+
+func _build_world_curve(path_node: Node) -> Curve3D:
+	var src_curve: Curve3D = path_node.get_rail_curve()
+	if src_curve == null or src_curve.point_count < 2:
+		return null
+	var world_curve := Curve3D.new()
+	world_curve.bake_interval = src_curve.bake_interval
+	for i in range(src_curve.point_count):
+		var p: Vector3 = path_node.to_global(src_curve.get_point_position(i))
+		var t_in: Vector3 = path_node.global_basis * src_curve.get_point_in(i)
+		var t_out: Vector3 = path_node.global_basis * src_curve.get_point_out(i)
+		world_curve.add_point(p, t_in, t_out)
+	return world_curve
+
 
 func snap_to_rails() -> void:
 	is_on_rails = true
-	var terrain: TerrainGenerator = _find_terrain()
-	if terrain:
-		rail_curve = terrain.get_rail_curve()
-		if rail_curve and rail_curve.get_baked_length() > 0.0:
-			rail_progress = rail_curve.get_closest_offset(global_position)
-			global_position = rail_curve.sample_baked(rail_progress)
-			var total: float = rail_curve.get_baked_length()
-			var ahead: float = minf(rail_progress + 1.0, total)
-			var behind: float = maxf(rail_progress - 1.0, 0.0)
-			var fwd: Vector3 = rail_curve.sample_baked(ahead) - rail_curve.sample_baked(behind)
-			if fwd.length_squared() > 0.0001:
-				fwd = fwd.normalized()
-				var rt: Vector3 = Vector3.UP.cross(fwd)
-				if rt.length_squared() < 0.0001:
-					rt = Vector3.RIGHT
-				rt = rt.normalized()
-				var up_v: Vector3 = fwd.cross(rt).normalized()
-				basis = Basis(rt, up_v, fwd)
+	# First try to find the closest RailPath directly
+	var best_path: Node = null
+	var best_curve: Curve3D = null
+	var best_progress: float = 0.0
+	var best_dist: float = INF
+	var rail_paths := get_tree().get_nodes_in_group("rail_path")
+	for rp in rail_paths:
+		if not rp.has_method("get_rail_curve"):
+			continue
+		var wc := _build_world_curve(rp)
+		if wc == null or wc.get_baked_length() < 0.1:
+			continue
+		var offset: float = wc.get_closest_offset(global_position)
+		var closest: Vector3 = wc.sample_baked(offset)
+		var d: float = global_position.distance_to(closest)
+		if d < best_dist:
+			best_dist = d
+			best_path = rp
+			best_curve = wc
+			best_progress = offset
+	if best_curve != null:
+		rail_curve = best_curve
+		rail_progress = best_progress
+		current_rail_path = best_path
+		global_position = rail_curve.sample_baked(rail_progress)
+		_orient_to_curve()
+	else:
+		# Fallback: use terrain's single curve (backwards compat)
+		var terrain: TerrainGenerator = _find_terrain()
+		if terrain:
+			rail_curve = terrain.get_rail_curve()
+			if rail_curve and rail_curve.get_baked_length() > 0.0:
+				rail_progress = rail_curve.get_closest_offset(global_position)
+				global_position = rail_curve.sample_baked(rail_progress)
+				_orient_to_curve()
+
+
+func _orient_to_curve() -> void:
+	if rail_curve == null:
+		return
+	var total: float = rail_curve.get_baked_length()
+	var ahead: float = minf(rail_progress + 1.0, total)
+	var behind: float = maxf(rail_progress - 1.0, 0.0)
+	var fwd: Vector3 = rail_curve.sample_baked(ahead) - rail_curve.sample_baked(behind)
+	if fwd.length_squared() > 0.0001:
+		fwd = fwd.normalized()
+		var rt: Vector3 = Vector3.UP.cross(fwd)
+		if rt.length_squared() < 0.0001:
+			rt = Vector3.RIGHT
+		rt = rt.normalized()
+		var up_v: Vector3 = fwd.cross(rt).normalized()
+		basis = Basis(rt, up_v, fwd)
 
 func _find_terrain() -> TerrainGenerator:
 	var nodes := get_tree().get_nodes_in_group("terrain")
@@ -155,10 +249,10 @@ func _round_to_int(v: float) -> int:
 	return int(floor(v + 0.5)) if v >= 0.0 else int(ceil(v - 0.5))
 
 func _grid_min(size: int) -> int:
-	return -(size / 2)
+	return -int(floor(float(size) / 2.0))
 
 func _grid_max(size: int) -> int:
-	return (size - 1) / 2
+	return int(floor(float(size - 1) / 2.0))
 
 func grid_to_local(grid_pos: Vector2i) -> Vector3:
 	return Vector3(
@@ -255,5 +349,5 @@ func _has_adjacent_floor(grid_pos: Vector2i) -> bool:
 			return true
 	return false
 
-func take_damage(amount: float) -> void:
+func take_damage(_amount: float) -> void:
 	pass # TODO: chassis durability

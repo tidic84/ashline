@@ -1,0 +1,13 @@
+[gd_scene format=3 uid="uid://cxfco450sem77"]
+
+[ext_resource type="Script" path="res://scripts/train/wagon_frame.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/train/chassis.tscn" id="2_chassis"]
+
+[node name="WagonFrame" type="Node3D"]
+script = ExtResource("1")
+
+[node name="FrontBogie" parent="." instance=ExtResource("2_chassis")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -2)
+
+[node name="RearBogie" parent="." instance=ExtResource("2_chassis")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 2)

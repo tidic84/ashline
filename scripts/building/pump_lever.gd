@@ -4,26 +4,30 @@ class_name PumpLever
 @export var pump_cooldown: float = 0.22
 
 var can_pump: bool = true
-var chassis: TrainChassis = null
+var _pump_target: Node = null  # WagonFrame or TrainChassis
 
 func _ready() -> void:
 	collision_layer = 32  # Layer 6 = Interactable
 	collision_mask = 0
 	add_to_group("interactable")
-	# Find parent chassis
+	# Find parent wagon frame or chassis
 	var current: Node = get_parent()
 	while current:
+		if current is WagonFrame:
+			_pump_target = current
+			current.is_on_rails = true
+			break
 		if current is TrainChassis:
-			chassis = current
-			chassis.is_on_rails = true
+			_pump_target = current
+			current.is_on_rails = true
 			break
 		current = current.get_parent()
 
 func interact(_player: CharacterBody3D) -> void:
-	if not can_pump or chassis == null:
+	if not can_pump or _pump_target == null:
 		return
 	can_pump = false
-	chassis.pump(1.0)
+	_pump_target.pump()
 	AudioManager.play_sfx("pump", 0.0, randf_range(0.95, 1.05))
 	_animate_pump()
 	await get_tree().create_timer(pump_cooldown).timeout

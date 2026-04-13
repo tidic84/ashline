@@ -139,3 +139,102 @@ static func build_components(body: StaticBody3D, rng: RandomNumberGenerator) -> 
 	col.shape = box
 	col.position = Vector3(0, 0.3, 0)
 	body.add_child(col)
+
+static func build_branch_pile(body: StaticBody3D, rng: RandomNumberGenerator) -> void:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.34, 0.22, 0.12)
+	mat.roughness = 0.95
+
+	var branch_count: int = rng.randi_range(4, 7)
+	for i in range(branch_count):
+		var b := CSGCylinder3D.new()
+		b.radius = rng.randf_range(0.02, 0.05)
+		b.height = rng.randf_range(0.35, 0.65)
+		b.sides = 6
+		b.material = mat
+		b.rotation = Vector3(
+			rng.randf_range(-0.4, 0.4),
+			rng.randf_range(0.0, TAU),
+			rng.randf_range(-0.4, 0.4)
+		)
+		b.position = Vector3(
+			rng.randf_range(-0.15, 0.15),
+			rng.randf_range(0.04, 0.12),
+			rng.randf_range(-0.15, 0.15)
+		)
+		body.add_child(b)
+
+	var col := CollisionShape3D.new()
+	var sphere := SphereShape3D.new()
+	sphere.radius = 0.28
+	col.shape = sphere
+	col.position = Vector3(0, 0.18, 0)
+	body.add_child(col)
+
+static func build_stone_small(body: StaticBody3D, rng: RandomNumberGenerator) -> void:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.46, 0.46, 0.48)
+	mat.roughness = 0.9
+
+	var rock_count: int = rng.randi_range(2, 4)
+	for i in range(rock_count):
+		var rock := CSGSphere3D.new()
+		rock.radius = rng.randf_range(0.12, 0.2)
+		rock.radial_segments = 8
+		rock.rings = 6
+		rock.material = mat
+		rock.scale = Vector3(
+			rng.randf_range(0.8, 1.3),
+			rng.randf_range(0.65, 1.1),
+			rng.randf_range(0.8, 1.3)
+		)
+		rock.position = Vector3(
+			rng.randf_range(-0.14, 0.14),
+			rng.randf_range(0.1, 0.22),
+			rng.randf_range(-0.14, 0.14)
+		)
+		body.add_child(rock)
+
+	var col := CollisionShape3D.new()
+	var sphere := SphereShape3D.new()
+	sphere.radius = 0.3
+	col.shape = sphere
+	col.position = Vector3(0, 0.2, 0)
+	body.add_child(col)
+
+static func build_rock_large(body: StaticBody3D, rng: RandomNumberGenerator) -> void:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.38, 0.38, 0.4)
+	mat.roughness = 0.92
+
+	var main := CSGSphere3D.new()
+	main.radius = rng.randf_range(0.7, 1.0)
+	main.radial_segments = 10
+	main.rings = 7
+	main.material = mat
+	main.scale = Vector3(
+		rng.randf_range(0.9, 1.3),
+		rng.randf_range(0.7, 1.1),
+		rng.randf_range(0.9, 1.3)
+	)
+	main.position = Vector3(0, 0.8, 0)
+	body.add_child(main)
+
+	for i in range(3):
+		var chunk := CSGSphere3D.new()
+		chunk.radius = rng.randf_range(0.2, 0.35)
+		chunk.material = mat
+		chunk.position = Vector3(
+			rng.randf_range(-0.45, 0.45),
+			rng.randf_range(0.35, 0.85),
+			rng.randf_range(-0.45, 0.45)
+		)
+		body.add_child(chunk)
+
+	var col := CollisionShape3D.new()
+	var capsule := CapsuleShape3D.new()
+	capsule.radius = 0.8
+	capsule.height = 1.4
+	col.shape = capsule
+	col.position = Vector3(0, 0.9, 0)
+	body.add_child(col)

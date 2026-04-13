@@ -1,20 +1,11 @@
 [gd_scene format=3 uid="uid://chassis001"]
 
 [ext_resource type="Script" path="res://scripts/train/chassis.gd" id="1"]
-[ext_resource type="Material" path="res://textures/chassis/M_rusty_metal.tres" id="2_metal"]
+[ext_resource type="PackedScene" path="res://assets/models/train/chassis_train.glb" id="2_body"]
+[ext_resource type="PackedScene" path="res://assets/models/train/chassis_wheel.glb" id="3_wheel"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_base"]
-size = Vector3(2.8, 0.2, 3.0)
-
-[sub_resource type="StandardMaterial3D" id="mat_wheel"]
-albedo_color = Color(0.12, 0.11, 0.10, 1)
-metallic = 0.9
-roughness = 0.35
-
-[sub_resource type="StandardMaterial3D" id="mat_axle"]
-albedo_color = Color(0.25, 0.22, 0.18, 1)
-metallic = 0.75
-roughness = 0.5
+size = Vector3(0.90, 0.25, 0.55)
 
 [node name="Chassis" type="StaticBody3D"]
 script = ExtResource("1")
@@ -23,71 +14,19 @@ collision_mask = 1
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 shape = SubResource("BoxShape3D_base")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.22, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.12, 0)
 
-[node name="FrameLeft" type="CSGBox3D" parent="."]
-size = Vector3(0.10, 0.12, 3.0)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.30, 0.22, 0)
-material = ExtResource("2_metal")
+[node name="ChassisBody" parent="." instance=ExtResource("2_body")]
+transform = Transform3D(0, 0, 0.575, 0, 0.575, 0, -0.575, 0, 0, 0, 0.052, 0)
 
-[node name="FrameRight" type="CSGBox3D" parent="."]
-size = Vector3(0.10, 0.12, 3.0)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.30, 0.22, 0)
-material = ExtResource("2_metal")
+[node name="Axle_OuterRear" parent="." instance=ExtResource("3_wheel")]
+transform = Transform3D(0, 0, 0.575, 0, 0.575, 0, -0.575, 0, 0, 0, 0.052, -0.230)
 
-[node name="CrossBeamFront" type="CSGBox3D" parent="."]
-size = Vector3(2.7, 0.08, 0.08)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.22, -1.35)
-material = ExtResource("2_metal")
+[node name="Axle_InnerRear" parent="." instance=ExtResource("3_wheel")]
+transform = Transform3D(0, 0, 0.575, 0, 0.575, 0, -0.575, 0, 0, 0, 0.052, -0.127)
 
-[node name="CrossBeamBack" type="CSGBox3D" parent="."]
-size = Vector3(2.7, 0.08, 0.08)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.22, 1.35)
-material = ExtResource("2_metal")
+[node name="Axle_InnerFront" parent="." instance=ExtResource("3_wheel")]
+transform = Transform3D(0, 0, 0.575, 0, 0.575, 0, -0.575, 0, 0, 0, 0.052, 0.127)
 
-[node name="CrossBeamMid" type="CSGBox3D" parent="."]
-size = Vector3(2.7, 0.06, 0.06)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.22, 0)
-material = ExtResource("2_metal")
-
-[node name="WheelFL" type="CSGCylinder3D" parent="."]
-radius = 0.25
-height = 0.10
-sides = 16
-transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, -0.75, 0.18, -1.1)
-material = SubResource("mat_wheel")
-
-[node name="WheelFR" type="CSGCylinder3D" parent="."]
-radius = 0.25
-height = 0.10
-sides = 16
-transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0.75, 0.18, -1.1)
-material = SubResource("mat_wheel")
-
-[node name="WheelBL" type="CSGCylinder3D" parent="."]
-radius = 0.25
-height = 0.10
-sides = 16
-transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, -0.75, 0.18, 1.1)
-material = SubResource("mat_wheel")
-
-[node name="WheelBR" type="CSGCylinder3D" parent="."]
-radius = 0.25
-height = 0.10
-sides = 16
-transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0.75, 0.18, 1.1)
-material = SubResource("mat_wheel")
-
-[node name="AxleFront" type="CSGCylinder3D" parent="."]
-radius = 0.04
-height = 1.6
-sides = 8
-transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0.18, -1.1)
-material = SubResource("mat_axle")
-
-[node name="AxleBack" type="CSGCylinder3D" parent="."]
-radius = 0.04
-height = 1.6
-sides = 8
-transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0.18, 1.1)
-material = SubResource("mat_axle")
+[node name="Axle_OuterFront" parent="." instance=ExtResource("3_wheel")]
+transform = Transform3D(0, 0, 0.575, 0, 0.575, 0, -0.575, 0, 0, 0, 0.052, 0.230)

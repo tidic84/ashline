@@ -21,7 +21,15 @@ var preview_rotation: float = 0.0
 
 var buildable_catalog: Dictionary = {}
 var chassis_scene: PackedScene = null
+var wagon_frame_scene: PackedScene = null
 var floor_scene: PackedScene = null
+
+# Two-step chassis/wagon placement
+var _first_bogie: TrainChassis = null
+var _first_bogie_progress: float = 0.0
+var _first_bogie_curve: Curve3D = null
+var _first_bogie_rail_path: Node = null
+var _second_bogie_preview: Node3D = null
 var demolish_target: Node3D = null  # Node highlighted for demolition
 var preview_material_demolish: StandardMaterial3D
 
@@ -34,6 +42,9 @@ var _cached_player: Node3D = null
 # Costs
 const CHASSIS_COST: Dictionary = { "wood": 10, "metal": 15 }
 const FLOOR_COST: Dictionary = { "wood": 3 }
+
+func _has_build_tool() -> bool:
+	return Inventory.get_selected_item() == "hammer"
 
 func _ready() -> void:
 	preview_material_valid = StandardMaterial3D.new()
@@ -52,6 +63,7 @@ func _ready() -> void:
 	preview_material_demolish.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 
 	chassis_scene = preload("res://scenes/train/chassis.tscn")
+	wagon_frame_scene = preload("res://scenes/train/wagon_frame.tscn")
 	floor_scene = preload("res://scenes/building/floor_piece.tscn")
 	_load_buildables()
 
@@ -80,15 +92,21 @@ func enter_build_mode() -> void:
 	is_building = true
 	mode = BuildMode.OFF
 	preview_rotation = 0.0
+	# If the player already owns a hammer, equip it when entering build mode.
+	if Inventory.has_item("hammer"):
+		Inventory.select_hotbar_item("hammer")
 	build_mode_entered.emit()
 
 func exit_build_mode() -> void:
 	is_building = false
 	mode = BuildMode.OFF
 	_clear_preview()
+	_cancel_chassis_placement()
 	build_mode_exited.emit()
 
 func set_mode(new_mode: BuildMode) -> void:
+	if mode == BuildMode.CHASSIS and new_mode != BuildMode.CHASSIS:
+		_cancel_chassis_placement()
 	mode = new_mode
 	_clear_preview()
 	current_buildable_data = null
@@ -138,10 +156,17 @@ func _cycle_mode() -> void:
 
 # --- Preview updates called by player ---
 
-func update_preview_on_ground(hit_point: Vector3, hit_normal: Vector3) -> void:
+func update_preview_on_ground(hit_point: Vector3, _hit_normal: Vector3) -> void:
 	if mode != BuildMode.CHASSIS:
 		hide_preview()
 		return
+
+	# Step 2: first bogie placed, show second bogie preview along rail
+	if _first_bogie != null and _first_bogie_curve != null:
+		_update_second_bogie_preview(hit_point)
+		return
+
+	# Step 1: show single bogie preview snapped to rail
 	if preview_instance == null and chassis_scene:
 		preview_instance = chassis_scene.instantiate()
 		preview_instance.set_meta("is_preview", true)
@@ -152,27 +177,49 @@ func update_preview_on_ground(hit_point: Vector3, hit_normal: Vector3) -> void:
 		get_tree().current_scene.add_child(preview_instance)
 		_disable_preview_collision(preview_instance)
 
-	# Always snap the preview to the rail curve when possible so the user
-	# clearly sees where the chassis would be placed. Validity is gated by
-	# how far the hit point was from the tracks.
-	var terrain: TerrainGenerator = _find_terrain()
 	var near_rails: bool = false
 	var final_pos: Vector3 = hit_point
 	var fwd: Vector3 = Vector3.FORWARD
-	if terrain:
-		var curve: Curve3D = terrain.get_rail_curve()
-		if curve and curve.get_baked_length() > 0.0:
-			var offset: float = curve.get_closest_offset(hit_point)
-			final_pos = curve.sample_baked(offset)
-			var total: float = curve.get_baked_length()
-			var ahead: float = minf(offset + 1.0, total)
-			var behind: float = maxf(offset - 1.0, 0.0)
-			fwd = curve.sample_baked(ahead) - curve.sample_baked(behind)
+	var best_dist: float = INF
+	# Scan all RailPaths for closest rail
+	var rail_paths := get_tree().get_nodes_in_group("rail_path")
+	for rp in rail_paths:
+		if not rp.has_method("get_rail_curve"):
+			continue
+		var rp_curve: Curve3D = rp.get_rail_curve()
+		if rp_curve == null or rp_curve.get_baked_length() < 0.1:
+			continue
+		var local_hit: Vector3 = rp.to_local(hit_point)
+		var rp_offset: float = rp_curve.get_closest_offset(local_hit)
+		var rp_pos: Vector3 = rp.to_global(rp_curve.sample_baked(rp_offset))
+		var d: float = hit_point.distance_to(rp_pos)
+		if d < best_dist:
+			best_dist = d
+			final_pos = rp_pos
+			var total: float = rp_curve.get_baked_length()
+			var ahead: float = minf(rp_offset + 1.0, total)
+			var behind: float = maxf(rp_offset - 1.0, 0.0)
+			fwd = rp.to_global(rp_curve.sample_baked(ahead)) - rp.to_global(rp_curve.sample_baked(behind))
 			if fwd.length_squared() < 0.0001:
 				fwd = Vector3.FORWARD
 			fwd = fwd.normalized()
-			var dist: float = terrain.distance_to_rails(hit_point)
-			near_rails = dist < 6.0
+	# Fallback: terrain's single curve
+	if best_dist == INF:
+		var terrain: TerrainGenerator = _find_terrain()
+		if terrain:
+			var curve: Curve3D = terrain.get_rail_curve()
+			if curve and curve.get_baked_length() > 0.0:
+				var offset: float = curve.get_closest_offset(hit_point)
+				final_pos = curve.sample_baked(offset)
+				best_dist = hit_point.distance_to(final_pos)
+				var total: float = curve.get_baked_length()
+				var ahead: float = minf(offset + 1.0, total)
+				var behind: float = maxf(offset - 1.0, 0.0)
+				fwd = curve.sample_baked(ahead) - curve.sample_baked(behind)
+				if fwd.length_squared() < 0.0001:
+					fwd = Vector3.FORWARD
+				fwd = fwd.normalized()
+	near_rails = best_dist < 6.0
 
 	preview_instance.visible = true
 	preview_instance.global_position = final_pos
@@ -183,7 +230,54 @@ func update_preview_on_ground(hit_point: Vector3, hit_normal: Vector3) -> void:
 		right = right.normalized()
 		var up: Vector3 = fwd.cross(right).normalized()
 		preview_instance.basis = Basis(right, up, fwd)
-	_set_preview_validity(near_rails and Inventory.has_resources(CHASSIS_COST))
+	_set_preview_validity(near_rails and Inventory.has_resources(CHASSIS_COST) and _has_build_tool())
+
+
+func _update_second_bogie_preview(hit_point: Vector3) -> void:
+	if _second_bogie_preview == null and chassis_scene:
+		_second_bogie_preview = chassis_scene.instantiate()
+		_second_bogie_preview.set_meta("is_preview", true)
+		_apply_material(_second_bogie_preview, preview_material_valid)
+	if _second_bogie_preview == null:
+		return
+	if not _second_bogie_preview.is_inside_tree():
+		get_tree().current_scene.add_child(_second_bogie_preview)
+		_disable_preview_collision(_second_bogie_preview)
+
+	var curve: Curve3D = _first_bogie_curve
+	var total: float = curve.get_baked_length()
+	var offset: float = curve.get_closest_offset(hit_point)
+	var distance: float = absf(offset - _first_bogie_progress)
+	# Clamp distance: min 2 tiles, max 8 tiles
+	var min_dist: float = 2.0
+	var max_dist: float = 8.0
+	distance = clampf(distance, min_dist, max_dist)
+	# Place second bogie on the other side of first
+	var second_progress: float
+	if offset > _first_bogie_progress:
+		second_progress = clampf(_first_bogie_progress + distance, 0.0, total)
+	else:
+		second_progress = clampf(_first_bogie_progress - distance, 0.0, total)
+
+	var pos: Vector3 = curve.sample_baked(second_progress)
+	var ahead: float = minf(second_progress + 1.0, total)
+	var behind: float = maxf(second_progress - 1.0, 0.0)
+	var fwd: Vector3 = curve.sample_baked(ahead) - curve.sample_baked(behind)
+	if fwd.length_squared() < 0.0001:
+		fwd = Vector3.FORWARD
+	fwd = fwd.normalized()
+
+	_second_bogie_preview.visible = true
+	_second_bogie_preview.global_position = pos
+	var right: Vector3 = Vector3.UP.cross(fwd)
+	if right.length_squared() < 0.0001:
+		right = Vector3.RIGHT
+	right = right.normalized()
+	var up: Vector3 = fwd.cross(right).normalized()
+	_second_bogie_preview.basis = Basis(right, up, fwd)
+	var valid: bool = distance >= min_dist and Inventory.has_resources(CHASSIS_COST) and _has_build_tool()
+	_apply_material(_second_bogie_preview, preview_material_valid if valid else preview_material_invalid)
+	can_place = valid
 
 func _find_terrain() -> TerrainGenerator:
 	var nodes := get_tree().get_nodes_in_group("terrain")
@@ -192,17 +286,20 @@ func _find_terrain() -> TerrainGenerator:
 	return null
 
 func update_preview_on_chassis(hit_point: Vector3, hit_normal: Vector3, chassis: TrainChassis) -> void:
+	update_preview_on_target(hit_point, hit_normal, chassis)
+
+func update_preview_on_target(hit_point: Vector3, hit_normal: Vector3, target: Node) -> void:
 	match mode:
 		BuildMode.FLOOR:
-			_update_floor_preview(hit_point, hit_normal, chassis)
+			_update_floor_preview(hit_point, hit_normal, target)
 		BuildMode.ITEM:
-			_update_item_preview(hit_point, hit_normal, chassis)
+			_update_item_preview(hit_point, hit_normal, target)
 		BuildMode.DEMOLISH:
-			_update_demolish_preview(hit_point, chassis)
+			_update_demolish_preview(hit_point, target)
 		_:
 			hide_preview()
 
-func _update_floor_preview(hit_point: Vector3, hit_normal: Vector3, chassis: TrainChassis) -> void:
+func _update_floor_preview(hit_point: Vector3, _hit_normal: Vector3, chassis: Node) -> void:
 	if preview_instance == null and floor_scene:
 		preview_instance = floor_scene.instantiate()
 		preview_instance.set_meta("is_preview", true)
@@ -212,23 +309,25 @@ func _update_floor_preview(hit_point: Vector3, hit_normal: Vector3, chassis: Tra
 	if not preview_instance.is_inside_tree():
 		get_tree().current_scene.add_child(preview_instance)
 		_disable_preview_collision(preview_instance)
-	var grid_pos := chassis.get_grid_position(hit_point)
+	var grid_pos: Vector2i = chassis.get_grid_position(hit_point)
 	if not chassis.is_grid_in_bounds(grid_pos):
 		hide_preview()
 		return
-	var world_pos := chassis.grid_to_world(grid_pos)
-	world_pos.y = chassis.global_position.y + chassis.get_build_surface_local_y()
+	var local_pos: Vector3 = chassis.grid_to_local(grid_pos)
+	local_pos.y = chassis.get_build_surface_local_y()
+	var world_pos: Vector3 = chassis.to_global(local_pos)
 	preview_instance.visible = true
 	preview_instance.global_position = world_pos
-	_set_preview_validity(chassis.can_place_floor(grid_pos) and Inventory.has_resources(FLOOR_COST))
+	preview_instance.global_basis = chassis.global_basis
+	_set_preview_validity(chassis.can_place_floor(grid_pos) and Inventory.has_resources(FLOOR_COST) and _has_build_tool())
 
-func _update_item_preview(hit_point: Vector3, hit_normal: Vector3, chassis: TrainChassis) -> void:
+func _update_item_preview(hit_point: Vector3, _hit_normal: Vector3, chassis: Node) -> void:
 	if preview_instance == null:
 		return
 	if not preview_instance.is_inside_tree():
 		get_tree().current_scene.add_child(preview_instance)
 		_disable_preview_collision(preview_instance)
-	var grid_pos := chassis.get_grid_position(hit_point)
+	var grid_pos: Vector2i = chassis.get_grid_position(hit_point)
 	if not chassis.is_grid_in_bounds(grid_pos):
 		_last_edge = EdgeSide.NONE
 		hide_preview()
@@ -250,51 +349,235 @@ func _update_item_preview(hit_point: Vector3, hit_normal: Vector3, chassis: Trai
 		rot_y = _edge_rotation(edge) + preview_rotation
 	else:
 		_last_edge = EdgeSide.NONE
-		world_pos = chassis.grid_to_world(grid_pos)
-		world_pos.y = chassis.global_position.y + chassis.get_build_surface_local_y() + 0.05
+		var local_center: Vector3 = chassis.grid_to_local(grid_pos)
+		local_center.y = chassis.get_build_surface_local_y() + 0.05
+		world_pos = chassis.to_global(local_center)
 
 	preview_instance.visible = true
 	preview_instance.global_position = world_pos
-	preview_instance.rotation.y = rot_y
+	preview_instance.global_basis = chassis.global_basis * Basis(Vector3.UP, rot_y)
 	var cost: Dictionary = current_buildable_data.cost if current_buildable_data else {}
 	var has_cost: bool = cost.is_empty() or Inventory.has_resources(cost)
+	var has_tool: bool = _has_build_tool()
 	if is_edge_item and _last_edge != EdgeSide.NONE:
-		_set_preview_validity(chassis.can_place_edge(grid_pos, _last_edge) and has_cost)
+		_set_preview_validity(chassis.can_place_edge(grid_pos, _last_edge) and has_cost and has_tool)
 	else:
-		_set_preview_validity(chassis.can_place_item(grid_pos) and has_cost)
+		_set_preview_validity(chassis.can_place_item(grid_pos) and has_cost and has_tool)
 
 # --- Placement ---
 
 func try_place_chassis(hit_point: Vector3) -> Node3D:
-	var terrain: TerrainGenerator = _find_terrain()
-	if terrain == null:
+	if not _has_build_tool():
 		return null
-	var curve: Curve3D = terrain.get_rail_curve()
-	if curve == null:
+
+	# Step 2: place second bogie + create WagonFrame
+	if _first_bogie != null and _first_bogie_curve != null:
+		return _place_second_bogie(hit_point)
+
+	# Step 1: place first bogie — find closest rail
+	var best_curve: Curve3D = null
+	var best_offset: float = 0.0
+	var best_pos: Vector3 = hit_point
+	var best_dist: float = INF
+	var best_rp: Node = null
+	var all_rps := get_tree().get_nodes_in_group("rail_path")
+	for rp in all_rps:
+		if not rp.has_method("get_rail_curve"):
+			continue
+		var rp_curve: Curve3D = rp.get_rail_curve()
+		if rp_curve == null or rp_curve.get_baked_length() < 0.1:
+			continue
+		var local_hit: Vector3 = rp.to_local(hit_point)
+		var rp_off: float = rp_curve.get_closest_offset(local_hit)
+		var rp_pos: Vector3 = rp.to_global(rp_curve.sample_baked(rp_off))
+		var d: float = hit_point.distance_to(rp_pos)
+		if d < best_dist:
+			best_dist = d
+			best_curve = rp_curve
+			best_offset = rp_off
+			best_pos = rp_pos
+			best_rp = rp
+	# Fallback to terrain's single curve
+	if best_curve == null:
+		var terrain: TerrainGenerator = _find_terrain()
+		if terrain:
+			best_curve = terrain.get_rail_curve()
+			if best_curve and best_curve.get_baked_length() > 0.0:
+				best_offset = best_curve.get_closest_offset(hit_point)
+				best_pos = best_curve.sample_baked(best_offset)
+				best_dist = hit_point.distance_to(best_pos)
+	if best_curve == null or best_dist >= 6.0:
 		return null
-	var dist: float = terrain.distance_to_rails(hit_point)
-	if dist >= 6.0:
-		return null  # Not close enough to rails
 	if not Inventory.spend_resources(CHASSIS_COST):
 		return null
-	var instance := chassis_scene.instantiate() as Node3D
+	# Build world-space curve for movement (same as chassis.snap_to_rails does)
+	var world_curve: Curve3D
+	if best_rp != null:
+		world_curve = _build_world_curve(best_rp)
+		if world_curve == null:
+			world_curve = best_curve
+		else:
+			best_offset = world_curve.get_closest_offset(best_pos)
+	else:
+		world_curve = best_curve
+	var instance := chassis_scene.instantiate() as TrainChassis
 	get_tree().current_scene.add_child(instance)
+	instance.global_position = world_curve.sample_baked(best_offset)
+	_orient_node_on_curve(instance, world_curve, best_offset)
+
+	# Store for step 2
+	_first_bogie = instance
+	_first_bogie_progress = best_offset
+	_first_bogie_curve = world_curve
+	_first_bogie_rail_path = best_rp
+	# Hide step 1 preview
+	_clear_preview()
+	return instance
+
+
+func _place_second_bogie(hit_point: Vector3) -> Node3D:
+	var curve: Curve3D = _first_bogie_curve
+	var total: float = curve.get_baked_length()
 	var offset: float = curve.get_closest_offset(hit_point)
-	instance.global_position = curve.sample_baked(offset)
+	var distance: float = absf(offset - _first_bogie_progress)
+	distance = clampf(distance, 2.0, 8.0)
+	if not Inventory.spend_resources(CHASSIS_COST):
+		return null
+
+	# Determine direction
+	var second_progress: float
+	if offset > _first_bogie_progress:
+		second_progress = clampf(_first_bogie_progress + distance, 0.0, total)
+	else:
+		second_progress = clampf(_first_bogie_progress - distance, 0.0, total)
+
+	# Ensure front bogie has higher progress (closer to end of track)
+	var front_progress: float = maxf(_first_bogie_progress, second_progress)
+	var rear_progress: float = minf(_first_bogie_progress, second_progress)
+	var wagon_tiles: int = clampi(int(round(absf(front_progress - rear_progress))), 2, 8)
+
+	# Create second bogie
+	var second_bogie := chassis_scene.instantiate() as TrainChassis
+	get_tree().current_scene.add_child(second_bogie)
+	second_bogie.global_position = curve.sample_baked(second_progress)
+	_orient_node_on_curve(second_bogie, curve, second_progress)
+
+	# Determine which is front, which is rear
+	var front: TrainChassis
+	var rear: TrainChassis
+	if _first_bogie_progress >= second_progress:
+		front = _first_bogie
+		rear = second_bogie
+	else:
+		front = second_bogie
+		rear = _first_bogie
+
+	# Create WagonFrame and reparent bogies
+	var frame := WagonFrame.new()
+	frame.wagon_length = wagon_tiles
+	get_tree().current_scene.add_child(frame)
+
+	# Position frame at midpoint
+	var front_pos: Vector3 = curve.sample_baked(front_progress)
+	var rear_pos: Vector3 = curve.sample_baked(rear_progress)
+	frame.global_position = (front_pos + rear_pos) * 0.5
+	var fwd: Vector3 = front_pos - rear_pos
+	if fwd.length_squared() > 0.001:
+		fwd = fwd.normalized()
+		var rt: Vector3 = Vector3.UP.cross(fwd)
+		if rt.length_squared() < 0.0001:
+			rt = Vector3.RIGHT
+		rt = rt.normalized()
+		var up_v: Vector3 = fwd.cross(rt).normalized()
+		frame.basis = Basis(rt, up_v, fwd)
+
+	# Reparent bogies under frame
+	front.get_parent().remove_child(front)
+	frame.add_child(front)
+	front.position = frame.to_local(front_pos)
+
+	rear.get_parent().remove_child(rear)
+	frame.add_child(rear)
+	rear.position = frame.to_local(rear_pos)
+
+	# Initialize frame
+	frame.front_bogie = front
+	frame.rear_bogie = rear
+	frame._setup_bogies()
+	frame._build_frame_visuals()
+	frame._build_collision_surface()
+
+	# Set rail data on front bogie so WagonFrame can use it
+	front.rail_curve = curve
+	front.rail_progress = front_progress
+	front.current_rail_path = _first_bogie_rail_path
+	rear.rail_curve = curve
+	rear.rail_progress = rear_progress
+	rear.current_rail_path = _first_bogie_rail_path
+
+	# Clean up second preview
+	_clear_second_bogie_preview()
+	_first_bogie = null
+	_first_bogie_progress = 0.0
+	_first_bogie_curve = null
+	_first_bogie_rail_path = null
+
+	item_placed.emit(frame)
+	return frame
+
+
+func _orient_node_on_curve(node: Node3D, curve: Curve3D, offset: float) -> void:
 	var total: float = curve.get_baked_length()
 	var ahead: float = minf(offset + 1.0, total)
 	var behind: float = maxf(offset - 1.0, 0.0)
 	var fwd: Vector3 = curve.sample_baked(ahead) - curve.sample_baked(behind)
-	fwd.y = 0.0
 	if fwd.length_squared() > 0.0001:
-		instance.basis = Basis.looking_at(fwd.normalized(), Vector3.UP)
-	if instance is TrainChassis:
-		instance.snap_to_rails()
-	item_placed.emit(instance)
-	return instance
+		fwd = fwd.normalized()
+		var rt: Vector3 = Vector3.UP.cross(fwd)
+		if rt.length_squared() < 0.0001:
+			rt = Vector3.RIGHT
+		rt = rt.normalized()
+		var up_v: Vector3 = fwd.cross(rt).normalized()
+		node.basis = Basis(rt, up_v, fwd)
 
-func try_place_floor(hit_point: Vector3, chassis: TrainChassis) -> Node3D:
-	var grid_pos := chassis.get_grid_position(hit_point)
+
+func _build_world_curve(path_node: Node) -> Curve3D:
+	var src_curve: Curve3D = path_node.get_rail_curve()
+	if src_curve == null or src_curve.point_count < 2:
+		return null
+	var wc := Curve3D.new()
+	wc.bake_interval = src_curve.bake_interval
+	for i in range(src_curve.point_count):
+		var p: Vector3 = path_node.to_global(src_curve.get_point_position(i))
+		var t_in: Vector3 = path_node.global_basis * src_curve.get_point_in(i)
+		var t_out: Vector3 = path_node.global_basis * src_curve.get_point_out(i)
+		wc.add_point(p, t_in, t_out)
+	return wc
+
+
+func _cancel_chassis_placement() -> void:
+	# If first bogie was placed but not yet coupled, remove it and refund
+	if _first_bogie and is_instance_valid(_first_bogie):
+		_first_bogie.queue_free()
+		Inventory.add_resource("wood", CHASSIS_COST.get("wood", 0))
+		Inventory.add_resource("metal", CHASSIS_COST.get("metal", 0))
+	_first_bogie = null
+	_first_bogie_progress = 0.0
+	_first_bogie_curve = null
+	_first_bogie_rail_path = null
+	_clear_second_bogie_preview()
+
+
+func _clear_second_bogie_preview() -> void:
+	if _second_bogie_preview and is_instance_valid(_second_bogie_preview):
+		if _second_bogie_preview.is_inside_tree():
+			_second_bogie_preview.queue_free()
+	_second_bogie_preview = null
+
+func try_place_floor(hit_point: Vector3, chassis: Node) -> Node3D:
+	if not _has_build_tool():
+		return null
+	var grid_pos: Vector2i = chassis.get_grid_position(hit_point)
 	if not chassis.is_grid_in_bounds(grid_pos):
 		return null
 	if not chassis.can_place_floor(grid_pos):
@@ -303,17 +586,19 @@ func try_place_floor(hit_point: Vector3, chassis: TrainChassis) -> Node3D:
 		return null
 	var instance := floor_scene.instantiate() as Node3D
 	chassis.add_child(instance)
-	var local_pos := chassis.grid_to_local(grid_pos)
+	var local_pos: Vector3 = chassis.grid_to_local(grid_pos)
 	local_pos.y = chassis.get_build_surface_local_y()
 	instance.position = local_pos
 	chassis.place_floor(grid_pos, instance)
 	item_placed.emit(instance)
 	return instance
 
-func try_place_item(hit_point: Vector3, chassis: TrainChassis) -> Node3D:
+func try_place_item(hit_point: Vector3, chassis: Node) -> Node3D:
+	if not _has_build_tool():
+		return null
 	if current_buildable == null:
 		return null
-	var grid_pos := chassis.get_grid_position(hit_point)
+	var grid_pos: Vector2i = chassis.get_grid_position(hit_point)
 	if not chassis.is_grid_in_bounds(grid_pos):
 		return null
 	var is_edge_item: bool = _is_edge_category()
@@ -336,7 +621,7 @@ func try_place_item(hit_point: Vector3, chassis: TrainChassis) -> Node3D:
 		instance.set_meta("buildable_id", current_buildable_data.id)
 	chassis.add_child(instance)
 
-	var local_pos := chassis.grid_to_local(grid_pos)
+	var local_pos: Vector3 = chassis.grid_to_local(grid_pos)
 	local_pos.y = chassis.get_build_surface_local_y() + 0.05
 
 	if is_edge_item and _last_edge != EdgeSide.NONE:
@@ -365,7 +650,7 @@ func _is_edge_category() -> bool:
 		BuildableData.Category.BARRICADE,
 	]
 
-func _detect_edge_from_player_view(chassis: TrainChassis, grid_pos: Vector2i) -> EdgeSide:
+func _detect_edge_from_player_view(chassis: Node, grid_pos: Vector2i) -> EdgeSide:
 	var player: Node3D = _get_primary_player()
 	if player == null:
 		return EdgeSide.NORTH
@@ -405,9 +690,9 @@ func _edge_rotation(edge: EdgeSide) -> float:
 
 # --- Demolish ---
 
-func _update_demolish_preview(hit_point: Vector3, chassis: TrainChassis) -> void:
+func _update_demolish_preview(hit_point: Vector3, chassis: Node) -> void:
 	_clear_preview()
-	var grid_pos := chassis.get_grid_position(hit_point)
+	var grid_pos: Vector2i = chassis.get_grid_position(hit_point)
 	if not chassis.is_grid_in_bounds(grid_pos):
 		_clear_demolish_highlight()
 		can_place = false
@@ -442,29 +727,65 @@ func _update_demolish_preview(hit_point: Vector3, chassis: TrainChassis) -> void
 		return
 	_clear_demolish_highlight()
 	demolish_target = target
-	_apply_material(demolish_target, preview_material_demolish)
+	_apply_temp_material(demolish_target, preview_material_demolish)
 	can_place = true
 
 func _clear_demolish_highlight() -> void:
 	if demolish_target and is_instance_valid(demolish_target):
-		_clear_material_overrides(demolish_target)
+		_restore_temp_material(demolish_target)
 	demolish_target = null
 
-func _clear_material_overrides(node: Node3D) -> void:
+func _apply_temp_material(node: Node3D, mat: StandardMaterial3D) -> void:
 	if node is MeshInstance3D:
-		for i in node.get_surface_override_material_count():
-			node.set_surface_override_material(i, null)
+		var mesh_node := node as MeshInstance3D
+		if not mesh_node.has_meta("_demolish_prev_overrides"):
+			var previous: Array = []
+			var count: int = 0
+			if mesh_node.mesh:
+				count = mesh_node.mesh.get_surface_count()
+			else:
+				count = mesh_node.get_surface_override_material_count()
+			for i in range(count):
+				previous.append(mesh_node.get_surface_override_material(i))
+			mesh_node.set_meta("_demolish_prev_overrides", previous)
+		var set_count: int = 0
+		if mesh_node.mesh:
+			set_count = mesh_node.mesh.get_surface_count()
+		else:
+			set_count = mesh_node.get_surface_override_material_count()
+		for i in range(set_count):
+			mesh_node.set_surface_override_material(i, mat)
 	if node is CSGPrimitive3D:
-		node.material = null
+		var csg_node := node as CSGPrimitive3D
+		if not csg_node.has_meta("_demolish_prev_material"):
+			csg_node.set_meta("_demolish_prev_material", csg_node.material)
+		csg_node.material = mat
 	for child in node.get_children():
 		if child is Node3D:
-			_clear_material_overrides(child)
+			_apply_temp_material(child, mat)
 
-func _find_floor_mesh(chassis: TrainChassis, grid_pos: Vector2i) -> Node3D:
+func _restore_temp_material(node: Node3D) -> void:
+	if node is MeshInstance3D:
+		var mesh_node := node as MeshInstance3D
+		if mesh_node.has_meta("_demolish_prev_overrides"):
+			var previous: Array = mesh_node.get_meta("_demolish_prev_overrides")
+			for i in range(previous.size()):
+				mesh_node.set_surface_override_material(i, previous[i])
+			mesh_node.remove_meta("_demolish_prev_overrides")
+	if node is CSGPrimitive3D:
+		var csg_node := node as CSGPrimitive3D
+		if csg_node.has_meta("_demolish_prev_material"):
+			csg_node.material = csg_node.get_meta("_demolish_prev_material")
+			csg_node.remove_meta("_demolish_prev_material")
+	for child in node.get_children():
+		if child is Node3D:
+			_restore_temp_material(child)
+
+func _find_floor_mesh(chassis: Node, grid_pos: Vector2i) -> Node3D:
 	return chassis.get_floor_node(grid_pos)
 
-func try_demolish(hit_point: Vector3, chassis: TrainChassis) -> bool:
-	var grid_pos := chassis.get_grid_position(hit_point)
+func try_demolish(hit_point: Vector3, chassis: Node) -> bool:
+	var grid_pos: Vector2i = chassis.get_grid_position(hit_point)
 	if not chassis.is_grid_in_bounds(grid_pos):
 		return false
 	if not chassis.grid_cells.has(grid_pos):
@@ -528,6 +849,8 @@ func _refund_item(item: Node3D) -> void:
 func hide_preview() -> void:
 	if preview_instance and is_instance_valid(preview_instance) and preview_instance.is_inside_tree():
 		preview_instance.visible = false
+	if _second_bogie_preview and is_instance_valid(_second_bogie_preview) and _second_bogie_preview.is_inside_tree():
+		_second_bogie_preview.visible = false
 	_clear_demolish_highlight()
 	can_place = false
 	_preview_material_state = -1

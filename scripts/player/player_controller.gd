@@ -170,7 +170,6 @@ func _try_build() -> void:
 	if not build_ray.is_colliding():
 		return
 	var hit_point := build_ray.get_collision_point()
-	var hit_normal := build_ray.get_collision_normal()
 	var collider: Object = build_ray.get_collider()
 	if collider == null:
 		return
@@ -185,7 +184,6 @@ func _try_build() -> void:
 				var p: Variant = _get_build_point_on_chassis(chassis)
 				if p is Vector3:
 					hit_point = p
-					hit_normal = chassis.get_build_surface_normal_world()
 				BuildSystem.try_place_floor(hit_point, chassis)
 		BuildSystem.BuildMode.ITEM:
 			var chassis := _find_chassis(collider)
@@ -193,7 +191,6 @@ func _try_build() -> void:
 				var p: Variant = _get_build_point_on_chassis(chassis)
 				if p is Vector3:
 					hit_point = p
-					hit_normal = chassis.get_build_surface_normal_world()
 				BuildSystem.try_place_item(hit_point, chassis)
 		BuildSystem.BuildMode.DEMOLISH:
 			var chassis := _find_chassis(collider)
@@ -201,7 +198,6 @@ func _try_build() -> void:
 				var p: Variant = _get_build_point_on_chassis(chassis)
 				if p is Vector3:
 					hit_point = p
-					hit_normal = chassis.get_build_surface_normal_world()
 				BuildSystem.try_demolish(hit_point, chassis)
 
 func _update_build_preview() -> void:

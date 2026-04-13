@@ -80,7 +80,7 @@ func _add_section(section_name: String) -> void:
 
 func _add_mode_button(item_name: String, cost: Dictionary, mode: int) -> void:
 	var btn := Button.new()
-	btn.text = "%s   [%s]" % [item_name, _format_cost(cost)]
+	btn.text = "%s   [%s]  [hammer]" % [item_name, _format_cost(cost)]
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	btn.pressed.connect(func(): mode_selected.emit(mode))
 	if not Inventory.has_resources(cost):
@@ -91,6 +91,8 @@ func _add_item_button(data: BuildableData) -> void:
 	var btn := Button.new()
 	btn.text = "%s   [%s]" % [data.display_name, _format_cost(data.cost)]
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	if data.icon != null:
+		btn.icon = data.icon
 	var id: String = data.id
 	btn.pressed.connect(func(): item_selected.emit(id))
 	if not Inventory.has_resources(data.cost):

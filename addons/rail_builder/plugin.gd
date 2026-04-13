@@ -169,6 +169,28 @@ func _build_panel() -> void:
 	_auto_enforce_check.button_pressed = false
 	_panel.add_child(_auto_enforce_check)
 
+	_panel.add_child(_make_separator())
+
+	var junction_title := Label.new()
+	junction_title.text = "Aiguillages"
+	junction_title.add_theme_font_size_override("font_size", 14)
+	_panel.add_child(junction_title)
+
+	var connect_start_btn := Button.new()
+	connect_start_btn.text = "Connecter DEBUT → autre RailPath"
+	connect_start_btn.pressed.connect(_on_connect_start_pressed)
+	_panel.add_child(connect_start_btn)
+
+	var connect_end_btn := Button.new()
+	connect_end_btn.text = "Connecter FIN → autre RailPath"
+	connect_end_btn.pressed.connect(_on_connect_end_pressed)
+	_panel.add_child(connect_end_btn)
+
+	var add_switch_btn := Button.new()
+	add_switch_btn.text = "Placer un aiguillage (RailSwitch)"
+	add_switch_btn.pressed.connect(_on_add_switch_pressed)
+	_panel.add_child(add_switch_btn)
+
 	_status_label = Label.new()
 	_status_label.text = "Aucun RailPath sélectionné."
 	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -408,6 +430,105 @@ func _has_property(object: Object, property_name: String) -> bool:
 		if str(prop.get("name", "")) == property_name:
 			return true
 	return false
+
+
+func _on_connect_start_pressed() -> void:
+	_connect_endpoint(0)
+
+
+func _on_connect_end_pressed() -> void:
+	_connect_endpoint(1)
+
+
+func _connect_endpoint(endpoint: int) -> void:
+	if _current_path == null:
+		_update_status("Sélectionne un RailPath d'abord.")
+		return
+	# Find all other RailPaths in the scene
+	var root := get_tree().edited_scene_root
+	if root == null:
+		_update_status("Pas de scène éditée.")
+		return
+	var all_paths: Array[Node] = []
+	_collect_rail_paths(root, all_paths)
+	all_paths.erase(_current_path)
+	if all_paths.size() == 0:
+		_update_status("Aucun autre RailPath dans la scène.")
+		return
+	# Find the closest other RailPath endpoint
+	var my_pos: Vector3
+	if _current_path.curve != null and _current_path.curve.point_count > 0:
+		if endpoint == 0:
+			my_pos = _current_path.to_global(_current_path.curve.get_point_position(0))
+		else:
+			my_pos = _current_path.to_global(_current_path.curve.get_point_position(_current_path.curve.point_count - 1))
+	else:
+		my_pos = _current_path.global_position
+	var best_path: Path3D = null
+	var best_dist: float = INF
+	for other in all_paths:
+		var other_path := other as Path3D
+		if other_path.curve == null or other_path.curve.point_count == 0:
+			continue
+		var p_start: Vector3 = other_path.to_global(other_path.curve.get_point_position(0))
+		var p_end: Vector3 = other_path.to_global(other_path.curve.get_point_position(other_path.curve.point_count - 1))
+		var d_start: float = my_pos.distance_to(p_start)
+		var d_end: float = my_pos.distance_to(p_end)
+		var d: float = minf(d_start, d_end)
+		if d < best_dist:
+			best_dist = d
+			best_path = other_path
+	if best_path == null:
+		_update_status("Aucun RailPath valide trouvé.")
+		return
+	# Add the connection as a NodePath in the current path's exports
+	var target_np: NodePath = _current_path.get_path_to(best_path)
+	var prop_name: String = "connections_at_start" if endpoint == 0 else "connections_at_end"
+	if _has_property(_current_path, prop_name):
+		var existing: Array = _current_path.get(prop_name)
+		# Check for duplicate
+		for np in existing:
+			if str(np) == str(target_np):
+				_update_status("Connexion déjà existante vers %s." % best_path.name)
+				return
+		existing.append(target_np)
+		_current_path.set(prop_name, existing)
+		_update_status("Connecté %s de %s → %s (distance: %.1fm)" % [
+			"début" if endpoint == 0 else "fin",
+			_current_path.name, best_path.name, best_dist])
+	else:
+		_update_status("Le RailPath ne possède pas la propriété '%s'." % prop_name)
+
+
+func _on_add_switch_pressed() -> void:
+	if _current_path == null:
+		_update_status("Sélectionne un RailPath d'abord.")
+		return
+	var switch_scene := load("res://scenes/rail/rail_switch.tscn") as PackedScene
+	if switch_scene == null:
+		_update_status("Impossible de charger rail_switch.tscn.")
+		return
+	# Place at the end of the current path
+	var pos: Vector3 = _current_path.global_position
+	if _current_path.curve != null and _current_path.curve.point_count > 0:
+		pos = _current_path.to_global(_current_path.curve.get_point_position(_current_path.curve.point_count - 1))
+	var instance := switch_scene.instantiate() as Node3D
+	var scene_root := get_tree().edited_scene_root
+	scene_root.add_child(instance)
+	instance.owner = scene_root
+	instance.global_position = pos
+	if _has_property(instance, "rail_path"):
+		instance.set("rail_path", instance.get_path_to(_current_path))
+	if _has_property(instance, "endpoint"):
+		instance.set("endpoint", 1)
+	_update_status("Aiguillage placé à la fin de %s." % _current_path.name)
+
+
+func _collect_rail_paths(node: Node, result: Array[Node]) -> void:
+	if _is_rail_path(node):
+		result.append(node)
+	for child in node.get_children():
+		_collect_rail_paths(child, result)
 
 
 func _manual_snap_points_to_ground(path: Path3D) -> bool:

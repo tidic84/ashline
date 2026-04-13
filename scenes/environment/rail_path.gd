@@ -84,6 +84,12 @@ const RAIL_SECTION_SCENE_PATH := "res://assets/models/rails/rail_section.glb"
 
 @export_range(-10.0, 10.0, 0.01) var ground_offset: float = 0.20
 
+@export_group("Connections")
+## Paths connected at the START of this rail (point 0).
+@export var connections_at_start: Array[NodePath] = []
+## Paths connected at the END of this rail (last point).
+@export var connections_at_end: Array[NodePath] = []
+
 @export_group("Preview")
 @export var preview_enabled: bool = true
 @export var preview_match_runtime_deformed: bool = false
@@ -156,6 +162,10 @@ func _ready() -> void:
 		_ensure_preview_materials()
 		_update_preview_mesh(true)
 		return
+	# Register with RailNetwork and set up connections
+	if not Engine.is_editor_hint():
+		RailNetwork.register_path(self)
+		call_deferred("_register_connections")
 	if curve.point_count == 0:
 		_reset_default_curve()
 	_apply_smoothing()
@@ -180,6 +190,38 @@ func _process(_delta: float) -> void:
 
 func get_rail_curve() -> Curve3D:
 	return curve
+
+
+func _register_connections() -> void:
+	for np in connections_at_start:
+		var node := get_node_or_null(np)
+		if node is RailPath:
+			# Determine which end of the target is closest to our start
+			var target_end := _closest_end_of(node as RailPath, _get_start_world())
+			RailNetwork.add_connection(self, 0, node, target_end)
+	for np in connections_at_end:
+		var node := get_node_or_null(np)
+		if node is RailPath:
+			var target_end := _closest_end_of(node as RailPath, _get_end_world())
+			RailNetwork.add_connection(self, 1, node, target_end)
+
+
+func _get_start_world() -> Vector3:
+	if curve == null or curve.point_count == 0:
+		return global_position
+	return to_global(curve.get_point_position(0))
+
+
+func _get_end_world() -> Vector3:
+	if curve == null or curve.point_count < 2:
+		return global_position
+	return to_global(curve.get_point_position(curve.point_count - 1))
+
+
+func _closest_end_of(other: RailPath, world_pos: Vector3) -> int:
+	var start_dist := world_pos.distance_squared_to(other._get_start_world())
+	var end_dist := world_pos.distance_squared_to(other._get_end_world())
+	return 0 if start_dist < end_dist else 1
 
 
 func _build_point_positions_hash() -> String:
