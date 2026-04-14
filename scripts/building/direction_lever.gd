@@ -7,7 +7,7 @@ var can_switch: bool = true
 var _target: Node = null  # WagonFrame or TrainChassis
 
 func _ready() -> void:
-	collision_layer = 32  # Layer 6 = Interactable
+	collision_layer = 48  # Layer 5 (physical) + Layer 6 (interactable)
 	collision_mask = 0
 	add_to_group("interactable")
 	var current: Node = get_parent()
