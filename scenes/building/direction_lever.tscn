@@ -1,55 +1,27 @@
 [gd_scene format=3 uid="uid://dirlever001"]
 
-[ext_resource type="Script" path="res://scripts/building/direction_lever.gd" id="1"]
-
-[sub_resource type="StandardMaterial3D" id="mat_metal"]
-albedo_color = Color(0.3, 0.28, 0.25, 1)
-metallic = 0.8
-roughness = 0.5
-
-[sub_resource type="StandardMaterial3D" id="mat_wood"]
-albedo_color = Color(0.45, 0.32, 0.18, 1)
-metallic = 0.0
-roughness = 0.9
+[ext_resource type="Script" uid="uid://ca76b1ob2ynhc" path="res://scripts/building/direction_lever.gd" id="1"]
+[ext_resource type="PackedScene" uid="uid://chkrl8ugfj1k" path="res://assets/models/train/Base_levier.glb" id="2"]
+[ext_resource type="PackedScene" uid="uid://bs7xj8o0fwx3k" path="res://assets/models/train/Levier_Orientation.glb" id="3"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_lever"]
-size = Vector3(0.6, 1.0, 0.4)
+size = Vector3(0.6, 1, 0.4)
 
-[node name="DirectionLever" type="StaticBody3D"]
-script = ExtResource("1")
+[node name="DirectionLever" type="StaticBody3D" unique_id=2074153438]
+transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0, 0)
 collision_layer = 32
 collision_mask = 0
+script = ExtResource("1")
 
-[node name="Base" type="CSGBox3D" parent="."]
-size = Vector3(0.4, 0.3, 0.3)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.15, 0)
-material = SubResource("mat_metal")
+[node name="Base" parent="." unique_id=1690377985 instance=ExtResource("2")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.8021393, 0.059916735, -0.09229839)
 
-[node name="SlotLeft" type="CSGBox3D" parent="."]
-size = Vector3(0.05, 0.5, 0.08)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.15, 0.55, 0)
-material = SubResource("mat_metal")
-
-[node name="SlotRight" type="CSGBox3D" parent="."]
-size = Vector3(0.05, 0.5, 0.08)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.15, 0.55, 0)
-material = SubResource("mat_metal")
-
-[node name="Handle" type="Node3D" parent="."]
+[node name="Handle" type="Node3D" parent="." unique_id=203175704]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
 
-[node name="Shaft" type="CSGBox3D" parent="Handle"]
-size = Vector3(0.06, 0.7, 0.06)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.35, 0)
-material = SubResource("mat_wood")
+[node name="LeverModel" parent="Handle" unique_id=812655017 instance=ExtResource("3")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.7068661, -0.31115007, -0.10040355)
 
-[node name="Knob" type="CSGCylinder3D" parent="Handle"]
-radius = 0.06
-height = 0.08
-sides = 12
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.74, 0)
-material = SubResource("mat_wood")
-
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=546881739]
+transform = Transform3D(2.195, 0, 0, 0, 1.875, 0, 0, 0, 1.645, 0.018237352, 1.0015936, 0)
 shape = SubResource("BoxShape3D_lever")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
