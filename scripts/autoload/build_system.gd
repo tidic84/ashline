@@ -122,6 +122,7 @@ func select_buildable(buildable_id: String) -> void:
 	if current_buildable:
 		preview_instance = current_buildable.instantiate()
 		preview_instance.set_meta("is_preview", true)
+		preview_instance.set_meta("original_scale", preview_instance.scale)
 		_apply_material(preview_instance, preview_material_valid)
 	buildable_selected.emit(current_buildable_data)
 
@@ -355,9 +356,11 @@ func _update_item_preview(hit_point: Vector3, _hit_normal: Vector3, chassis: Nod
 		local_center.y = chassis.get_build_surface_local_y() + 0.05
 		world_pos = chassis.to_global(local_center)
 
+	var _sc: Vector3 = preview_instance.get_meta("original_scale", preview_instance.scale)
 	preview_instance.visible = true
 	preview_instance.global_position = world_pos
-	preview_instance.global_basis = chassis.global_basis * Basis(Vector3.UP, rot_y)
+	preview_instance.global_basis = chassis.global_basis.orthonormalized() * Basis(Vector3.UP, rot_y)
+	preview_instance.scale = _sc
 	var cost: Dictionary = current_buildable_data.cost if current_buildable_data else {}
 	var has_cost: bool = cost.is_empty() or Inventory.has_resources(cost)
 	var has_tool: bool = _has_build_tool()

@@ -9,7 +9,7 @@ size = Vector3(0.6, 1, 0.4)
 
 [node name="DirectionLever" type="StaticBody3D" unique_id=2074153438]
 transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0, 0)
-collision_layer = 32
+collision_layer = 48
 collision_mask = 0
 script = ExtResource("1")
 
@@ -23,5 +23,5 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.7068661, -0.31115007, -0.10040355)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=546881739]
-transform = Transform3D(2.195, 0, 0, 0, 1.875, 0, 0, 0, 1.645, 0.018237352, 1.0015936, 0)
+transform = Transform3D(1.0975, 0, 0, 0, 0.9375, 0, 0, 0, 0.8225, 0.018237352, 1.0015936, 0)
 shape = SubResource("BoxShape3D_lever")
