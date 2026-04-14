@@ -30,14 +30,29 @@ var _crafting_system: Node = null
 
 var _hotbar_ui: Array[InventorySlotUI] = []
 var _inventory_ui: Array[InventorySlotUI] = []
+var _preview_tuner_panel: PanelContainer
+var _preview_tuner_item_select: OptionButton
+var _preview_tuner_texture: TextureRect
+var _preview_tuner_rot_x: SpinBox
+var _preview_tuner_rot_y: SpinBox
+var _preview_tuner_rot_z: SpinBox
+var _preview_tuner_scale: SpinBox
+var _preview_tuner_config_label: Label
+var _preview_tuner_syncing: bool = false
+var _preview_tuner_item_ids: Array[String] = []
+var _selected_preview_item_id: String = ""
 
 func _ready() -> void:
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	if get_viewport():
+		get_viewport().size_changed.connect(func(): set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT))
 	BuildSystem.build_mode_entered.connect(_on_build_entered)
 	BuildSystem.build_mode_exited.connect(_on_build_exited)
 	Inventory.inventory_updated.connect(_on_inventory_updated)
 	Inventory.hotbar_updated.connect(_refresh_hotbar_slots)
 	Inventory.selected_hotbar_changed.connect(_on_hotbar_selected)
 	Inventory.survival_changed.connect(_on_survival_changed)
+	Inventory.item_icon_preview_settings_changed.connect(_on_item_icon_preview_settings_changed)
 
 	_crafting_system = get_node_or_null("/root/CraftingSystem")
 	if _crafting_system and _crafting_system.has_signal("crafted"):
@@ -50,6 +65,7 @@ func _ready() -> void:
 
 	_build_hotbar_ui()
 	_build_inventory_slots_ui()
+	_build_preview_tuner_ui()
 
 	_recipe_ids = _crafting_get_recipe_ids()
 	_on_inventory_updated()
@@ -120,6 +136,7 @@ func _on_inventory_updated() -> void:
 	_refresh_hotbar_slots()
 	if inventory_panel.visible:
 		_update_inventory_panel()
+	_refresh_preview_tuner_preview()
 
 func _on_survival_changed(health: float, hunger: float, thirst: float) -> void:
 	if stats_display and stats_display.has_method("set_stats"):
@@ -174,8 +191,12 @@ func toggle_inventory_panel(force_state: Variant = null) -> bool:
 	if force_state is bool:
 		new_state = force_state
 	inventory_panel.visible = new_state
+	if _preview_tuner_panel != null:
+		_preview_tuner_panel.visible = new_state
 	if new_state:
+		_ensure_preview_tuner_selection(Inventory.get_selected_item())
 		_update_inventory_panel()
+		_refresh_preview_tuner_preview()
 	return inventory_panel.visible
 
 
@@ -256,6 +277,218 @@ func _build_inventory_slots_ui() -> void:
 		slot.slot_dropped.connect(_on_slot_dropped)
 		inventory_items_grid.add_child(slot)
 		_inventory_ui.append(slot)
+
+func _build_preview_tuner_ui() -> void:
+	_preview_tuner_panel = PanelContainer.new()
+	_preview_tuner_panel.name = "PreviewTunerPanel"
+	_preview_tuner_panel.visible = false
+	_preview_tuner_panel.anchor_left = 0.5
+	_preview_tuner_panel.anchor_top = 0.5
+	_preview_tuner_panel.anchor_right = 0.5
+	_preview_tuner_panel.anchor_bottom = 0.5
+	_preview_tuner_panel.offset_left = 346.0
+	_preview_tuner_panel.offset_top = -220.0
+	_preview_tuner_panel.offset_right = 618.0
+	_preview_tuner_panel.offset_bottom = 220.0
+	add_child(_preview_tuner_panel)
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 12)
+	margin.add_theme_constant_override("margin_top", 12)
+	margin.add_theme_constant_override("margin_right", 12)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	_preview_tuner_panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	vbox.add_theme_constant_override("separation", 8)
+	margin.add_child(vbox)
+
+	var title := Label.new()
+	title.text = "PREVIEW TUNER"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.add_theme_font_size_override("font_size", 15)
+	vbox.add_child(title)
+
+	var hint := Label.new()
+	hint.text = "Ajuste en direct, puis recopie la ligne ci-dessous dans ITEM_ICON_SETTINGS."
+	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint.add_theme_color_override("font_color", Color(0.76, 0.76, 0.76, 1.0))
+	hint.add_theme_font_size_override("font_size", 11)
+	vbox.add_child(hint)
+
+	_preview_tuner_item_select = OptionButton.new()
+	_preview_tuner_item_select.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_preview_tuner_item_select.item_selected.connect(_on_preview_tuner_item_selected)
+	vbox.add_child(_preview_tuner_item_select)
+
+	var preview_frame := PanelContainer.new()
+	preview_frame.custom_minimum_size = Vector2(0, 144)
+	preview_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vbox.add_child(preview_frame)
+
+	var preview_center := CenterContainer.new()
+	preview_center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	preview_frame.add_child(preview_center)
+
+	_preview_tuner_texture = TextureRect.new()
+	_preview_tuner_texture.custom_minimum_size = Vector2(128, 128)
+	_preview_tuner_texture.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_preview_tuner_texture.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	preview_center.add_child(_preview_tuner_texture)
+
+	_preview_tuner_rot_x = _make_preview_tuner_spinbox(vbox, "Rot X", -180.0, 180.0, 1.0)
+	_preview_tuner_rot_y = _make_preview_tuner_spinbox(vbox, "Rot Y", -180.0, 180.0, 1.0)
+	_preview_tuner_rot_z = _make_preview_tuner_spinbox(vbox, "Rot Z", -180.0, 180.0, 1.0)
+	_preview_tuner_scale = _make_preview_tuner_spinbox(vbox, "Scale", 0.2, 2.5, 0.01)
+
+	var buttons := HBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 6)
+	vbox.add_child(buttons)
+
+	var reset_button := Button.new()
+	reset_button.text = "Reset"
+	reset_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	reset_button.pressed.connect(_on_preview_tuner_reset_pressed)
+	buttons.add_child(reset_button)
+
+	_preview_tuner_config_label = Label.new()
+	_preview_tuner_config_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_preview_tuner_config_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_preview_tuner_config_label.add_theme_font_size_override("font_size", 11)
+	_preview_tuner_config_label.add_theme_color_override("font_color", Color(0.88, 0.88, 0.88, 1.0))
+	vbox.add_child(_preview_tuner_config_label)
+
+	_populate_preview_tuner_items()
+	_ensure_preview_tuner_selection()
+
+func _make_preview_tuner_spinbox(parent: VBoxContainer, label_text: String, min_value: float, max_value: float, step: float) -> SpinBox:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	parent.add_child(row)
+
+	var label := Label.new()
+	label.text = label_text
+	label.custom_minimum_size = Vector2(52, 0)
+	row.add_child(label)
+
+	var spin := SpinBox.new()
+	spin.min_value = min_value
+	spin.max_value = max_value
+	spin.step = step
+	spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	spin.value_changed.connect(_on_preview_tuner_value_changed)
+	row.add_child(spin)
+	return spin
+
+func _populate_preview_tuner_items() -> void:
+	_preview_tuner_item_ids = Inventory.get_previewable_item_ids()
+	while _preview_tuner_item_select.item_count > 0:
+		_preview_tuner_item_select.remove_item(0)
+	for item_id in _preview_tuner_item_ids:
+		var item_name: String = Inventory.get_item_name(item_id)
+		var display_name: String = "%s (%s)" % [item_name, item_id]
+		_preview_tuner_item_select.add_item(display_name)
+		var index: int = _preview_tuner_item_select.item_count - 1
+		_preview_tuner_item_select.set_item_metadata(index, item_id)
+
+func _get_preview_tuner_item_index(item_id: String) -> int:
+	for i in range(_preview_tuner_item_select.item_count):
+		if String(_preview_tuner_item_select.get_item_metadata(i)) == item_id:
+			return i
+	return -1
+
+func _ensure_preview_tuner_selection(preferred_item_id: String = "") -> void:
+	if _preview_tuner_item_ids.is_empty():
+		_populate_preview_tuner_items()
+	if _preview_tuner_item_ids.is_empty():
+		_selected_preview_item_id = ""
+		_refresh_preview_tuner_preview()
+		return
+
+	var target_item_id: String = preferred_item_id
+	if target_item_id.is_empty() or not Inventory.has_item_model_preview(target_item_id):
+		target_item_id = _selected_preview_item_id
+	if target_item_id.is_empty() or not Inventory.has_item_model_preview(target_item_id):
+		target_item_id = _preview_tuner_item_ids[0]
+	_set_preview_tuner_item(target_item_id)
+
+func _set_preview_tuner_item(item_id: String) -> void:
+	if item_id.is_empty() or not Inventory.has_item_model_preview(item_id):
+		return
+	_selected_preview_item_id = item_id
+	var item_index: int = _get_preview_tuner_item_index(item_id)
+	if item_index >= 0 and _preview_tuner_item_select.selected != item_index:
+		_preview_tuner_syncing = true
+		_preview_tuner_item_select.select(item_index)
+		_preview_tuner_syncing = false
+	_sync_preview_tuner_controls()
+	_refresh_preview_tuner_preview()
+
+func _sync_preview_tuner_controls() -> void:
+	if _selected_preview_item_id.is_empty():
+		return
+	var settings: Dictionary = Inventory.get_item_icon_settings(_selected_preview_item_id)
+	var rot_deg: Vector3 = settings.get("rotation_deg", Vector3.ZERO)
+	var scale_mult: float = float(settings.get("scale_mult", 1.0))
+	_preview_tuner_syncing = true
+	_preview_tuner_rot_x.value = rot_deg.x
+	_preview_tuner_rot_y.value = rot_deg.y
+	_preview_tuner_rot_z.value = rot_deg.z
+	_preview_tuner_scale.value = scale_mult
+	_preview_tuner_syncing = false
+	_update_preview_tuner_config_label()
+
+func _refresh_preview_tuner_preview() -> void:
+	if _preview_tuner_texture == null:
+		return
+	if _selected_preview_item_id.is_empty():
+		_preview_tuner_texture.texture = null
+		if _preview_tuner_config_label:
+			_preview_tuner_config_label.text = "Aucun item avec preview 3D disponible."
+		return
+	_preview_tuner_texture.texture = Inventory.get_item_icon(_selected_preview_item_id)
+	_update_preview_tuner_config_label()
+
+func _update_preview_tuner_config_label() -> void:
+	if _preview_tuner_config_label == null:
+		return
+	if _selected_preview_item_id.is_empty():
+		_preview_tuner_config_label.text = "Aucun item selectionne."
+		return
+	_preview_tuner_config_label.text = "Ligne a recopier:\n%s" % Inventory.get_item_icon_settings_line(_selected_preview_item_id)
+
+func _apply_preview_tuner_settings() -> void:
+	if _preview_tuner_syncing or _selected_preview_item_id.is_empty():
+		return
+	var rot_deg := Vector3(
+		_preview_tuner_rot_x.value,
+		_preview_tuner_rot_y.value,
+		_preview_tuner_rot_z.value
+	)
+	Inventory.set_item_icon_settings(_selected_preview_item_id, rot_deg, _preview_tuner_scale.value)
+	_refresh_preview_tuner_preview()
+
+func _on_preview_tuner_item_selected(index: int) -> void:
+	if _preview_tuner_syncing:
+		return
+	var item_id: String = String(_preview_tuner_item_select.get_item_metadata(index))
+	_set_preview_tuner_item(item_id)
+
+func _on_preview_tuner_value_changed(_value: float) -> void:
+	_apply_preview_tuner_settings()
+
+func _on_preview_tuner_reset_pressed() -> void:
+	if _selected_preview_item_id.is_empty():
+		return
+	Inventory.reset_item_icon_settings(_selected_preview_item_id)
+
+func _on_item_icon_preview_settings_changed(item_id: String, _settings: Dictionary) -> void:
+	if item_id != _selected_preview_item_id:
+		return
+	_sync_preview_tuner_controls()
+	_refresh_preview_tuner_preview()
 
 func _refresh_hotbar_slots() -> void:
 	for i in range(_hotbar_ui.size()):

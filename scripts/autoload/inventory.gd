@@ -7,6 +7,7 @@ signal hotbar_updated
 signal selected_hotbar_changed(index: int, item_id: String)
 signal survival_changed(health: float, hunger: float, thirst: float)
 signal inventory_capacity_changed(used_slots: int, max_slots: int)
+signal item_icon_preview_settings_changed(item_id: String, settings: Dictionary)
 
 enum ResourceType { WOOD, METAL, COMPONENTS, FUEL }
 
@@ -75,6 +76,23 @@ const ITEM_MODELS: Dictionary = {
 }
 
 const ICON_TEXTURE_SIZE: Vector2i = Vector2i(96, 96)
+const DEFAULT_ITEM_ICON_ROTATION_DEG: Vector3 = Vector3.ZERO
+const DEFAULT_ITEM_ICON_SCALE_MULT: float = 1.0
+
+# Per-item icon orientation: { rotation_deg: Vector3, scale_mult: float }
+# Items can be tuned live from the HUD preview tuner, then copied back here.
+const ITEM_ICON_SETTINGS: Dictionary = {
+	"axe":     { "rotation_deg": Vector3(-43.0, -45.0, 11.0), "scale_mult": 1.5 },
+	"pickaxe": { "rotation_deg": Vector3(-40.0, 50.0, -45.0), "scale_mult": 1.6 },
+	"hammer":  { "rotation_deg": Vector3(35.0, 102.0, -160.0), "scale_mult": 2 },
+}
+
+# Albedo textures to force-assign when FBX importer fails to link external textures.
+const ITEM_ALBEDO_TEXTURES: Dictionary = {
+	"axe": "res://assets/fab/axe/fbx/T_AXE_01_4K_D.tga",
+	"pickaxe": "res://assets/fab/pickaxe/T_BasicPickaxe_BaseColor.tga",
+	"hammer": "res://assets/fab/hammer/fbx/source/Sledge Hammer_extracted/Sledge Hammer/texures/SledgeHammer_Albedo.png",
+}
 
 
 const HARVEST_TO_ITEM: Dictionary = {
@@ -85,6 +103,7 @@ const HARVEST_TO_ITEM: Dictionary = {
 
 var _slots: Array[Dictionary] = []
 var _item_icons: Dictionary = {}
+var _item_icon_setting_overrides: Dictionary = {}
 
 var selected_hotbar_index: int = 0
 
@@ -359,6 +378,73 @@ func get_item_icon(item_id: String) -> Texture2D:
 	_queue_item_render(item_id)
 	return fb
 
+func get_previewable_item_ids() -> Array[String]:
+	var out: Array[String] = []
+	for raw_item_id in ITEM_MODELS.keys():
+		var item_id: String = String(raw_item_id)
+		if has_item_model_preview(item_id):
+			out.append(item_id)
+	out.sort()
+	return out
+
+func has_item_model_preview(item_id: String) -> bool:
+	var model_path: String = ITEM_MODELS.get(item_id, "")
+	return not model_path.is_empty() and ResourceLoader.exists(model_path)
+
+func get_item_icon_settings(item_id: String) -> Dictionary:
+	var base: Dictionary = ITEM_ICON_SETTINGS.get(item_id, {})
+	var override: Dictionary = _item_icon_setting_overrides.get(item_id, {})
+	return {
+		"rotation_deg": override.get("rotation_deg", base.get("rotation_deg", DEFAULT_ITEM_ICON_ROTATION_DEG)),
+		"scale_mult": float(override.get("scale_mult", base.get("scale_mult", DEFAULT_ITEM_ICON_SCALE_MULT))),
+	}
+
+func set_item_icon_settings(item_id: String, rotation_deg: Vector3, scale_mult: float) -> void:
+	if not has_item_model_preview(item_id):
+		return
+	_item_icon_setting_overrides[item_id] = {
+		"rotation_deg": rotation_deg,
+		"scale_mult": maxf(0.1, scale_mult),
+	}
+	var settings := get_item_icon_settings(item_id)
+	item_icon_preview_settings_changed.emit(item_id, settings)
+	rerender_item_icon(item_id)
+
+func reset_item_icon_settings(item_id: String) -> void:
+	if not has_item_model_preview(item_id):
+		return
+	_item_icon_setting_overrides.erase(item_id)
+	var settings := get_item_icon_settings(item_id)
+	item_icon_preview_settings_changed.emit(item_id, settings)
+	rerender_item_icon(item_id)
+
+func rerender_item_icon(item_id: String) -> void:
+	if item_id.is_empty():
+		return
+	_item_icons.erase(item_id)
+	inventory_updated.emit()
+	hotbar_updated.emit()
+	_queue_item_render(item_id)
+
+func get_item_icon_settings_line(item_id: String) -> String:
+	var settings: Dictionary = get_item_icon_settings(item_id)
+	var rot_deg: Vector3 = settings.get("rotation_deg", DEFAULT_ITEM_ICON_ROTATION_DEG)
+	var scale_mult: float = float(settings.get("scale_mult", DEFAULT_ITEM_ICON_SCALE_MULT))
+	return "\"%s\": { \"rotation_deg\": Vector3(%.1f, %.1f, %.1f), \"scale_mult\": %.2f }," % [
+		item_id,
+		rot_deg.x,
+		rot_deg.y,
+		rot_deg.z,
+		scale_mult
+	]
+
+## Call this in-editor (or from a debug key) to re-render all cached tool icons.
+func refresh_tool_icons() -> void:
+	for tool_id in TOOL_ITEMS:
+		_item_icons.erase(tool_id)
+	for tool_id in TOOL_ITEMS:
+		_queue_item_render(tool_id)
+
 var _render_queue: Array[String] = []
 var _render_busy: bool = false
 
@@ -408,7 +494,8 @@ func _ensure_icon_renderer() -> void:
 	_icon_camera.size = 1.6
 	_icon_camera.near = 0.05
 	_icon_camera.far = 20.0
-	# Slightly tilted 3/4 view.
+	# Slightly tilted 3/4 view for general items. Tools get an extra "flat"
+	# diagonal rotation later, then the camera auto-frames them.
 	_icon_camera.transform = Transform3D(
 		Basis().rotated(Vector3.RIGHT, -0.55).rotated(Vector3.UP, 0.55),
 		Vector3(2.0, 1.8, 2.0)
@@ -439,28 +526,100 @@ func _render_item_icon(item_id: String) -> Texture2D:
 	for c in _icon_stage.get_children():
 		c.queue_free()
 	_icon_stage.add_child(inst)
+	_fix_tool_textures(item_id, inst)
 
-	# Center + scale to fit camera ortho size.
-	var aabb := _compute_aabb(inst)
-	if aabb.size.length() > 0.0001:
-		var max_dim: float = maxf(maxf(aabb.size.x, aabb.size.y), aabb.size.z)
-		var target: float = 1.2
-		var scale_factor: float = target / max_dim
-		inst.scale = Vector3(scale_factor, scale_factor, scale_factor)
-		inst.position = -aabb.get_center() * scale_factor
+	var is_tool: bool = item_id in TOOL_ITEMS
+	var preview_settings: Dictionary = get_item_icon_settings(item_id)
 
-	# Wait for viewport to be in tree, then let it render a frame.
+	# Wait for viewport to be in tree before computing AABB (global_transform needs tree).
 	while not _icon_viewport.is_inside_tree():
 		await get_tree().process_frame
+	# One process frame so all transforms/mesh data settle.
+	await get_tree().process_frame
+
+	# Scale to fit camera ortho size, then center using world-space AABB.
+	# World-space approach avoids any issue with FBX root rotations or scale.
+	var aabb := _compute_aabb(inst)
+	var tool_pivot: Node3D = null
+	if aabb.size.length() > 0.0001:
+		var max_dim: float = maxf(maxf(aabb.size.x, aabb.size.y), aabb.size.z)
+		var target: float = 1.0 if is_tool else 1.2
+		var scale_factor: float = target / max_dim
+		inst.scale = Vector3(scale_factor, scale_factor, scale_factor)
+		# Wait for scale to propagate through the transform hierarchy.
+		await get_tree().process_frame
+		# Compute world-space AABB after scaling and translate so its center is at origin.
+		var world_aabb := _compute_world_aabb(inst)
+		if world_aabb.size.length() > 0.0001:
+			inst.global_position -= world_aabb.get_center()
+
+	# Apply optional manual preview orientation so modeled items can be tuned live.
+	if _item_icon_settings_require_transform(preview_settings):
+		var rot_deg: Vector3 = preview_settings.get("rotation_deg", DEFAULT_ITEM_ICON_ROTATION_DEG)
+		var sm: float = float(preview_settings.get("scale_mult", DEFAULT_ITEM_ICON_SCALE_MULT))
+		tool_pivot = Node3D.new()
+		_icon_stage.add_child(tool_pivot)
+		inst.reparent(tool_pivot)
+		tool_pivot.rotation_degrees = rot_deg
+		tool_pivot.scale = Vector3.ONE * sm
+
+	# Wait for all transforms to settle, then re-aim the camera at the actual
+	# AABB center of the staged object. This corrects any residual offset from
+	# FBX pivot quirks, asymmetric meshes, or scale-propagation delays.
+	await get_tree().process_frame
+	var final_aabb := _compute_world_aabb(_icon_stage)
+	if final_aabb.size.length() > 0.0001:
+		_icon_camera.look_at(final_aabb.get_center(), Vector3.UP)
+		await get_tree().process_frame
+		_frame_icon_in_camera(_icon_stage, _icon_camera, 1.04 if is_tool else 1.12)
+
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
 	var img: Image = _icon_viewport.get_texture().get_image()
 	if img == null:
 		return _fallback_icon(item_id)
+
+	# For tools, composite onto a grey-white vignette background.
+	if is_tool:
+		img = _composite_tool_background(img)
+
 	var tex := ImageTexture.create_from_image(img)
 	# Remove the rendered instance to free memory.
 	inst.queue_free()
+	if tool_pivot != null:
+		tool_pivot.queue_free()
 	return tex
+
+func _fix_tool_textures(item_id: String, inst: Node3D) -> void:
+	var tex_path: String = ITEM_ALBEDO_TEXTURES.get(item_id, "")
+	if tex_path.is_empty() or not ResourceLoader.exists(tex_path):
+		return
+	var tex: Texture2D = load(tex_path) as Texture2D
+	if tex == null:
+		return
+	for mesh_inst in _gather_mesh_instances(inst):
+		var mi := mesh_inst as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		for surf_idx in range(mi.mesh.get_surface_count()):
+			var mat: Material = mi.get_active_material(surf_idx)
+			if mat is StandardMaterial3D:
+				var std_mat := mat as StandardMaterial3D
+				var new_mat := std_mat.duplicate() as StandardMaterial3D
+				new_mat.albedo_texture = tex
+				mi.set_surface_override_material(surf_idx, new_mat)
+			elif mat == null:
+				var new_mat := StandardMaterial3D.new()
+				new_mat.albedo_texture = tex
+				mi.set_surface_override_material(surf_idx, new_mat)
+
+func _gather_mesh_instances(node: Node) -> Array[MeshInstance3D]:
+	var out: Array[MeshInstance3D] = []
+	if node is MeshInstance3D:
+		out.append(node as MeshInstance3D)
+	for c in node.get_children():
+		out.append_array(_gather_mesh_instances(c))
+	return out
 
 func _fallback_icon(item_id: String) -> Texture2D:
 	var img := Image.create(ICON_TEXTURE_SIZE.x, ICON_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
@@ -480,6 +639,42 @@ func _fallback_icon(item_id: String) -> Texture2D:
 		))
 	return ImageTexture.create_from_image(img)
 
+func _composite_tool_background(foreground: Image) -> Image:
+	var w: int = ICON_TEXTURE_SIZE.x
+	var h: int = ICON_TEXTURE_SIZE.y
+	var result := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	var cx: float = w * 0.5
+	var cy: float = h * 0.5
+	var max_dist: float = Vector2(cx, cy).length()
+	for y in range(h):
+		for x in range(w):
+			var dist: float = Vector2(float(x) - cx, float(y) - cy).length()
+			var t: float = clampf(dist / max_dist, 0.0, 1.0)
+			# Center: light grey-white, edges: dark vignette.
+			var brightness: float = lerpf(0.88, 0.35, t * t)
+			var bg := Color(brightness, brightness, brightness, 1.0)
+			var fg := foreground.get_pixel(x, y)
+			var a: float = fg.a
+			result.set_pixel(x, y, Color(
+				fg.r * a + bg.r * (1.0 - a),
+				fg.g * a + bg.g * (1.0 - a),
+				fg.b * a + bg.b * (1.0 - a),
+				1.0
+			))
+	return result
+
+func _compute_world_aabb(node: Node3D) -> AABB:
+	var aabb := AABB()
+	var has_any := false
+	for vis in _gather_visual_instances(node):
+		var a: AABB = (vis as VisualInstance3D).global_transform * (vis as VisualInstance3D).get_aabb()
+		if not has_any:
+			aabb = a
+			has_any = true
+		else:
+			aabb = aabb.merge(a)
+	return aabb
+
 func _compute_aabb(node: Node3D) -> AABB:
 	var aabb := AABB()
 	var has_any := false
@@ -495,6 +690,63 @@ func _compute_aabb(node: Node3D) -> AABB:
 		else:
 			aabb = aabb.merge(a)
 	return aabb
+
+func _item_icon_settings_require_transform(settings: Dictionary) -> bool:
+	var rot_deg: Vector3 = settings.get("rotation_deg", DEFAULT_ITEM_ICON_ROTATION_DEG)
+	var scale_mult: float = float(settings.get("scale_mult", DEFAULT_ITEM_ICON_SCALE_MULT))
+	return rot_deg.length() > 0.001 or absf(scale_mult - 1.0) > 0.001
+
+func _frame_icon_in_camera(node: Node3D, camera: Camera3D, padding_mult: float = 1.0) -> void:
+	if camera == null:
+		return
+	var bounds: Dictionary = _compute_camera_plane_bounds(node, camera)
+	if bounds.is_empty():
+		return
+	var size_2d: Vector2 = bounds["size"]
+	if size_2d.x <= 0.0001 or size_2d.y <= 0.0001:
+		return
+	# Square viewport, so matching the largest projected axis is enough to keep
+	# the full model visible while letting long tools occupy most of the slot.
+	camera.size = maxf(size_2d.x, size_2d.y) * padding_mult
+
+func _compute_camera_plane_bounds(node: Node3D, camera: Camera3D) -> Dictionary:
+	var min_x: float = INF
+	var min_y: float = INF
+	var max_x: float = -INF
+	var max_y: float = -INF
+	var has_any := false
+	var camera_inv: Transform3D = camera.global_transform.affine_inverse()
+	for child in _gather_visual_instances(node):
+		var vis := child as VisualInstance3D
+		var aabb: AABB = vis.get_aabb()
+		var local_xform: Transform3D = camera_inv * vis.global_transform
+		for corner in _aabb_corners(aabb):
+			var camera_point: Vector3 = local_xform * corner
+			min_x = minf(min_x, camera_point.x)
+			min_y = minf(min_y, camera_point.y)
+			max_x = maxf(max_x, camera_point.x)
+			max_y = maxf(max_y, camera_point.y)
+			has_any = true
+	if not has_any:
+		return {}
+	return {
+		"center": Vector2((min_x + max_x) * 0.5, (min_y + max_y) * 0.5),
+		"size": Vector2(max_x - min_x, max_y - min_y),
+	}
+
+func _aabb_corners(aabb: AABB) -> Array[Vector3]:
+	var p: Vector3 = aabb.position
+	var s: Vector3 = aabb.size
+	return [
+		p,
+		p + Vector3(s.x, 0.0, 0.0),
+		p + Vector3(0.0, s.y, 0.0),
+		p + Vector3(0.0, 0.0, s.z),
+		p + Vector3(s.x, s.y, 0.0),
+		p + Vector3(s.x, 0.0, s.z),
+		p + Vector3(0.0, s.y, s.z),
+		p + s,
+	]
 
 func _gather_visual_instances(node: Node) -> Array[VisualInstance3D]:
 	var out: Array[VisualInstance3D] = []

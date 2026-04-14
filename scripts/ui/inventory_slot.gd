@@ -6,6 +6,7 @@ signal slot_dropped(source_index: int, target_index: int)
 
 var slot_index: int = -1
 var _has_item: bool = false
+var _content: Control
 var _icon: TextureRect
 var _amount_label: Label
 var _key_label: Label
@@ -38,12 +39,7 @@ func _gui_input(event: InputEvent) -> void:
 func _get_drag_data(_at_position: Vector2) -> Variant:
 	if not _has_item or _icon == null or _icon.texture == null:
 		return null
-	var preview := TextureRect.new()
-	preview.custom_minimum_size = Vector2(40, 40)
-	preview.texture = _icon.texture
-	preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	preview.modulate = Color(1, 1, 1, 0.85)
-	set_drag_preview(preview)
+	set_drag_preview(_make_icon_preview(_icon.texture, Vector2(48, 48), Vector2(40, 40), Color(1, 1, 1, 0.85)))
 	return {"source_index": slot_index}
 
 func _can_drop_data(_at_position: Vector2, data: Variant) -> bool:
@@ -58,15 +54,34 @@ func _drop_data(_at_position: Vector2, data: Variant) -> void:
 func _build_ui() -> void:
 	custom_minimum_size = Vector2(48, 48)
 	add_theme_stylebox_override("panel", _slot_style(false))
+	clip_contents = true
+
+	_content = Control.new()
+	_content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_content.clip_contents = true
+	add_child(_content)
+
+	var icon_margin := MarginContainer.new()
+	icon_margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	icon_margin.add_theme_constant_override("margin_left", 4)
+	icon_margin.add_theme_constant_override("margin_top", 4)
+	icon_margin.add_theme_constant_override("margin_right", 4)
+	icon_margin.add_theme_constant_override("margin_bottom", 4)
+	icon_margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_content.add_child(icon_margin)
+
+	var icon_center := CenterContainer.new()
+	icon_center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	icon_center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon_margin.add_child(icon_center)
 
 	_icon = TextureRect.new()
-	_icon.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_icon.custom_minimum_size = Vector2(36, 36)
+	_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_icon.offset_left = 4
-	_icon.offset_top = 4
-	_icon.offset_right = -4
-	_icon.offset_bottom = -4
-	add_child(_icon)
+	_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon_center.add_child(_icon)
 
 	# Key label — top-left, tiny
 	_key_label = Label.new()
@@ -77,7 +92,8 @@ func _build_ui() -> void:
 	_key_label.add_theme_color_override("font_color", Color(0.70, 0.70, 0.70, 1.0))
 	_key_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_key_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-	add_child(_key_label)
+	_key_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_content.add_child(_key_label)
 
 	# Amount label — bottom-right, Minecraft style
 	_amount_label = Label.new()
@@ -89,7 +105,29 @@ func _build_ui() -> void:
 	_amount_label.add_theme_color_override("font_shadow_color", Color(0.1, 0.1, 0.1, 1.0))
 	_amount_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_amount_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
-	add_child(_amount_label)
+	_amount_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_content.add_child(_amount_label)
+
+func _make_icon_preview(texture: Texture2D, panel_size: Vector2, icon_size: Vector2, modulate_color: Color = Color.WHITE) -> Control:
+	var wrapper := Control.new()
+	wrapper.custom_minimum_size = panel_size
+	wrapper.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrapper.add_child(center)
+
+	var preview := TextureRect.new()
+	preview.custom_minimum_size = icon_size
+	preview.texture = texture
+	preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	preview.modulate = modulate_color
+	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	center.add_child(preview)
+
+	return wrapper
 
 func _slot_style(selected: bool) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
