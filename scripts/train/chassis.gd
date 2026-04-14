@@ -49,6 +49,9 @@ func _physics_process(delta: float) -> void:
 		return
 	if not is_on_rails:
 		return
+	# Realism: a lone bogie (no WagonFrame linking the two chassis) cannot move on its own.
+	if not (get_parent() is WagonFrame):
+		return
 	if absf(speed) < 0.01:
 		if speed != 0.0:
 			speed = 0.0
@@ -105,6 +108,9 @@ func _physics_process(delta: float) -> void:
 
 func pump() -> void:
 	if not is_on_rails:
+		return
+	# Realism: a lone bogie cannot be pumped — needs a frame connecting both chassis.
+	if not (get_parent() is WagonFrame):
 		return
 	speed = clampf(speed + pump_impulse * travel_direction, -max_speed, max_speed)
 	speed_changed.emit(speed)

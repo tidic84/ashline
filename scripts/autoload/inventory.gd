@@ -59,6 +59,23 @@ const ITEM_ICON_COLORS: Dictionary = {
 	"hammer": Color(0.84, 0.70, 0.30, 1.0),
 }
 
+# 3D model paths for inventory icon rendering. If missing, falls back to a flat colored tile.
+const ITEM_MODELS: Dictionary = {
+	"wood": "res://assets/models/survival/resource-wood.glb",
+	"log": "res://assets/models/survival/resource-wood.glb",
+	"branch": "res://assets/fab/tree_branch_b/glb/dry_tree_branch_beach01.glb",
+	"stone": "res://assets/fab/stone_pack_a/obj/source/Stone_extracted/stone.obj",
+	"metal": "res://assets/models/survival/metal-panel.glb",
+	"metal_scrap": "res://assets/models/survival/metal-panel-screws.glb",
+	"fuel": "res://assets/models/survival/barrel.glb",
+	"components": "res://assets/models/survival/box.glb",
+	"axe": "res://assets/fab/axe/fbx/AXE_01.fbx",
+	"hammer": "res://assets/fab/hammer/fbx/source/Sledge Hammer_extracted/Sledge Hammer/SledgeHammer.fbx",
+	"pickaxe": "res://assets/fab/pickaxe/SM_BasicPickaxe.fbx",
+}
+
+const ICON_TEXTURE_SIZE: Vector2i = Vector2i(96, 96)
+
 
 const HARVEST_TO_ITEM: Dictionary = {
 	"branch": {"wood": 1},
@@ -329,35 +346,165 @@ func select_hotbar_item(item_id: String) -> bool:
 	select_hotbar_slot(idx)
 	return true
 
+var _icon_viewport: SubViewport = null
+var _icon_camera: Camera3D = null
+var _icon_stage: Node3D = null
+
 func get_item_icon(item_id: String) -> Texture2D:
 	if _item_icons.has(item_id):
 		return _item_icons[item_id]
-	var icon := _make_pixel_icon(item_id)
-	_item_icons[item_id] = icon
-	return icon
+	# Return fallback immediately; actual 3D render is queued.
+	var fb := _fallback_icon(item_id)
+	_item_icons[item_id] = fb
+	_queue_item_render(item_id)
+	return fb
 
-func _make_pixel_icon(item_id: String) -> Texture2D:
-	var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+var _render_queue: Array[String] = []
+var _render_busy: bool = false
+
+func _queue_item_render(item_id: String) -> void:
+	if item_id in _render_queue:
+		return
+	_render_queue.append(item_id)
+	if not _render_busy:
+		_process_render_queue()
+
+func _process_render_queue() -> void:
+	if _render_busy:
+		return
+	_render_busy = true
+	while _render_queue.size() > 0:
+		var id: String = _render_queue.pop_front()
+		var tex: Texture2D = await _render_item_icon(id)
+		if tex != null:
+			_item_icons[id] = tex
+			inventory_updated.emit()
+			hotbar_updated.emit()
+	_render_busy = false
+
+func _ensure_icon_renderer() -> void:
+	if _icon_viewport != null and is_instance_valid(_icon_viewport):
+		return
+	_icon_viewport = SubViewport.new()
+	_icon_viewport.size = ICON_TEXTURE_SIZE
+	_icon_viewport.transparent_bg = true
+	_icon_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	_icon_viewport.own_world_3d = true
+	_icon_viewport.world_3d = World3D.new()
+	_icon_viewport.msaa_3d = Viewport.MSAA_4X
+
+	var light := DirectionalLight3D.new()
+	light.transform = Transform3D(Basis().rotated(Vector3.RIGHT, -0.9).rotated(Vector3.UP, 0.7), Vector3.ZERO)
+	light.light_energy = 1.3
+	_icon_viewport.add_child(light)
+
+	var fill := DirectionalLight3D.new()
+	fill.transform = Transform3D(Basis().rotated(Vector3.RIGHT, -0.5).rotated(Vector3.UP, -2.3), Vector3.ZERO)
+	fill.light_energy = 0.45
+	_icon_viewport.add_child(fill)
+
+	_icon_camera = Camera3D.new()
+	_icon_camera.projection = Camera3D.PROJECTION_ORTHOGONAL
+	_icon_camera.size = 1.6
+	_icon_camera.near = 0.05
+	_icon_camera.far = 20.0
+	# Slightly tilted 3/4 view.
+	_icon_camera.transform = Transform3D(
+		Basis().rotated(Vector3.RIGHT, -0.55).rotated(Vector3.UP, 0.55),
+		Vector3(2.0, 1.8, 2.0)
+	)
+	_icon_camera.look_at(Vector3.ZERO, Vector3.UP)
+	_icon_viewport.add_child(_icon_camera)
+
+	_icon_stage = Node3D.new()
+	_icon_viewport.add_child(_icon_stage)
+
+	# Parent under scene tree root so it renders.
+	var tree := get_tree()
+	if tree and tree.root:
+		tree.root.add_child.call_deferred(_icon_viewport)
+
+func _render_item_icon(item_id: String) -> Texture2D:
+	_ensure_icon_renderer()
+	var model_path: String = ITEM_MODELS.get(item_id, "")
+	if model_path.is_empty() or not ResourceLoader.exists(model_path):
+		return _fallback_icon(item_id)
+	var packed: PackedScene = load(model_path) as PackedScene
+	if packed == null:
+		return _fallback_icon(item_id)
+	var inst: Node3D = packed.instantiate() as Node3D
+	if inst == null:
+		return _fallback_icon(item_id)
+	# Clear stage, add instance
+	for c in _icon_stage.get_children():
+		c.queue_free()
+	_icon_stage.add_child(inst)
+
+	# Center + scale to fit camera ortho size.
+	var aabb := _compute_aabb(inst)
+	if aabb.size.length() > 0.0001:
+		var max_dim: float = maxf(maxf(aabb.size.x, aabb.size.y), aabb.size.z)
+		var target: float = 1.2
+		var scale_factor: float = target / max_dim
+		inst.scale = Vector3(scale_factor, scale_factor, scale_factor)
+		inst.position = -aabb.get_center() * scale_factor
+
+	# Wait for viewport to be in tree, then let it render a frame.
+	while not _icon_viewport.is_inside_tree():
+		await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var img: Image = _icon_viewport.get_texture().get_image()
+	if img == null:
+		return _fallback_icon(item_id)
+	var tex := ImageTexture.create_from_image(img)
+	# Remove the rendered instance to free memory.
+	inst.queue_free()
+	return tex
+
+func _fallback_icon(item_id: String) -> Texture2D:
+	var img := Image.create(ICON_TEXTURE_SIZE.x, ICON_TEXTURE_SIZE.y, false, Image.FORMAT_RGBA8)
 	img.fill(Color(0, 0, 0, 0))
-	match item_id:
-		"wood":    _icon_wood(img)
-		"log":     _icon_log(img)
-		"branch":  _icon_branch(img)
-		"stone":   _icon_stone(img)
-		"metal":   _icon_metal(img)
-		"metal_scrap": _icon_scrap(img)
-		"fuel":    _icon_fuel(img)
-		"components": _icon_components(img)
-		"hammer":  _icon_hammer(img)
-		"axe":     _icon_axe(img)
-		"pickaxe": _icon_pickaxe(img)
-		_:
-			var c: Color = ITEM_ICON_COLORS.get(item_id, Color(0.6, 0.6, 0.6))
-			img.fill_rect(Rect2i(4, 4, 24, 24), c)
-			img.fill_rect(Rect2i(6, 6, 8, 3), Color(1,1,1,0.3))
+	var c: Color = ITEM_ICON_COLORS.get(item_id, Color(0.55, 0.55, 0.55))
+	var pad: int = 10
+	img.fill_rect(Rect2i(pad, pad, ICON_TEXTURE_SIZE.x - pad * 2, ICON_TEXTURE_SIZE.y - pad * 2), c)
+	# Subtle gradient highlight (non pixel-art).
+	for y in range(pad, ICON_TEXTURE_SIZE.y / 2):
+		var a: float = 1.0 - float(y - pad) / float(ICON_TEXTURE_SIZE.y / 2 - pad)
+		var shade := Color(1, 1, 1, 0.15 * a)
+		img.fill_rect(Rect2i(pad, y, ICON_TEXTURE_SIZE.x - pad * 2, 1), Color(
+			minf(c.r + shade.a, 1.0),
+			minf(c.g + shade.a, 1.0),
+			minf(c.b + shade.a, 1.0),
+			1.0
+		))
 	return ImageTexture.create_from_image(img)
 
-# ---- Icon painters (32×32 images) ----
+func _compute_aabb(node: Node3D) -> AABB:
+	var aabb := AABB()
+	var has_any := false
+	for child in _gather_visual_instances(node):
+		var vis := child as VisualInstance3D
+		var a: AABB = vis.get_aabb()
+		# Transform AABB from vis local → node local
+		var xform: Transform3D = node.global_transform.affine_inverse() * vis.global_transform
+		a = xform * a
+		if not has_any:
+			aabb = a
+			has_any = true
+		else:
+			aabb = aabb.merge(a)
+	return aabb
+
+func _gather_visual_instances(node: Node) -> Array[VisualInstance3D]:
+	var out: Array[VisualInstance3D] = []
+	if node is VisualInstance3D:
+		out.append(node)
+	for c in node.get_children():
+		out.append_array(_gather_visual_instances(c))
+	return out
+
+# ---- Icon painters (legacy pixel-art, unused — replaced by 3D preview renderer) ----
 
 func _icon_wood(img: Image) -> void:
 	var b := Color(0.55, 0.32, 0.13)

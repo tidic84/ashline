@@ -4,10 +4,10 @@ class_name WagonFrame
 signal floor_placed(grid_pos: Vector2i)
 
 const GRID_SIZE: float = 1.0
-const BUILD_SURFACE_LOCAL_Y: float = 0.22
+const BUILD_SURFACE_LOCAL_Y: float = 0.4
 
-## Distance in grid tiles between the two bogies (min 2, max 8).
-@export_range(2, 8) var wagon_length: int = 4
+## Distance in grid tiles between the two bogies (even only, min 2, max 6).
+@export_range(2, 6, 2) var wagon_length: int = 4
 ## Extra floor tiles on each side beyond the bogie width.
 @export_range(0, 2) var extra_width: int = 2
 
@@ -21,6 +21,7 @@ var floor_count: int = 0
 
 var _frame_visuals: Array[Node3D] = []
 var _build_surface: StaticBody3D = null
+var _floor_bodies: Array[StaticBody3D] = []
 
 
 func _ready() -> void:
@@ -167,9 +168,11 @@ func _set_platform_velocity(vel: Vector3) -> void:
 		front_bogie.constant_linear_velocity = vel
 	if rear_bogie:
 		rear_bogie.constant_linear_velocity = vel
-	for child in get_children():
-		if child is StaticBody3D and child != front_bogie and child != rear_bogie:
-			child.constant_linear_velocity = vel
+	if _build_surface and is_instance_valid(_build_surface):
+		_build_surface.constant_linear_velocity = vel
+	for body in _floor_bodies:
+		if is_instance_valid(body):
+			body.constant_linear_velocity = vel
 
 
 func snap_to_rails() -> void:
@@ -231,7 +234,9 @@ func get_grid_width() -> int:
 	return 3 + extra_width * 2
 
 func get_grid_length() -> int:
-	return wagon_length
+	# Tile count along z — bogies sit at z = ±wagon_length/2, so we need wagon_length+1 tiles
+	# to cover both inclusive.
+	return wagon_length + 1
 
 func _grid_min_x() -> int:
 	return -int(floor(float(get_grid_width()) / 2.0))
@@ -240,10 +245,10 @@ func _grid_max_x() -> int:
 	return int(floor(float(get_grid_width() - 1) / 2.0))
 
 func _grid_min_z() -> int:
-	return -int(floor(float(get_grid_length()) / 2.0))
+	return -int(wagon_length / 2)
 
 func _grid_max_z() -> int:
-	return int(floor(float(get_grid_length() - 1) / 2.0))
+	return int(wagon_length / 2)
 
 func is_grid_in_bounds(grid_pos: Vector2i) -> bool:
 	return (
@@ -299,7 +304,15 @@ func place_floor(grid_pos: Vector2i, floor_node: Node3D = null) -> void:
 	cell.floor = true
 	cell.floor_node = floor_node
 	floor_count += 1
+	if floor_node:
+		_register_floor_body(floor_node)
 	floor_placed.emit(grid_pos)
+
+func _register_floor_body(floor_node: Node3D) -> void:
+	for child in floor_node.get_children():
+		if child is StaticBody3D:
+			_floor_bodies.append(child)
+			return
 
 func get_floor_node(grid_pos: Vector2i) -> Node3D:
 	if not grid_cells.has(grid_pos):
@@ -363,24 +376,11 @@ func _has_adjacent_floor(grid_pos: Vector2i) -> bool:
 # --- Frame visuals ---
 
 func _build_frame_visuals() -> void:
+	# Lateral wood rails removed — kept as no-op for external callers.
 	for vis in _frame_visuals:
 		if is_instance_valid(vis):
 			vis.queue_free()
 	_frame_visuals.clear()
-
-	var length_m: float = float(wagon_length) * GRID_SIZE
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.25, 0.22, 0.18, 1)
-	mat.metallic = 0.75
-	mat.roughness = 0.5
-
-	for side in [-1.30, 1.30]:
-		var rail := CSGBox3D.new()
-		rail.size = Vector3(0.10, 0.12, length_m)
-		rail.transform = Transform3D(Basis.IDENTITY, Vector3(side, BUILD_SURFACE_LOCAL_Y, 0))
-		rail.material = mat
-		add_child(rail)
-		_frame_visuals.append(rail)
 
 
 func _build_collision_surface() -> void:
@@ -391,7 +391,9 @@ func _build_collision_surface() -> void:
 	var length_m: float = float(get_grid_length()) * GRID_SIZE
 	_build_surface = StaticBody3D.new()
 	_build_surface.name = "BuildSurface"
-	_build_surface.collision_layer = 8  # Layer 4 = Train (matches BUILD_COLLISION_MASK)
+	# Detection-only layer — player does NOT collide with this.
+	# Walkable collision for placed tiles lives inside floor_piece.tscn.
+	_build_surface.collision_layer = 128  # Layer 8 = BuildDetect
 	_build_surface.collision_mask = 0
 	var shape := BoxShape3D.new()
 	shape.size = Vector3(width_m, 0.04, length_m)

@@ -39,6 +39,7 @@ CraftingSystem="*res://scripts/autoload/crafting_system.gd"
 window/size/viewport_width=1920
 window/size/viewport_height=1080
 window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
 
 [editor_plugins]
 
@@ -142,6 +143,7 @@ right={
 3d_physics/layer_5="Buildable"
 3d_physics/layer_6="Interactable"
 3d_physics/layer_7="Projectile"
+3d_physics/layer_8="BuildDetect"
 
 [physics]
 
