@@ -655,6 +655,8 @@ func _connect_endpoint(endpoint: int) -> void:
 
 		var my_label := "debut" if endpoint == 0 else "fin"
 		var their_label := "debut" if best_end == 0 else "fin"
+		_try_call_rail_method(_current_path, "_apply_smoothing", "action_apply_smoothing")
+		_curve_signature = _curve_points_signature(_current_path.curve)
 		_update_status("[color=#8bc34a]Connecte[/color] %s (%s) -> %s (%s) [%.1fm]" % [
 			_current_path.name, my_label, best_path.name, their_label, best_dist])
 	else:

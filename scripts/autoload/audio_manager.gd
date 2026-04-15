@@ -24,7 +24,7 @@ func _ready() -> void:
 	_build_sfx_pool()
 	_ambient_player = AudioStreamPlayer.new()
 	_ambient_player.bus = "Ambient"
-	_ambient_player.volume_db = -6.0
+	_ambient_player.volume_db = 6.0
 	add_child(_ambient_player)
 	_scan_folder(SFX_DIR, _sfx_cache)
 	_scan_folder(AMBIENT_DIR, _ambient_cache)

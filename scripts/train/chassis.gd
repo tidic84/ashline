@@ -22,8 +22,10 @@ var is_on_rails: bool = false
 # Movement
 var travel_direction: float = 1.0  # 1.0 = forward, -1.0 = reverse
 var speed: float = 0.0
-var max_speed: float = 4.0  # Handcar cap — upgrade to engine for more
-var pump_impulse: float = 0.45  # Small per-pump kick
+#var max_speed: float = 4.0  # Handcar cap — upgrade to engine for more
+var max_speed: float = 400.0  # Handcar cap — upgrade to engine for more
+#var pump_impulse: float = 0.45  # Small per-pump kick
+var pump_impulse: float = 1  # Small per-pump kick
 var friction: float = 0.35  # Low — momentum carries between pumps
 var distance_traveled: float = 0.0
 
@@ -97,7 +99,7 @@ func _physics_process(delta: float) -> void:
 		var fwd: Vector3 = rail_curve.sample_baked(ahead) - rail_curve.sample_baked(behind)
 		global_position = pos
 		if fwd.length_squared() > 0.0001:
-			fwd = fwd.normalized()
+			fwd = _stabilize_curve_forward(fwd)
 			var rt: Vector3 = Vector3.UP.cross(fwd)
 			if rt.length_squared() < 0.0001:
 				rt = Vector3.RIGHT
@@ -232,13 +234,23 @@ func _orient_to_curve() -> void:
 	var behind: float = maxf(rail_progress - 1.0, 0.0)
 	var fwd: Vector3 = rail_curve.sample_baked(ahead) - rail_curve.sample_baked(behind)
 	if fwd.length_squared() > 0.0001:
-		fwd = fwd.normalized()
+		fwd = _stabilize_curve_forward(fwd)
 		var rt: Vector3 = Vector3.UP.cross(fwd)
 		if rt.length_squared() < 0.0001:
 			rt = Vector3.RIGHT
 		rt = rt.normalized()
 		var up_v: Vector3 = fwd.cross(rt).normalized()
 		basis = Basis(rt, up_v, fwd).scaled(_basis_scale)
+
+
+func _stabilize_curve_forward(candidate: Vector3, reference: Vector3 = Vector3.ZERO) -> Vector3:
+	var fwd := candidate.normalized()
+	if fwd.length_squared() < 0.0001:
+		return Vector3.ZERO
+	var desired := reference.normalized() if reference.length_squared() > 0.0001 else basis.z.normalized()
+	if desired.length_squared() > 0.0001 and fwd.dot(desired) < 0.0:
+		fwd = -fwd
+	return fwd
 
 func _find_terrain() -> TerrainGenerator:
 	var nodes := get_tree().get_nodes_in_group("terrain")

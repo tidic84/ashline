@@ -58,10 +58,7 @@ func generate_terrain() -> void:
 	if _terrain_patch == null or not is_instance_valid(_terrain_patch):
 		_find_terrain_patch()
 	# Remove previously generated nodes so repeated presses don't stack meshes.
-	for child in get_children():
-		if child.name == "Rails" or child.name == "RailPath" \
-				or child.name.begins_with("Rails_") or child.name.begins_with("RailPath_"):
-			child.queue_free()
+	_clear_generated_rail_nodes()
 	var rail_paths := get_tree().get_nodes_in_group("rail_path")
 	print("[TerrainGenerator] generate_terrain: %d RailPath nodes in group, terrain_patch=%s" % [
 		rail_paths.size(), "found" if _terrain_patch != null else "missing"])
@@ -78,11 +75,7 @@ func generate_terrain() -> void:
 ## Public API: rebuild only rail meshes without re-sculpting terrain.
 func rebuild_rail_meshes() -> void:
 	# Remove all previously generated rail nodes (supports both old and new naming)
-	for child in get_children():
-		if child.name == "Rails" or child.name == "RailPath" \
-				or child.name.begins_with("Rails_") or child.name.begins_with("RailPath_"):
-			child.queue_free()
-	await get_tree().process_frame
+	_clear_generated_rail_nodes()
 	if not _load_curve_from_rail_path(false, true):
 		push_warning("TerrainGenerator: no valid RailPath found — unable to rebuild rails")
 		return
@@ -99,8 +92,23 @@ func _find_terrain_patch() -> void:
 			return
 
 
+func _clear_generated_rail_nodes() -> void:
+	var to_remove: Array[Node] = []
+	for child in get_children():
+		if child.name == "Rails" or child.name == "RailPath" \
+				or child.name.begins_with("Rails_") or child.name.begins_with("RailPath_"):
+			to_remove.append(child)
+	for child in to_remove:
+		remove_child(child)
+		if Engine.is_editor_hint():
+			child.free()
+		else:
+			child.queue_free()
+
+
 func _load_curve_from_rail_path(sculpt_terrain: bool = true, rebuild_meshes: bool = true) -> bool:
 	var paths_to_process: Array[Path3D] = []
+	var combined_sculpt_points: Array[Vector3] = []
 
 	if not rail_path_node.is_empty():
 		var node := get_node_or_null(rail_path_node)
@@ -116,8 +124,14 @@ func _load_curve_from_rail_path(sculpt_terrain: bool = true, rebuild_meshes: boo
 
 	var any_success := false
 	for i in paths_to_process.size():
-		if _process_one_rail_path(paths_to_process[i], sculpt_terrain, rebuild_meshes, i):
+		if _process_one_rail_path(paths_to_process[i], false, rebuild_meshes, i):
+			if sculpt_terrain:
+				combined_sculpt_points.append_array(_sample_curve_world_points(_rail_curve))
 			any_success = true
+	if sculpt_terrain and any_success and _terrain_patch and _terrain_patch.has_method("sculpt_terrain_for_rails"):
+		_terrain_patch.sculpt_terrain_for_rails(
+			combined_sculpt_points, roadbed_half_width, roadbed_blend_width, ground_offset
+		)
 	return any_success
 
 
@@ -133,14 +147,7 @@ func _process_one_rail_path(path: Path3D, sculpt_terrain: bool, rebuild_meshes: 
 		var t_out: Vector3 = path.global_basis * path.curve.get_point_out(i)
 		world_curve.add_point(p, t_in, t_out)
 	_rail_curve = world_curve
-	var total_len := _rail_curve.get_baked_length()
-	_rail_points.clear()
-	var t := 0.0
-	while t <= total_len:
-		_rail_points.append(_rail_curve.sample_baked(t))
-		t += 1.0
-	if _rail_points.size() == 0 or _rail_points[-1] != _rail_curve.sample_baked(total_len):
-		_rail_points.append(_rail_curve.sample_baked(total_len))
+	_rail_points = _sample_curve_world_points(_rail_curve)
 	if sculpt_terrain and _terrain_patch and _terrain_patch.has_method("sculpt_terrain_for_rails"):
 		_terrain_patch.sculpt_terrain_for_rails(
 			_rail_points, roadbed_half_width, roadbed_blend_width, ground_offset
@@ -149,6 +156,21 @@ func _process_one_rail_path(path: Path3D, sculpt_terrain: bool, rebuild_meshes: 
 	if rebuild_meshes:
 		_build_rail_meshes(idx)
 	return true
+
+
+func _sample_curve_world_points(sample_curve: Curve3D) -> Array[Vector3]:
+	var sampled_points: Array[Vector3] = []
+	if sample_curve == null:
+		return sampled_points
+	var total_len := sample_curve.get_baked_length()
+	var t := 0.0
+	while t <= total_len:
+		sampled_points.append(sample_curve.sample_baked(t))
+		t += 1.0
+	var last_point := sample_curve.sample_baked(total_len)
+	if sampled_points.is_empty() or sampled_points[-1] != last_point:
+		sampled_points.append(last_point)
+	return sampled_points
 
 
 func _classify_segments_from_curve() -> void:
