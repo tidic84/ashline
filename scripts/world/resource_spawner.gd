@@ -13,6 +13,7 @@ class_name ResourceSpawner
 @export var big_rock_nodes: int = 14
 
 var _rng := RandomNumberGenerator.new()
+var _next_resource_net_id: int = 200000
 
 func _ready() -> void:
 	var seed_value: int = world_seed if world_seed != 0 else int(Time.get_unix_time_from_system())
@@ -20,6 +21,7 @@ func _ready() -> void:
 	_spawn_all()
 
 func _spawn_all() -> void:
+	_next_resource_net_id = 200000
 	_spawn_batch(branch_nodes, "branch", 2, 4, 1, "", "Collect Branches")
 	_spawn_batch(log_nodes, "log", 2, 4, 1, "", "Collect Logs")
 	_spawn_batch(stone_nodes, "stone", 2, 4, 1, "", "Pick Stones")
@@ -36,6 +38,8 @@ func _spawn_batch(count: int, item_id: String, amount_min: int, amount_max: int,
 		node.required_tool_id = required_tool_id
 		node.interact_label = label
 		add_child(node)
+		WorldSync.register_entity(node, _next_resource_net_id)
+		_next_resource_net_id += 1
 		node.position = _pick_position()
 		_match_visual(node, item_id, required_tool_id)
 

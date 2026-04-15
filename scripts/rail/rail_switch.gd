@@ -20,6 +20,8 @@ func _ready() -> void:
 	collision_mask = 0
 	add_to_group("interactable")
 	add_to_group("rail_switch")
+	if not has_meta(WorldSync.NET_ID_META):
+		WorldSync.register_entity(self, 300000 + absi(String(get_path()).hash() % 500000))
 	_path_node = get_node_or_null(rail_path)
 	call_deferred("_refresh_visual_state")
 
@@ -27,6 +29,18 @@ func get_interact_text() -> String:
 	return "[E] Switch"
 
 func interact(_player: CharacterBody3D) -> void:
+	if WorldSync.should_request_host():
+		WorldSync.request_interact(WorldSync.get_net_id(self))
+		return
+	server_interact(Inventory.get_local_peer_id())
+
+func server_interact(_peer_id: int) -> void:
+	_perform_switch(true)
+
+func apply_network_interact() -> void:
+	_perform_switch(false)
+
+func _perform_switch(replicate: bool) -> void:
 	if not _can_switch or _path_node == null:
 		return
 	_can_switch = false
@@ -34,6 +48,8 @@ func interact(_player: CharacterBody3D) -> void:
 	AudioManager.play_sfx("lever", 0.0, randf_range(0.90, 1.10))
 	_update_indicator(new_idx)
 	_update_lever_visual(new_idx, true)
+	if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		WorldSync.replicate_interact(WorldSync.get_net_id(self))
 	await get_tree().create_timer(switch_cooldown).timeout
 	_can_switch = true
 

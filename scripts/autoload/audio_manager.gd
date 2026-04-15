@@ -9,18 +9,22 @@ extends Node
 const SFX_DIR: String = "res://audio/sfx/"
 const AMBIENT_DIR: String = "res://audio/ambient/"
 const MUSIC_DIR: String = "res://audio/music/"
+const CONFIG_PATH: String = "user://settings.cfg"
 const DEFAULT_MASTER_VOLUME_DB: float = -15.0
+const MIN_VOLUME_LINEAR: float = 0.0001
 
 var _sfx_cache: Dictionary = {}   # name -> AudioStream
 var _ambient_cache: Dictionary = {}
 var _ambient_player: AudioStreamPlayer = null
 var _current_ambient: String = ""
 var _sfx_pool: Array[AudioStreamPlayer] = []
+var master_volume: float = 0.18
 const POOL_SIZE: int = 8
 
 func _ready() -> void:
 	_ensure_buses()
-	set_global_volume_db(DEFAULT_MASTER_VOLUME_DB)
+	load_settings()
+	set_master_volume(master_volume)
 	_build_sfx_pool()
 	_ambient_player = AudioStreamPlayer.new()
 	_ambient_player.bus = "Ambient"
@@ -35,6 +39,30 @@ func set_global_volume_db(volume_db: float) -> void:
 	if master_idx == -1:
 		return
 	AudioServer.set_bus_volume_db(master_idx, volume_db)
+
+func set_master_volume(volume: float) -> void:
+	master_volume = clampf(volume, 0.0, 1.0)
+	var master_idx: int = AudioServer.get_bus_index("Master")
+	if master_idx == -1:
+		return
+	AudioServer.set_bus_mute(master_idx, master_volume <= 0.0)
+	AudioServer.set_bus_volume_db(master_idx, linear_to_db(maxf(master_volume, MIN_VOLUME_LINEAR)))
+
+func get_master_volume() -> float:
+	return master_volume
+
+func load_settings() -> void:
+	master_volume = db_to_linear(DEFAULT_MASTER_VOLUME_DB)
+	var cfg := ConfigFile.new()
+	if cfg.load(CONFIG_PATH) != OK:
+		return
+	master_volume = cfg.get_value("audio", "master_volume", master_volume)
+
+func save_settings() -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(CONFIG_PATH)
+	cfg.set_value("audio", "master_volume", master_volume)
+	cfg.save(CONFIG_PATH)
 
 func _ensure_buses() -> void:
 	var desired: Array[String] = ["SFX", "Ambient", "Music"]

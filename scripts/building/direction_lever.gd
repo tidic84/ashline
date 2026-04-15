@@ -10,6 +10,8 @@ func _ready() -> void:
 	collision_layer = 48  # Layer 5 (physical) + Layer 6 (interactable)
 	collision_mask = 0
 	add_to_group("interactable")
+	if not has_meta(WorldSync.NET_ID_META):
+		WorldSync.register_entity(self, 300000 + absi(String(get_path()).hash() % 500000))
 	var current: Node = get_parent()
 	while current:
 		if current is WagonFrame:
@@ -21,6 +23,18 @@ func _ready() -> void:
 		current = current.get_parent()
 
 func interact(_player: CharacterBody3D) -> void:
+	if WorldSync.should_request_host():
+		WorldSync.request_interact(WorldSync.get_net_id(self))
+		return
+	server_interact(Inventory.get_local_peer_id())
+
+func server_interact(_peer_id: int) -> void:
+	_perform_switch(true)
+
+func apply_network_interact() -> void:
+	_perform_switch(false)
+
+func _perform_switch(replicate: bool) -> void:
 	if not can_switch or _target == null:
 		return
 	can_switch = false
@@ -35,6 +49,8 @@ func interact(_player: CharacterBody3D) -> void:
 	AudioManager.play_sfx("levier_activation", 0.0, randf_range(0.95, 1.05))
 	AudioManager.play_sfx("lever", 0.0, randf_range(0.95, 1.05))
 	_animate_switch(new_dir)
+	if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		WorldSync.replicate_interact(WorldSync.get_net_id(self))
 	await get_tree().create_timer(switch_cooldown).timeout
 	can_switch = true
 

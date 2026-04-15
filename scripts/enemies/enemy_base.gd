@@ -27,6 +27,8 @@ const TARGET_REFRESH_INTERVAL: float = 0.5
 func _ready() -> void:
 	current_health = max_health
 	add_to_group("enemy")
+	if not has_meta(WorldSync.NET_ID_META) and WorldSync.is_host():
+		WorldSync.register_entity(self)
 	collision_layer = 4
 	collision_mask = 19 # World + Player + Train
 	_find_target()
@@ -74,6 +76,9 @@ func _move_towards_target(direction: Vector3, _delta: float) -> void:
 		look_at(look_target, Vector3.UP)
 
 func take_damage(amount: float) -> void:
+	if WorldSync.should_request_host():
+		WorldSync.request_damage(WorldSync.get_net_id(self), amount)
+		return
 	if is_dead:
 		return
 	current_health -= amount
@@ -84,10 +89,13 @@ func take_damage(amount: float) -> void:
 func die() -> void:
 	is_dead = true
 	died.emit()
-	WaveManager.on_enemy_died(self)
-	GameManager.add_score(loot_value)
+	if not multiplayer.has_multiplayer_peer() or multiplayer.is_server():
+		WaveManager.on_enemy_died(self)
+		GameManager.add_score(loot_value)
 	_drop_loot()
 	_death_effect()
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		WorldSync.replicate_despawn(WorldSync.get_net_id(self))
 	queue_free()
 
 func _attack() -> void:

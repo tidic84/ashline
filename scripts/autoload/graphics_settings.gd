@@ -1,6 +1,7 @@
 extends Node
 
 const CONFIG_PATH: String = "user://settings.cfg"
+const FPS_LIMITS: Array[int] = [60, 75, 90, 120]
 
 enum Quality { LOW, MEDIUM, HIGH, ULTRA }
 
@@ -13,6 +14,7 @@ enum Quality { LOW, MEDIUM, HIGH, ULTRA }
 @export var fullscreen: bool = false
 @export var render_scale: float = 0.85
 @export var fov: float = 75.0
+@export var fps_limit: int = 120
 @export var sun_shafts_enabled: bool = false
 @export var clouds_enabled: bool = false
 
@@ -33,9 +35,13 @@ func load_settings() -> void:
 	fullscreen = cfg.get_value("graphics", "fullscreen", fullscreen)
 	render_scale = cfg.get_value("graphics", "render_scale", render_scale)
 	fov = cfg.get_value("graphics", "fov", fov)
+	fps_limit = cfg.get_value("graphics", "fps_limit", fps_limit)
+	if not FPS_LIMITS.has(fps_limit):
+		fps_limit = 120
 
 func save_settings() -> void:
 	var cfg := ConfigFile.new()
+	cfg.load(CONFIG_PATH)
 	cfg.set_value("graphics", "shadow_quality", shadow_quality)
 	cfg.set_value("graphics", "msaa", msaa)
 	cfg.set_value("graphics", "ssao_enabled", ssao_enabled)
@@ -45,9 +51,11 @@ func save_settings() -> void:
 	cfg.set_value("graphics", "fullscreen", fullscreen)
 	cfg.set_value("graphics", "render_scale", render_scale)
 	cfg.set_value("graphics", "fov", fov)
+	cfg.set_value("graphics", "fps_limit", fps_limit)
 	cfg.save(CONFIG_PATH)
 
 func apply_all() -> void:
+	Engine.max_fps = fps_limit
 	DisplayServer.window_set_vsync_mode(
 		DisplayServer.VSYNC_ENABLED if vsync else DisplayServer.VSYNC_DISABLED
 	)

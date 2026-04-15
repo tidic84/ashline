@@ -1,9 +1,10 @@
-[gd_scene format=3 uid="uid://shlinehud01"]
+[gd_scene load_steps=6 format=3 uid="uid://shlinehud01"]
 
 [ext_resource type="Script" uid="uid://bc7dqs3sncklc" path="res://scripts/ui/hud.gd" id="1_hud"]
 [ext_resource type="Script" uid="uid://dbih7gfequ8kw" path="res://scripts/ui/stats_display.gd" id="2_stats"]
 [ext_resource type="PackedScene" path="res://scenes/ui/build_menu.tscn" id="3_buildmenu"]
 [ext_resource type="PackedScene" path="res://scenes/ui/settings_menu.tscn" id="4_settings"]
+[ext_resource type="PackedScene" path="res://scenes/ui/pause_menu.tscn" id="5_pause"]
 
 [node name="HUD" type="Control"]
 layout_mode = 3
@@ -139,6 +140,8 @@ text = "Jour"
 [node name="BuildMenu" parent="." instance=ExtResource("3_buildmenu")]
 
 [node name="SettingsMenu" parent="." instance=ExtResource("4_settings")]
+
+[node name="PauseMenu" parent="." instance=ExtResource("5_pause")]
 
 [node name="HotbarPanel" type="PanelContainer" parent="."]
 layout_mode = 1

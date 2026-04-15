@@ -10,6 +10,8 @@ func _ready() -> void:
 	collision_layer = 32  # Layer 6 = Interactable
 	collision_mask = 0
 	add_to_group("interactable")
+	if not has_meta(WorldSync.NET_ID_META):
+		WorldSync.register_entity(self, 300000 + absi(String(get_path()).hash() % 500000))
 	# Find parent wagon frame or chassis
 	var current: Node = get_parent()
 	while current:
@@ -24,12 +26,26 @@ func _ready() -> void:
 		current = current.get_parent()
 
 func interact(_player: CharacterBody3D) -> void:
+	if WorldSync.should_request_host():
+		WorldSync.request_interact(WorldSync.get_net_id(self))
+		return
+	server_interact(Inventory.get_local_peer_id())
+
+func server_interact(_peer_id: int) -> void:
+	_perform_pump(true)
+
+func apply_network_interact() -> void:
+	_perform_pump(false)
+
+func _perform_pump(replicate: bool) -> void:
 	if not can_pump or _pump_target == null:
 		return
 	can_pump = false
 	_pump_target.pump()
 	AudioManager.play_sfx("pump", 0.0, randf_range(0.95, 1.05))
 	_animate_pump()
+	if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		WorldSync.replicate_interact(WorldSync.get_net_id(self))
 	await get_tree().create_timer(pump_cooldown).timeout
 	can_pump = true
 

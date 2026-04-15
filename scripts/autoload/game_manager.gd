@@ -42,5 +42,7 @@ func _input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
 		if current_state == GameState.PLAYING:
 			change_state(GameState.PAUSED)
+			get_viewport().set_input_as_handled()
 		elif current_state == GameState.PAUSED:
 			change_state(GameState.PLAYING)
+			get_viewport().set_input_as_handled()

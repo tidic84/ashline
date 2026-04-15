@@ -23,6 +23,7 @@ func _ready() -> void:
 	NetworkManager.server_started.connect(_on_server_started)
 	NetworkManager.connection_succeeded.connect(_on_connection_succeeded)
 	NetworkManager.connection_failed.connect(_on_connection_failed)
+	NetworkManager.lobby_updated.connect(_refresh_player_list)
 
 	address_input.text = "localhost"
 	port_input.text = str(NetworkManager.DEFAULT_PORT)
@@ -67,6 +68,7 @@ func _on_server_started() -> void:
 
 func _on_connection_succeeded() -> void:
 	status_label.text = "Connected!"
+	start_button.visible = false
 	_refresh_player_list()
 
 func _on_connection_failed() -> void:

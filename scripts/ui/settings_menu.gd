@@ -3,6 +3,8 @@ class_name SettingsMenu
 
 signal closed
 
+const FPS_LIMITS: Array[int] = [60, 75, 90, 120]
+
 @onready var _shadow_option: OptionButton = $Margin/VBox/Grid/ShadowOption
 @onready var _msaa_option: OptionButton = $Margin/VBox/Grid/MsaaOption
 @onready var _ssao_check: CheckButton = $Margin/VBox/Grid/SsaoCheck
@@ -14,9 +16,13 @@ signal closed
 @onready var _scale_slider: HSlider = $Margin/VBox/Grid/ScaleSlider
 @onready var _fov_label: Label = $Margin/VBox/Grid/FovLabel
 @onready var _fov_slider: HSlider = $Margin/VBox/Grid/FovSlider
+@onready var _volume_label: Label = $Margin/VBox/Grid/MasterVolumeLabel
+@onready var _volume_slider: HSlider = $Margin/VBox/Grid/MasterVolumeSlider
+@onready var _fps_limit_option: OptionButton = $Margin/VBox/Grid/FpsLimitOption
 @onready var _close_button: Button = $Margin/VBox/CloseButton
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	visible = false
 
 	_shadow_option.add_item("Low", 0)
@@ -28,6 +34,8 @@ func _ready() -> void:
 	_msaa_option.add_item("2x", 1)
 	_msaa_option.add_item("4x", 2)
 	_msaa_option.add_item("8x", 3)
+	for fps in FPS_LIMITS:
+		_fps_limit_option.add_item("%d FPS" % fps, fps)
 
 	_shadow_option.item_selected.connect(func(idx: int): GraphicsSettings.shadow_quality = idx; _apply())
 	_msaa_option.item_selected.connect(func(idx: int): GraphicsSettings.msaa = idx; _apply())
@@ -46,6 +54,8 @@ func _ready() -> void:
 		_fov_label.text = "FOV (%d)" % int(v)
 		_apply()
 	)
+	_volume_slider.value_changed.connect(_on_master_volume_changed)
+	_fps_limit_option.item_selected.connect(_on_fps_limit_selected)
 	_close_button.pressed.connect(_close)
 	_refresh()
 
@@ -61,10 +71,31 @@ func _refresh() -> void:
 	_scale_label.text = "Render Scale (%.2f)" % GraphicsSettings.render_scale
 	_fov_slider.value = GraphicsSettings.fov
 	_fov_label.text = "FOV (%d)" % int(GraphicsSettings.fov)
+	_volume_slider.value = AudioManager.get_master_volume() * 100.0
+	_update_volume_label(_volume_slider.value)
+	_fps_limit_option.select(_get_fps_limit_index(GraphicsSettings.fps_limit))
 
 func _apply() -> void:
 	GraphicsSettings.apply_all()
 	GraphicsSettings.save_settings()
+
+func _on_master_volume_changed(value: float) -> void:
+	AudioManager.set_master_volume(value / 100.0)
+	AudioManager.save_settings()
+	_update_volume_label(value)
+
+func _on_fps_limit_selected(index: int) -> void:
+	GraphicsSettings.fps_limit = _fps_limit_option.get_item_id(index)
+	_apply()
+
+func _update_volume_label(value: float) -> void:
+	_volume_label.text = "Master Volume (%d%%)" % int(roundf(value))
+
+func _get_fps_limit_index(fps_limit: int) -> int:
+	for i in range(_fps_limit_option.item_count):
+		if _fps_limit_option.get_item_id(i) == fps_limit:
+			return i
+	return max(0, _fps_limit_option.item_count - 1)
 
 func open() -> void:
 	_refresh()

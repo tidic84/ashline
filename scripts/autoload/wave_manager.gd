@@ -32,6 +32,8 @@ func register_spawn_point(point: Node3D) -> void:
 	spawn_points.append(point)
 
 func start_wave() -> void:
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		return
 	current_wave += 1
 	is_wave_active = true
 	enemies_to_spawn = _get_enemy_count_for_wave(current_wave)
@@ -67,6 +69,8 @@ func _get_enemy_types_for_wave(_wave: int) -> Array[String]:
 	return types
 
 func _on_spawn_timer() -> void:
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		return
 	if enemies_to_spawn <= 0:
 		spawn_timer.stop()
 		return
@@ -93,5 +97,8 @@ func _spawn_enemy(type: String, pos: Vector3) -> void:
 	var enemy := enemy_scene.instantiate() as Node3D
 	get_tree().current_scene.add_child(enemy)
 	enemy.global_position = pos
+	var net_id := WorldSync.register_entity(enemy)
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		WorldSync.replicate_spawn_scene(net_id, ENEMY_SCENES[type], enemy.global_transform)
 	enemies_alive += 1
 	enemy_spawned.emit(enemy)

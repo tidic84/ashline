@@ -16,6 +16,7 @@ const HOTBAR_KEY_LABELS: Array[String] = ["1", "2", "3", "4", "5", "6", "7", "8"
 @onready var time_label: Label = $TimeLabel
 @onready var build_menu: BuildMenu = $BuildMenu
 @onready var settings_menu: SettingsMenu = $SettingsMenu
+@onready var pause_menu: PauseMenu = $PauseMenu
 @onready var stats_display: Control = $StatsDisplay
 @onready var hotbar_slots: HBoxContainer = $HotbarPanel/HotbarSlots
 @onready var inventory_panel: PanelContainer = $InventoryPanel
@@ -49,6 +50,7 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	if get_viewport():
 		get_viewport().size_changed.connect(func(): set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT))
+	GameManager.game_state_changed.connect(_on_game_state_changed)
 	BuildSystem.build_mode_entered.connect(_on_build_entered)
 	BuildSystem.build_mode_exited.connect(_on_build_exited)
 	Inventory.inventory_updated.connect(_on_inventory_updated)
@@ -71,10 +73,13 @@ func _ready() -> void:
 	_build_hotbar_ui()
 	_build_inventory_slots_ui()
 	_build_preview_tuner_ui()
+	pause_menu.resume_requested.connect(_on_pause_resume_requested)
+	pause_menu.move_to_front()
 
 	_recipe_ids = _crafting_get_recipe_ids()
 	_on_inventory_updated()
 	_on_survival_changed(Inventory.health, Inventory.hunger, Inventory.thirst)
+	_on_game_state_changed(GameManager.current_state)
 
 
 func _process(delta: float) -> void:
@@ -189,6 +194,27 @@ func show_target_name(text: String) -> void:
 
 func hide_target_name() -> void:
 	target_info_bg.visible = false
+
+func _on_game_state_changed(new_state: int) -> void:
+	if pause_menu == null:
+		return
+	if new_state == GameManager.GameState.PAUSED:
+		_hide_transient_menus_for_pause()
+		pause_menu.open()
+	else:
+		pause_menu.close()
+
+func _on_pause_resume_requested() -> void:
+	GameManager.change_state(GameManager.GameState.PLAYING)
+
+func _hide_transient_menus_for_pause() -> void:
+	if build_menu:
+		build_menu.hide_menu()
+	if settings_menu:
+		settings_menu.visible = false
+	if inventory_panel.visible:
+		toggle_inventory_panel(false)
+	BuildSystem.hide_preview()
 
 
 func _current_build_cost_text() -> String:

@@ -45,6 +45,33 @@ const FLOOR_COST: Dictionary = { "wood": 3 }
 func _has_build_tool() -> bool:
 	return Inventory.get_selected_item() == "hammer"
 
+func _resolve_actor_peer_id(actor_peer_id: int) -> int:
+	if actor_peer_id > 0:
+		return actor_peer_id
+	if multiplayer.has_multiplayer_peer():
+		return multiplayer.get_unique_id()
+	return 1
+
+func _has_build_tool_for_peer(peer_id: int) -> bool:
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		return Inventory.server_get_selected_item(peer_id) == "hammer"
+	return _has_build_tool()
+
+func _spend_resources_for_peer(peer_id: int, cost: Dictionary) -> bool:
+	if cost.is_empty():
+		return true
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		return Inventory.server_spend_items(peer_id, cost)
+	return Inventory.spend_resources(cost)
+
+func _refund_resource_for_peer(peer_id: int, item_id: String, amount: int) -> void:
+	if amount <= 0:
+		return
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		Inventory.server_add_item(peer_id, item_id, amount)
+	else:
+		Inventory.add_resource(item_id, amount)
+
 func _ready() -> void:
 	preview_material_valid = StandardMaterial3D.new()
 	preview_material_valid.albedo_color = Color(0.0, 1.0, 0.0, 0.4)
@@ -370,13 +397,17 @@ func _update_item_preview(hit_point: Vector3, _hit_normal: Vector3, chassis: Nod
 
 # --- Placement ---
 
-func try_place_chassis(hit_point: Vector3) -> Node3D:
-	if not _has_build_tool():
+func try_place_chassis(hit_point: Vector3, actor_peer_id: int = -1, replicate: bool = true) -> Node3D:
+	if WorldSync.should_request_host():
+		WorldSync.request_place_chassis(hit_point)
+		return null
+	var peer_id := _resolve_actor_peer_id(actor_peer_id)
+	if not _has_build_tool_for_peer(peer_id):
 		return null
 
 	# Step 2: place second bogie + create WagonFrame
 	if _first_bogie != null and _first_bogie_curve != null:
-		return _place_second_bogie(hit_point)
+		return _place_second_bogie(hit_point, peer_id, replicate)
 
 	# Step 1: place first bogie — find closest rail
 	var best_curve: Curve3D = null
@@ -412,7 +443,7 @@ func try_place_chassis(hit_point: Vector3) -> Node3D:
 				best_dist = hit_point.distance_to(best_pos)
 	if best_curve == null or best_dist >= 6.0:
 		return null
-	if not Inventory.spend_resources(CHASSIS_COST):
+	if not _spend_resources_for_peer(peer_id, CHASSIS_COST):
 		return null
 	# Build world-space curve for movement (same as chassis.snap_to_rails does)
 	var world_curve: Curve3D
@@ -426,8 +457,12 @@ func try_place_chassis(hit_point: Vector3) -> Node3D:
 		world_curve = best_curve
 	var instance := chassis_scene.instantiate() as TrainChassis
 	get_tree().current_scene.add_child(instance)
+	var chassis_net_id := WorldSync.register_entity(instance)
 	instance.global_position = world_curve.sample_baked(best_offset)
 	_orient_node_on_curve(instance, world_curve, best_offset)
+	if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		var rail_path_ref: NodePath = best_rp.get_path() if best_rp != null else NodePath()
+		WorldSync.replicate_spawn_chassis(chassis_net_id, instance.global_transform, rail_path_ref, best_offset)
 
 	# Store for step 2
 	_first_bogie = instance
@@ -439,13 +474,14 @@ func try_place_chassis(hit_point: Vector3) -> Node3D:
 	return instance
 
 
-func _place_second_bogie(hit_point: Vector3) -> Node3D:
+func _place_second_bogie(hit_point: Vector3, actor_peer_id: int = -1, _replicate: bool = true) -> Node3D:
+	var peer_id := _resolve_actor_peer_id(actor_peer_id)
 	var curve: Curve3D = _first_bogie_curve
 	var total: float = curve.get_baked_length()
 	var offset: float = curve.get_closest_offset(hit_point)
 	var distance: float = absf(offset - _first_bogie_progress)
 	distance = clampf(distance, 2.0, 8.0)
-	if not Inventory.spend_resources(CHASSIS_COST):
+	if not _spend_resources_for_peer(peer_id, CHASSIS_COST):
 		return null
 
 	# Determine direction
@@ -467,6 +503,7 @@ func _place_second_bogie(hit_point: Vector3) -> Node3D:
 	# Create second bogie
 	var second_bogie := chassis_scene.instantiate() as TrainChassis
 	get_tree().current_scene.add_child(second_bogie)
+	WorldSync.register_entity(second_bogie)
 	second_bogie.global_position = curve.sample_baked(second_progress)
 	_orient_node_on_curve(second_bogie, curve, second_progress)
 
@@ -484,6 +521,7 @@ func _place_second_bogie(hit_point: Vector3) -> Node3D:
 	var frame := WagonFrame.new()
 	frame.wagon_length = wagon_tiles
 	get_tree().current_scene.add_child(frame)
+	var frame_net_id := WorldSync.register_entity(frame)
 
 	# Position frame at midpoint — use snapped progress values
 	var front_pos: Vector3 = curve.sample_baked(front_progress)
@@ -536,6 +574,24 @@ func _place_second_bogie(hit_point: Vector3) -> Node3D:
 
 	# Activate the frame on rails
 	frame.is_on_rails = true
+	if _replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		var previous_first_net_id := WorldSync.get_net_id(_first_bogie)
+		var front_net_id := WorldSync.get_net_id(front)
+		var rear_net_id := WorldSync.get_net_id(rear)
+		var rail_path_ref: NodePath = _first_bogie_rail_path.get_path() if _first_bogie_rail_path != null else NodePath()
+		WorldSync.replicate_spawn_wagon_frame(
+			frame_net_id,
+			front_net_id,
+			rear_net_id,
+			previous_first_net_id,
+			frame.global_transform,
+			front.global_transform,
+			rear.global_transform,
+			wagon_tiles,
+			rail_path_ref,
+			front_progress,
+			rear_progress
+		)
 
 	# Clean up second preview
 	_clear_second_bogie_preview()
@@ -597,35 +653,50 @@ func _clear_second_bogie_preview() -> void:
 			_second_bogie_preview.queue_free()
 	_second_bogie_preview = null
 
-func try_place_floor(hit_point: Vector3, chassis: Node) -> Node3D:
-	if not _has_build_tool():
+func try_place_floor(hit_point: Vector3, chassis: Node, actor_peer_id: int = -1, replicate: bool = true) -> Node3D:
+	if WorldSync.should_request_host():
+		WorldSync.request_place_floor(WorldSync.get_net_id(chassis), chassis.get_grid_position(hit_point))
+		return null
+	var peer_id := _resolve_actor_peer_id(actor_peer_id)
+	if not _has_build_tool_for_peer(peer_id):
 		return null
 	var grid_pos: Vector2i = chassis.get_grid_position(hit_point)
 	if not chassis.is_grid_in_bounds(grid_pos):
 		return null
 	if not chassis.can_place_floor(grid_pos):
 		return null
-	if not Inventory.spend_resources(FLOOR_COST):
+	if not _spend_resources_for_peer(peer_id, FLOOR_COST):
 		return null
 	var instance := floor_scene.instantiate() as Node3D
 	chassis.add_child(instance)
+	WorldSync.register_entity(instance)
 	var local_pos: Vector3 = chassis.grid_to_local(grid_pos)
 	local_pos.y = chassis.get_build_surface_local_y()
 	instance.position = local_pos
 	chassis.place_floor(grid_pos, instance)
 	item_placed.emit(instance)
+	if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		WorldSync.replicate_place_floor(WorldSync.get_net_id(chassis), grid_pos)
 	return instance
 
-func try_place_item(hit_point: Vector3, chassis: Node) -> Node3D:
-	if not _has_build_tool():
+func try_place_item(hit_point: Vector3, chassis: Node, actor_peer_id: int = -1, replicate: bool = true) -> Node3D:
+	var grid_pos: Vector2i = chassis.get_grid_position(hit_point)
+	var requested_edge: EdgeSide = EdgeSide.NONE
+	if current_buildable_data != null and _is_edge_category():
+		requested_edge = _detect_edge_from_hit(chassis, hit_point, grid_pos)
+	if WorldSync.should_request_host():
+		var buildable_id := current_buildable_data.id if current_buildable_data else ""
+		WorldSync.request_place_item(WorldSync.get_net_id(chassis), buildable_id, grid_pos, preview_rotation, requested_edge)
+		return null
+	var peer_id := _resolve_actor_peer_id(actor_peer_id)
+	if not _has_build_tool_for_peer(peer_id):
 		return null
 	if current_buildable == null:
 		return null
-	var grid_pos: Vector2i = chassis.get_grid_position(hit_point)
 	if not chassis.is_grid_in_bounds(grid_pos):
 		return null
 	var is_edge_item: bool = _is_edge_category()
-	var edge: EdgeSide = EdgeSide.NONE
+	var edge: EdgeSide = requested_edge
 
 	# Validate placement
 	if is_edge_item:
@@ -639,12 +710,13 @@ func try_place_item(hit_point: Vector3, chassis: Node) -> Node3D:
 			return null
 
 	var cost: Dictionary = current_buildable_data.cost if current_buildable_data else {}
-	if not cost.is_empty() and not Inventory.spend_resources(cost):
+	if not cost.is_empty() and not _spend_resources_for_peer(peer_id, cost):
 		return null
 	var instance := current_buildable.instantiate() as Node3D
 	if current_buildable_data:
 		instance.set_meta("buildable_id", current_buildable_data.id)
 	chassis.add_child(instance)
+	var item_net_id := WorldSync.register_entity(instance)
 
 	var local_pos: Vector3 = chassis.grid_to_local(grid_pos)
 	local_pos.y = chassis.get_build_surface_local_y() + 0.05
@@ -668,6 +740,107 @@ func try_place_item(hit_point: Vector3, chassis: Node) -> Node3D:
 			AudioManager.play_sfx("wall_place_" + str(_wall_sfx_index + 1), linear_to_db(0.8))
 		elif current_buildable_data.id == "direction_lever":
 			AudioManager.play_sfx("levier_place")
+	item_placed.emit(instance)
+	if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		WorldSync.replicate_place_item(WorldSync.get_net_id(chassis), item_net_id, current_buildable_data.id, grid_pos, preview_rotation, edge)
+	return instance
+
+func server_try_place_chassis(peer_id: int, hit_point: Vector3) -> Node3D:
+	return try_place_chassis(hit_point, peer_id, true)
+
+func server_try_place_floor(peer_id: int, target_net_id: int, grid_pos: Vector2i) -> Node3D:
+	var target := WorldSync.get_entity(target_net_id)
+	if target == null or not target.has_method("grid_to_world"):
+		return null
+	var hit_point: Vector3 = target.grid_to_world(grid_pos)
+	return try_place_floor(hit_point, target, peer_id, true)
+
+func server_try_place_item(peer_id: int, target_net_id: int, buildable_id: String, grid_pos: Vector2i, rotation_y: float, edge: int) -> Node3D:
+	var target := WorldSync.get_entity(target_net_id)
+	if target == null or not target.has_method("is_grid_in_bounds"):
+		return null
+	if not _has_build_tool_for_peer(peer_id):
+		return null
+	if not buildable_catalog.has(buildable_id):
+		return null
+	var data: BuildableData = buildable_catalog[buildable_id]
+	if not target.is_grid_in_bounds(grid_pos):
+		return null
+	var is_edge_item: bool = data.category in [
+		BuildableData.Category.WALL,
+		BuildableData.Category.BARRICADE,
+	]
+	if is_edge_item:
+		if edge == EdgeSide.NONE or not target.can_place_edge(grid_pos, edge):
+			return null
+	else:
+		if not target.can_place_item(grid_pos):
+			return null
+	if not _spend_resources_for_peer(peer_id, data.cost):
+		return null
+	var placed := _instantiate_buildable_on_target(target, data, grid_pos, rotation_y, edge)
+	if placed != null:
+		WorldSync.replicate_place_item(target_net_id, WorldSync.get_net_id(placed), buildable_id, grid_pos, rotation_y, edge)
+	return placed
+
+func apply_network_floor(target_net_id: int, grid_pos: Vector2i) -> Node3D:
+	var target := WorldSync.get_entity(target_net_id)
+	if target == null or not target.has_method("can_place_floor"):
+		return null
+	if not target.can_place_floor(grid_pos):
+		return null
+	var instance := floor_scene.instantiate() as Node3D
+	target.add_child(instance)
+	WorldSync.register_entity(instance)
+	var local_pos: Vector3 = target.grid_to_local(grid_pos)
+	local_pos.y = target.get_build_surface_local_y()
+	instance.position = local_pos
+	target.place_floor(grid_pos, instance)
+	item_placed.emit(instance)
+	return instance
+
+func apply_network_item(target_net_id: int, item_net_id: int, buildable_id: String, grid_pos: Vector2i, rotation_y: float, edge: int) -> Node3D:
+	var target := WorldSync.get_entity(target_net_id)
+	if target == null or not buildable_catalog.has(buildable_id):
+		return null
+	var data: BuildableData = buildable_catalog[buildable_id]
+	var is_edge_item: bool = data.category in [
+		BuildableData.Category.WALL,
+		BuildableData.Category.BARRICADE,
+	]
+	if is_edge_item:
+		if edge == EdgeSide.NONE or not target.can_place_edge(grid_pos, edge):
+			return null
+	else:
+		if not target.can_place_item(grid_pos):
+			return null
+	return _instantiate_buildable_on_target(target, data, grid_pos, rotation_y, edge, item_net_id)
+
+func _instantiate_buildable_on_target(target: Node, data: BuildableData, grid_pos: Vector2i, rotation_y: float, edge: int, net_id: int = 0) -> Node3D:
+	if data == null or data.scene == null:
+		return null
+	var instance := data.scene.instantiate() as Node3D
+	instance.set_meta("buildable_id", data.id)
+	target.add_child(instance)
+	WorldSync.register_entity(instance, net_id)
+	var local_pos: Vector3 = target.grid_to_local(grid_pos)
+	local_pos.y = target.get_build_surface_local_y() + 0.05
+	var is_edge_item: bool = data.category in [
+		BuildableData.Category.WALL,
+		BuildableData.Category.BARRICADE,
+	]
+	if is_edge_item and edge != EdgeSide.NONE:
+		local_pos += _edge_offset(edge)
+		instance.rotation.y = _edge_rotation(edge) + rotation_y
+		instance.set_meta("edge_side", edge)
+		instance.set_meta("grid_pos_x", grid_pos.x)
+		instance.set_meta("grid_pos_y", grid_pos.y)
+		instance.position = local_pos
+		target.place_edge_item(grid_pos, edge, instance)
+	else:
+		instance.rotation.y = rotation_y
+		instance.position = local_pos
+		target.place_item(grid_pos, instance)
 	item_placed.emit(instance)
 	return instance
 
@@ -802,7 +975,11 @@ func _restore_temp_material(node: Node3D) -> void:
 func _find_floor_mesh(chassis: Node, grid_pos: Vector2i) -> Node3D:
 	return chassis.get_floor_node(grid_pos)
 
-func try_demolish(hit_point: Vector3, chassis: Node) -> bool:
+func try_demolish(hit_point: Vector3, chassis: Node, actor_peer_id: int = -1, replicate: bool = true, refund: bool = true) -> bool:
+	if WorldSync.should_request_host():
+		WorldSync.request_demolish(WorldSync.get_net_id(chassis), chassis.get_grid_position(hit_point), -1)
+		return false
+	var peer_id := _resolve_actor_peer_id(actor_peer_id)
 	var grid_pos: Vector2i = chassis.get_grid_position(hit_point)
 	if not chassis.is_grid_in_bounds(grid_pos):
 		return false
@@ -825,20 +1002,26 @@ func try_demolish(hit_point: Vector3, chassis: Node) -> bool:
 					best_item = edge_item
 		if best_item != null and best_dist < 1.5:
 			chassis.remove_edge_item(grid_pos, best_edge)
-			_refund_item(best_item)
+			if refund:
+				_refund_item(best_item, peer_id)
 			best_item.queue_free()
 			item_removed.emit(best_item)
 			_clear_demolish_highlight()
+			if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+				WorldSync.replicate_demolish(WorldSync.get_net_id(chassis), grid_pos, best_edge)
 			return true
 
 	# Remove center item
 	if cell.get("item") != null and is_instance_valid(cell.item):
 		var item: Node3D = cell.item
 		chassis.remove_item(grid_pos)
-		_refund_item(item)
+		if refund:
+			_refund_item(item, peer_id)
 		item.queue_free()
 		item_removed.emit(item)
 		_clear_demolish_highlight()
+		if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+			WorldSync.replicate_demolish(WorldSync.get_net_id(chassis), grid_pos, -1)
 		return true
 
 	# Remove floor if no items
@@ -849,20 +1032,38 @@ func try_demolish(hit_point: Vector3, chassis: Node) -> bool:
 		chassis.floor_count -= 1
 		if floor_node:
 			floor_node.queue_free()
-		for res_name in FLOOR_COST:
-			Inventory.add_resource(res_name, int(ceil(FLOOR_COST[res_name] * 0.5)))
+		if refund:
+			for res_name in FLOOR_COST:
+				_refund_resource_for_peer(peer_id, res_name, int(ceil(FLOOR_COST[res_name] * 0.5)))
 		item_removed.emit(floor_node)
 		_clear_demolish_highlight()
+		if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+			WorldSync.replicate_demolish(WorldSync.get_net_id(chassis), grid_pos, -1)
 		return true
 	return false
 
-func _refund_item(item: Node3D) -> void:
+func server_try_demolish(peer_id: int, target_net_id: int, grid_pos: Vector2i, _edge: int) -> bool:
+	var target := WorldSync.get_entity(target_net_id)
+	if target == null or not target.has_method("grid_to_world"):
+		return false
+	return try_demolish(target.grid_to_world(grid_pos), target, peer_id, true, true)
+
+func apply_network_demolish(target_net_id: int, grid_pos: Vector2i, edge: int) -> bool:
+	var target := WorldSync.get_entity(target_net_id)
+	if target == null or not target.has_method("grid_to_world"):
+		return false
+	var hit_point: Vector3 = target.grid_to_world(grid_pos)
+	if edge != -1:
+		hit_point += target.global_basis * _edge_offset(edge)
+	return try_demolish(hit_point, target, -1, false, false)
+
+func _refund_item(item: Node3D, peer_id: int) -> void:
 	if item.has_meta("buildable_id"):
 		var bid: String = item.get_meta("buildable_id")
 		if buildable_catalog.has(bid):
 			var data: BuildableData = buildable_catalog[bid]
 			for res_name in data.cost:
-				Inventory.add_resource(res_name, int(ceil(data.cost[res_name] * 0.5)))
+				_refund_resource_for_peer(peer_id, res_name, int(ceil(data.cost[res_name] * 0.5)))
 
 func hide_preview() -> void:
 	if preview_instance and is_instance_valid(preview_instance) and preview_instance.is_inside_tree():

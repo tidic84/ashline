@@ -41,6 +41,9 @@ func can_craft(recipe_id: String) -> bool:
 	return Inventory.has_items(ingredients)
 
 func craft(recipe_id: String) -> bool:
+	if WorldSync.should_request_host():
+		WorldSync.request_craft(recipe_id)
+		return false
 	if not RECIPES.has(recipe_id):
 		craft_failed.emit(recipe_id, "Unknown recipe")
 		return false
@@ -53,5 +56,18 @@ func craft(recipe_id: String) -> bool:
 		craft_failed.emit(recipe_id, "Cannot spend ingredients")
 		return false
 	Inventory.add_item(recipe_id, 1)
+	crafted.emit(recipe_id)
+	return true
+
+func server_craft(peer_id: int, recipe_id: String) -> bool:
+	if not RECIPES.has(recipe_id):
+		craft_failed.emit(recipe_id, "Unknown recipe")
+		return false
+	var recipe: Dictionary = RECIPES[recipe_id]
+	var ingredients: Dictionary = recipe.get("ingredients", {})
+	if not Inventory.server_spend_items(peer_id, ingredients):
+		craft_failed.emit(recipe_id, "Missing ingredients")
+		return false
+	Inventory.server_add_item(peer_id, recipe_id, 1)
 	crafted.emit(recipe_id)
 	return true

@@ -101,9 +101,26 @@ const HARVEST_TO_ITEM: Dictionary = {
 	"metal_scrap": {"metal": 2},
 }
 
+const STARTER_ITEMS: Dictionary = {
+	"wood": 800,
+	"metal": 600,
+	"components": 250,
+	"fuel": 500,
+	"branch": 180,
+	"log": 140,
+	"stone": 220,
+	"metal_scrap": 160,
+	"axe": 1,
+	"pickaxe": 1,
+	"hammer": 1,
+}
+
 var _slots: Array[Dictionary] = []
 var _item_icons: Dictionary = {}
 var _item_icon_setting_overrides: Dictionary = {}
+var player_inventories: Dictionary = {}
+var _suppress_notifications: bool = false
+var _suppress_network_requests: bool = false
 
 var selected_hotbar_index: int = 0
 
@@ -118,17 +135,14 @@ var dehydration_damage_per_second: float = 2.0
 var health_regen_per_second: float = 0.3
 
 func _ready() -> void:
-	var total: int = get_total_slot_count()
-	_slots.resize(total)
-	for i in range(total):
-		_slots[i] = _empty_slot()
+	reset_local_inventory()
 	set_process(true)
-	hotbar_updated.emit()
-	selected_hotbar_changed.emit(selected_hotbar_index, get_selected_item())
+	_notify_inventory_changed()
 	survival_changed.emit(health, hunger, thirst)
-	inventory_capacity_changed.emit(get_used_slots(), MAX_INVENTORY_SLOTS)
 
 func _process(delta: float) -> void:
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		return
 	var old_health: float = health
 	var old_hunger: float = hunger
 	var old_thirst: float = thirst
@@ -145,6 +159,187 @@ func _process(delta: float) -> void:
 
 	if not is_equal_approx(old_health, health) or not is_equal_approx(old_hunger, hunger) or not is_equal_approx(old_thirst, thirst):
 		survival_changed.emit(health, hunger, thirst)
+		if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+			player_inventories[get_local_peer_id()] = export_state()
+
+func reset_local_inventory() -> void:
+	_slots.clear()
+	for i in range(get_total_slot_count()):
+		_slots.append(_empty_slot())
+	selected_hotbar_index = 0
+	health = MAX_STAT
+	hunger = MAX_STAT
+	thirst = MAX_STAT
+
+func grant_starter_inventory() -> void:
+	reset_local_inventory()
+	for item_id in STARTER_ITEMS:
+		add_item(item_id, int(STARTER_ITEMS[item_id]))
+	select_hotbar_item("hammer")
+
+func get_local_peer_id() -> int:
+	if multiplayer.has_multiplayer_peer():
+		return multiplayer.get_unique_id()
+	return 1
+
+func export_state() -> Dictionary:
+	return {
+		"slots": _slots.duplicate(true),
+		"selected_hotbar_index": selected_hotbar_index,
+		"health": health,
+		"hunger": hunger,
+		"thirst": thirst,
+	}
+
+func apply_state(state: Dictionary, emit_signals: bool = true) -> void:
+	var raw_slots: Array = state.get("slots", [])
+	_slots.clear()
+	for slot_data in raw_slots:
+		if slot_data is Dictionary:
+			_slots.append((slot_data as Dictionary).duplicate(true))
+	while _slots.size() < get_total_slot_count():
+		_slots.append(_empty_slot())
+	if _slots.size() > get_total_slot_count():
+		_slots.resize(get_total_slot_count())
+	selected_hotbar_index = clampi(int(state.get("selected_hotbar_index", 0)), 0, HOTBAR_SIZE - 1)
+	health = float(state.get("health", MAX_STAT))
+	hunger = float(state.get("hunger", MAX_STAT))
+	thirst = float(state.get("thirst", MAX_STAT))
+	if emit_signals:
+		_notify_inventory_changed()
+		survival_changed.emit(health, hunger, thirst)
+
+func setup_server_inventories(peer_ids: Array) -> void:
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		return
+	for peer_id_value in peer_ids:
+		var peer_id := int(peer_id_value)
+		if not player_inventories.has(peer_id):
+			var previous := export_state()
+			_suppress_notifications = true
+			grant_starter_inventory()
+			player_inventories[peer_id] = export_state()
+			_suppress_notifications = false
+			if peer_id == get_local_peer_id():
+				apply_state(player_inventories[peer_id])
+			else:
+				apply_state(previous, false)
+	if player_inventories.has(get_local_peer_id()):
+		apply_state(player_inventories[get_local_peer_id()])
+	sync_all_peer_inventories()
+
+func sync_all_peer_inventories() -> void:
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		return
+	for peer_id in player_inventories:
+		sync_peer_inventory(int(peer_id))
+
+func sync_peer_inventory(peer_id: int) -> void:
+	if not player_inventories.has(peer_id):
+		return
+	var state: Dictionary = player_inventories[peer_id]
+	if multiplayer.has_multiplayer_peer() and peer_id != get_local_peer_id():
+		apply_inventory_snapshot.rpc_id(
+			peer_id,
+			state.get("slots", []),
+			int(state.get("selected_hotbar_index", 0)),
+			{
+				"health": float(state.get("health", MAX_STAT)),
+				"hunger": float(state.get("hunger", MAX_STAT)),
+				"thirst": float(state.get("thirst", MAX_STAT)),
+			}
+		)
+	else:
+		apply_state(state)
+
+@rpc("authority", "reliable")
+func apply_inventory_snapshot(slots: Array, selected_index: int, stats: Dictionary) -> void:
+	_suppress_network_requests = true
+	apply_state({
+		"slots": slots,
+		"selected_hotbar_index": selected_index,
+		"health": stats.get("health", MAX_STAT),
+		"hunger": stats.get("hunger", MAX_STAT),
+		"thirst": stats.get("thirst", MAX_STAT),
+	})
+	_suppress_network_requests = false
+
+func ensure_peer_inventory(peer_id: int) -> void:
+	if player_inventories.has(peer_id):
+		return
+	var previous := export_state()
+	_suppress_notifications = true
+	grant_starter_inventory()
+	player_inventories[peer_id] = export_state()
+	_suppress_notifications = false
+	apply_state(previous, false)
+
+func server_has_items(peer_id: int, cost: Dictionary) -> bool:
+	return _server_read_bool(peer_id, func(): return has_items(cost))
+
+func server_has_item(peer_id: int, item_id: String, amount: int = 1) -> bool:
+	return _server_read_bool(peer_id, func(): return has_item(item_id, amount))
+
+func server_get_selected_item(peer_id: int) -> String:
+	ensure_peer_inventory(peer_id)
+	var state: Dictionary = player_inventories[peer_id]
+	var slots: Array = state.get("slots", [])
+	var selected := clampi(int(state.get("selected_hotbar_index", 0)), 0, HOTBAR_SIZE - 1)
+	if selected < 0 or selected >= slots.size():
+		return ""
+	var slot: Dictionary = slots[selected]
+	if _is_slot_empty(slot):
+		return ""
+	return String(slot.item_id)
+
+func server_spend_items(peer_id: int, cost: Dictionary) -> bool:
+	return _server_edit_bool(peer_id, func(): return spend_items(cost))
+
+func server_add_item(peer_id: int, item_id: String, amount: int) -> void:
+	_server_edit_bool(peer_id, func():
+		add_item(item_id, amount)
+		return true
+	)
+
+func server_remove_item(peer_id: int, item_id: String, amount: int) -> bool:
+	return _server_edit_bool(peer_id, func(): return remove_item(item_id, amount))
+
+func server_select_hotbar(peer_id: int, index: int) -> void:
+	_server_edit_bool(peer_id, func():
+		select_hotbar_slot(index)
+		return true
+	)
+
+func server_move_slot(peer_id: int, source_index: int, target_index: int) -> void:
+	_server_edit_bool(peer_id, func(): return move_slot(source_index, target_index))
+
+func _server_read_bool(peer_id: int, action: Callable) -> bool:
+	ensure_peer_inventory(peer_id)
+	var previous := export_state()
+	_suppress_notifications = true
+	apply_state(player_inventories[peer_id], false)
+	var result := bool(action.call())
+	apply_state(previous, false)
+	_suppress_notifications = false
+	return result
+
+func _server_edit_bool(peer_id: int, action: Callable) -> bool:
+	ensure_peer_inventory(peer_id)
+	var local_peer_id := get_local_peer_id()
+	var previous := export_state()
+	_suppress_notifications = true
+	_suppress_network_requests = true
+	apply_state(player_inventories[peer_id], false)
+	var result := bool(action.call())
+	player_inventories[peer_id] = export_state()
+	_suppress_network_requests = false
+	_suppress_notifications = false
+	if peer_id == local_peer_id:
+		apply_state(player_inventories[peer_id])
+	else:
+		apply_state(previous, false)
+	sync_peer_inventory(peer_id)
+	return result
 
 # Compatibility wrappers used by existing systems.
 func add_resource(resource_id: String, amount: int) -> void:
@@ -305,6 +500,8 @@ func move_slot(source_index: int, target_index: int) -> bool:
 		_slots[target_index] = src
 
 	_notify_inventory_changed()
+	if not _suppress_network_requests and WorldSync.should_request_host():
+		WorldSync.request_move_slot(source_index, target_index)
 	return true
 
 func get_hotbar_slots() -> Array[String]:
@@ -331,6 +528,8 @@ func select_hotbar_slot(index: int) -> void:
 	selected_hotbar_index = index
 	selected_hotbar_changed.emit(selected_hotbar_index, get_selected_item())
 	hotbar_updated.emit()
+	if not _suppress_network_requests and WorldSync.should_request_host():
+		WorldSync.request_select_hotbar(index)
 
 func cycle_hotbar(delta: int) -> void:
 	var next: int = posmod(selected_hotbar_index + delta, HOTBAR_SIZE)
@@ -941,6 +1140,8 @@ func _fill_empty_slots(item_id: String, remaining: int) -> int:
 	return remaining
 
 func _notify_inventory_changed() -> void:
+	if _suppress_notifications:
+		return
 	for item_id in ITEM_NAMES.keys():
 		var amount: int = get_item_amount(item_id)
 		item_changed.emit(item_id, amount)
