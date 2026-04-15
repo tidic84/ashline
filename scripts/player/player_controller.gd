@@ -4,6 +4,7 @@ const WALK_SPEED: float = 5.0
 const SPRINT_SPEED: float = 8.0
 const JUMP_VELOCITY: float = 5.0
 const MOUSE_SENSITIVITY: float = 0.002
+const GAME_AMBIENT_NAME: String = "train_ambience"
 
 @onready var camera: Camera3D = $Head/Camera3D
 @onready var head: Node3D = $Head
@@ -133,27 +134,7 @@ func _update_ambient() -> void:
 	if _ambient_timer < 1.0:
 		return
 	_ambient_timer = 0.0
-	var main: Node = get_tree().current_scene
-	if main == null:
-		return
-	var terrain_nodes := get_tree().get_nodes_in_group("terrain")
-	if terrain_nodes.is_empty():
-		return
-	var terrain: TerrainGenerator = terrain_nodes[0] as TerrainGenerator
-	if terrain == null:
-		return
-	var biome: int = terrain.get_biome_at(global_position.x, global_position.z)
-	var is_night: bool = false
-	if "is_night" in main:
-		is_night = bool(main.get("is_night"))
-	if is_night:
-		AudioManager.play_ambient("night")
-		return
-	match biome:
-		TerrainGenerator.Biome.FOREST: AudioManager.play_ambient("forest")
-		TerrainGenerator.Biome.DESERT: AudioManager.play_ambient("desert")
-		TerrainGenerator.Biome.SNOW: AudioManager.play_ambient("snow")
-		_: AudioManager.play_ambient("plains")
+	AudioManager.play_ambient(GAME_AMBIENT_NAME)
 
 func _try_interact() -> void:
 	if not interact_ray.is_colliding():

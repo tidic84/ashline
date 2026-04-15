@@ -26,6 +26,7 @@ const INTERACT_COLLISION_MASK: int = 48
 const LOOK_COLLISION_MASK: int = 57  # World (1) + Train (8) + Placeables (16) + Interactable (32)
 const BUILD_PREVIEW_INTERVAL: float = 0.033
 const INTERACT_CHECK_INTERVAL: float = 0.05
+const GAME_AMBIENT_NAME: String = "train_ambience"
 
 
 func _ready() -> void:
@@ -435,26 +436,7 @@ func _update_ambient(delta: float) -> void:
 	if _ambient_timer < 1.0:
 		return
 	_ambient_timer = 0.0
-	var terrain_nodes := get_tree().get_nodes_in_group("terrain")
-	if terrain_nodes.is_empty():
-		return
-	var terrain: TerrainGenerator = terrain_nodes[0] as TerrainGenerator
-	if terrain == null:
-		return
-	var pos: Vector3 = _fps.global_position
-	var biome: int = terrain.get_biome_at(pos.x, pos.z)
-	var main: Node = get_tree().current_scene
-	var is_night: bool = false
-	if main and "is_night" in main:
-		is_night = bool(main.get("is_night"))
-	if is_night:
-		AudioManager.play_ambient("night")
-		return
-	match biome:
-		TerrainGenerator.Biome.FOREST: AudioManager.play_ambient("forest")
-		TerrainGenerator.Biome.DESERT: AudioManager.play_ambient("desert")
-		TerrainGenerator.Biome.SNOW: AudioManager.play_ambient("snow")
-		_: AudioManager.play_ambient("plains")
+	AudioManager.play_ambient(GAME_AMBIENT_NAME)
 
 
 func _set_player_look_enabled(enabled: bool) -> void:
