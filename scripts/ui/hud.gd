@@ -8,8 +8,11 @@ const HOTBAR_KEY_LABELS: Array[String] = ["1", "2", "3", "4", "5", "6", "7", "8"
 @onready var build_label: Label = $BuildPanel/BuildLabel
 @onready var crosshair: ColorRect = $Crosshair
 @onready var interact_hint: Label = $InteractHint
+@onready var target_info_bg: ColorRect = $TargetInfoBg
+@onready var target_name_label: Label = $TargetInfoBg/TargetNameLabel
 @onready var speed_label: Label = $SpeedLabel
 @onready var distance_label: Label = $DistanceLabel
+@onready var slope_label: Label = $SlopeLabel
 @onready var time_label: Label = $TimeLabel
 @onready var build_menu: BuildMenu = $BuildMenu
 @onready var settings_menu: SettingsMenu = $SettingsMenu
@@ -60,7 +63,9 @@ func _ready() -> void:
 
 	build_panel.visible = false
 	interact_hint.visible = false
+	target_info_bg.visible = false
 	speed_label.visible = false
+	slope_label.visible = false
 	inventory_panel.visible = false
 
 	_build_hotbar_ui()
@@ -94,27 +99,37 @@ func _process(delta: float) -> void:
 		var on_rails: bool = false
 		var spd: float = 0.0
 		var dist: float = 0.0
+		var slope_deg: float = 0.0
+		var slope_source: Node3D = null
 		if tracked_chassis is WagonFrame:
 			var wf := tracked_chassis as WagonFrame
 			on_rails = wf.is_on_rails and wf.front_bogie != null
 			if on_rails:
 				spd = absf(wf.front_bogie.speed)
 				dist = wf.front_bogie.distance_traveled
+				slope_source = wf
 		elif tracked_chassis is TrainChassis:
 			on_rails = (tracked_chassis as TrainChassis).is_on_rails
 			spd = absf((tracked_chassis as TrainChassis).speed)
 			dist = (tracked_chassis as TrainChassis).distance_traveled
+			slope_source = tracked_chassis as Node3D
 		if on_rails:
+			if slope_source != null:
+				slope_deg = _get_signed_slope_degrees(slope_source)
 			speed_label.visible = true
 			distance_label.visible = true
+			slope_label.visible = true
 			speed_label.text = "%.1f m/s" % spd
 			distance_label.text = "%d m" % int(dist)
+			slope_label.text = "Pente: %.1f°" % slope_deg
 		else:
 			speed_label.visible = false
 			distance_label.visible = false
+			slope_label.visible = false
 	else:
 		speed_label.visible = false
 		distance_label.visible = false
+		slope_label.visible = false
 
 	var main: Node = get_tree().current_scene
 	if main and "is_night" in main:
@@ -130,6 +145,11 @@ func _find_nearest_chassis() -> Node:
 		return frames[0]
 	var nodes := get_tree().get_nodes_in_group("chassis")
 	return nodes[0] as TrainChassis if not nodes.is_empty() else null
+
+func _get_signed_slope_degrees(node: Node3D) -> float:
+	var forward: Vector3 = node.global_basis.z.normalized()
+	var horizontal_length: float = Vector2(forward.x, forward.z).length()
+	return rad_to_deg(atan2(forward.y, horizontal_length))
 
 
 func _on_inventory_updated() -> void:
@@ -162,6 +182,13 @@ func show_interact_hint(text: String) -> void:
 
 func hide_interact_hint() -> void:
 	interact_hint.visible = false
+
+func show_target_name(text: String) -> void:
+	target_name_label.text = text
+	target_info_bg.visible = true
+
+func hide_target_name() -> void:
+	target_info_bg.visible = false
 
 
 func _current_build_cost_text() -> String:
