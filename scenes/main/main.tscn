@@ -10,7 +10,7 @@
 [ext_resource type="PackedScene" uid="uid://b4c8s22viordq" path="res://objects/pine-tree-2.tscn" id="7_pine2"]
 [ext_resource type="PackedScene" uid="uid://b6d80typr1lwv" path="res://generated/biomes_billboards/trees/02_pine-tree-2/billboard.tscn" id="8_bb_pine2"]
 [ext_resource type="PackedScene" uid="uid://cdjtntpf7gt6t" path="res://generated/biomes_billboards/trees/01_scene/billboard.tscn" id="9_bb_pine3"]
-[ext_resource type="PackedScene" uid="uid://bhtip2magw5d2" path="res://objects/pine-tree-3/scene.gltf" id="10_pine3"]
+[ext_resource type="PackedScene" uid="uid://biq16gh23fq2e" path="res://objects/pine-tree-3.tscn" id="10_pine3"]
 [ext_resource type="PackedScene" uid="uid://ro0aq5ma87ev" path="res://objects/birch_tree_1.tscn" id="11_birch"]
 [ext_resource type="PackedScene" uid="uid://cs8d46y6eed4s" path="res://generated/biomes_billboards/trees/03_birch_tree_1/billboard.tscn" id="12_bb_birch"]
 [ext_resource type="Texture2D" uid="uid://b7qpk2tctbu0x" path="res://levels/biomes_mask.png" id="13_mask"]
@@ -45,6 +45,14 @@ probability = 0.1
 billboard_lod_distance = 40.0
 scale_min = Vector3(0.4, 0.4, 0.4)
 scale_max = Vector3(1.2, 1.4, 1.2)
+harvest_enabled = true
+harvest_drop_item_id = "log"
+harvest_amount_min = 6
+harvest_amount_max = 10
+harvest_hits_to_harvest = 4
+harvest_required_tool_id = "axe"
+harvest_interact_label = "Chop Tree"
+harvest_target_name = "Tree"
 
 [sub_resource type="Resource" id="tree_pine3"]
 script = ExtResource("3_entry")
@@ -52,6 +60,14 @@ mesh_scene = ExtResource("10_pine3")
 billboard_scene = ExtResource("9_bb_pine3")
 probability = 0.2
 billboard_lod_distance = 40.0
+harvest_enabled = true
+harvest_drop_item_id = "log"
+harvest_amount_min = 6
+harvest_amount_max = 10
+harvest_hits_to_harvest = 4
+harvest_required_tool_id = "axe"
+harvest_interact_label = "Chop Tree"
+harvest_target_name = "Tree"
 
 [sub_resource type="Resource" id="tree_pine2"]
 script = ExtResource("3_entry")
@@ -59,6 +75,14 @@ mesh_scene = ExtResource("7_pine2")
 billboard_scene = ExtResource("8_bb_pine2")
 probability = 0.1
 billboard_lod_distance = 40.0
+harvest_enabled = true
+harvest_drop_item_id = "log"
+harvest_amount_min = 6
+harvest_amount_max = 10
+harvest_hits_to_harvest = 4
+harvest_required_tool_id = "axe"
+harvest_interact_label = "Chop Tree"
+harvest_target_name = "Tree"
 
 [sub_resource type="Resource" id="tree_birch"]
 script = ExtResource("3_entry")
@@ -66,6 +90,14 @@ mesh_scene = ExtResource("11_birch")
 billboard_scene = ExtResource("12_bb_birch")
 probability = 0.05
 billboard_lod_distance = 20.0
+harvest_enabled = true
+harvest_drop_item_id = "log"
+harvest_amount_min = 6
+harvest_amount_max = 10
+harvest_hits_to_harvest = 4
+harvest_required_tool_id = "axe"
+harvest_interact_label = "Chop Tree"
+harvest_target_name = "Tree"
 
 [sub_resource type="Resource" id="plant_paproc"]
 script = ExtResource("3_entry")
@@ -111,7 +143,7 @@ point_count = 4
 
 [sub_resource type="Curve3D" id="Curve3D_7nlll"]
 _data = {
-"points": PackedVector3Array(-2.8536587, 0.26077694, 2.0096335, 2.8536587, -0.26077694, -2.0096335, 0, 0, 0, 0, 0, 0, 0, 0, 0, 20.33369, 0, -15.719835),
+"points": PackedVector3Array(-2.163709, 0.28699186, 2.7360554, 2.163709, -0.28699186, -2.7360554, 0, 0, 0, 0, 0, 0, 0, 0, 0, 20.33369, 0, -15.719835),
 "tilts": PackedFloat32Array(0, 0)
 }
 point_count = 2

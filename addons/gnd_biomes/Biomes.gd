@@ -12,6 +12,7 @@ enum MaskChannel {
 
 const GENERATED_ROOT_NAME := "__biomes_generated"
 const HASH_MASK := 0xFFFFFFFF
+const BIOME_HARVEST_PROXY_SCRIPT := preload("res://scripts/world/biome_harvest_proxy.gd")
 const MASK_SAMPLE_OFFSETS: Array[Vector2] = [
     Vector2(1.0, 0.0),
     Vector2(-1.0, 0.0),
@@ -490,15 +491,32 @@ func _generate() -> void:
                     "entry": resolved_entry,
                     "near": [],
                     "far": [],
-                    "lod_priorities": []
+                    "lod_priorities": [],
+                    "harvest_instances": []
                 }
             var bucket: Dictionary = chunk_transforms[chunk_key]
             bucket["near"].append(transform)
             if not resolved_entry["billboard_parts"].is_empty():
                 bucket["far"].append(transform)
             bucket["lod_priorities"].append(lod_priority)
+            if resolved_entry["harvest_enabled"] and not resolved_entry["collision_parts"].is_empty():
+                var harvest_shapes: Array = []
+                var center_accum := Vector3.ZERO
+                var center_count: int = 0
+                for collision_part in resolved_entry["collision_parts"]:
+                    var shape_transform: Transform3D = _sanitize_collision_transform(transform * collision_part["transform"])
+                    harvest_shapes.append({
+                        "shape": collision_part["shape"],
+                        "transform": shape_transform
+                    })
+                    center_accum += shape_transform.origin
+                    center_count += 1
+                bucket["harvest_instances"].append({
+                    "center": center_accum / float(center_count) if center_count > 0 else transform.origin,
+                    "shapes": harvest_shapes
+                })
             chunk_transforms[chunk_key] = bucket
-            if generate_chunk_colliders and not resolved_entry["collision_parts"].is_empty():
+            if generate_chunk_colliders and not resolved_entry["harvest_enabled"] and not resolved_entry["collision_parts"].is_empty():
                 var collision_chunk_key := _chunk_coords_key(chunk_coords)
                 if not chunk_collision_buckets.has(collision_chunk_key):
                     chunk_collision_buckets[collision_chunk_key] = {
@@ -538,9 +556,10 @@ func _build_generated_nodes(chunk_transforms: Dictionary, chunk_collision_bucket
         for instance in near_instances:
             chunk_node.add_child(instance, false, INTERNAL_MODE_FRONT)
 
+        var far_instances: Array[MultiMeshInstance3D] = []
         if not resolved_entry["billboard_parts"].is_empty():
             var lod_distance: float = resolved_entry["billboard_lod_distance"]
-            var far_instances := _create_multimesh_instances(
+            far_instances = _create_multimesh_instances(
                 "far_%s" % resolved_entry["index"],
                 resolved_entry["billboard_parts"],
                 sorted_bucket["far"],
@@ -556,6 +575,15 @@ func _build_generated_nodes(chunk_transforms: Dictionary, chunk_collision_bucket
             _register_chunk_render_lod(chunk_node, near_instances, far_instances, sorted_bucket["near"].size())
         else:
             _register_chunk_render_lod(chunk_node, near_instances, [], sorted_bucket["near"].size())
+
+        if resolved_entry["harvest_enabled"]:
+            _build_harvest_chunk_collider(
+                chunk_node,
+                resolved_entry,
+                sorted_bucket["harvest_instances"],
+                near_instances,
+                far_instances
+            )
 
     for collision_bucket_value in chunk_collision_buckets.values():
         var collision_bucket: Dictionary = collision_bucket_value
@@ -619,19 +647,23 @@ func _sort_chunk_bucket_for_density_lod(bucket: Dictionary) -> Dictionary:
     var sorted_near: Array = []
     var sorted_far: Array = []
     var sorted_priorities: Array = []
+    var sorted_harvest_instances: Array = []
     for item in order:
         var source_index: int = item["index"]
         sorted_near.append(near_transforms[source_index])
         if source_index < far_transforms.size():
             sorted_far.append(far_transforms[source_index])
         sorted_priorities.append(lod_priorities[source_index])
+        if source_index < bucket["harvest_instances"].size():
+            sorted_harvest_instances.append(bucket["harvest_instances"][source_index])
 
     return {
         "chunk_coords": bucket["chunk_coords"],
         "entry": bucket["entry"],
         "near": sorted_near,
         "far": sorted_far,
-        "lod_priorities": sorted_priorities
+        "lod_priorities": sorted_priorities,
+        "harvest_instances": sorted_harvest_instances
     }
 
 
@@ -677,6 +709,14 @@ func _resolve_entries() -> Array[Dictionary]:
             "main_parts": main_parts,
             "billboard_parts": billboard_parts,
             "collision_parts": collision_parts,
+            "harvest_enabled": entry.harvest_enabled,
+            "harvest_drop_item_id": entry.harvest_drop_item_id,
+            "harvest_amount_min": maxi(entry.harvest_amount_min, 1),
+            "harvest_amount_max": maxi(entry.harvest_amount_max, maxi(entry.harvest_amount_min, 1)),
+            "harvest_hits_to_harvest": maxi(entry.harvest_hits_to_harvest, 1),
+            "harvest_required_tool_id": entry.harvest_required_tool_id,
+            "harvest_interact_label": entry.harvest_interact_label,
+            "harvest_target_name": entry.harvest_target_name,
             "probability": entry.probability,
             "billboard_lod_distance": maxf(entry.billboard_lod_distance, 0.0),
             "scale_min": entry.scale_min,
@@ -1138,6 +1178,65 @@ func _build_chunk_collider(chunk_node: Node3D, shapes: Array) -> void:
         collision_shape.transform = shape_data["transform"]
         collision_shape.position -= chunk_node.position
         body.add_child(collision_shape, false, INTERNAL_MODE_FRONT)
+
+
+func _build_harvest_chunk_collider(
+    chunk_node: Node3D,
+    resolved_entry: Dictionary,
+    harvest_instances: Array,
+    near_instances: Array[MultiMeshInstance3D],
+    far_instances: Array[MultiMeshInstance3D]
+) -> void:
+    if harvest_instances.is_empty():
+        return
+
+    var body := BIOME_HARVEST_PROXY_SCRIPT.new() as StaticBody3D
+    if body == null:
+        return
+
+    body.name = "HarvestChunk_%s" % resolved_entry["index"]
+    body.collision_layer = chunk_collision_layer | 32
+    body.collision_mask = chunk_collision_mask
+    chunk_node.add_child(body, false, INTERNAL_MODE_FRONT)
+
+    var proxy_instances: Array = []
+    for instance_index in range(harvest_instances.size()):
+        var harvest_instance: Dictionary = harvest_instances[instance_index]
+        var collision_shape_nodes: Array = []
+        for shape_index in range(harvest_instance["shapes"].size()):
+            var shape_data: Dictionary = harvest_instance["shapes"][shape_index]
+            var shape: Shape3D = shape_data["shape"]
+            if shape == null:
+                continue
+
+            var collision_shape := CollisionShape3D.new()
+            collision_shape.name = "Shape_%s_%s" % [instance_index, shape_index]
+            collision_shape.shape = shape
+            collision_shape.transform = shape_data["transform"]
+            collision_shape.position -= chunk_node.position
+            body.add_child(collision_shape, false, INTERNAL_MODE_FRONT)
+            collision_shape_nodes.append(collision_shape)
+
+        proxy_instances.append({
+            "local_center": harvest_instance["center"] - chunk_node.position,
+            "collision_shapes": collision_shape_nodes
+        })
+
+    if body.has_method("setup_chunk"):
+        body.call(
+            "setup_chunk",
+            {
+                "drop_item_id": resolved_entry["harvest_drop_item_id"],
+                "amount_min": resolved_entry["harvest_amount_min"],
+                "amount_max": resolved_entry["harvest_amount_max"],
+                "hits_to_harvest": resolved_entry["harvest_hits_to_harvest"],
+                "required_tool_id": resolved_entry["harvest_required_tool_id"],
+                "interact_label": resolved_entry["harvest_interact_label"],
+                "target_name": resolved_entry["harvest_target_name"],
+                "instances": proxy_instances,
+                "render_nodes": near_instances + far_instances
+            }
+        )
 
 
 func _sanitize_collision_transform(source_transform: Transform3D) -> Transform3D:

@@ -133,6 +133,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if BuildSystem.is_building:
 			_try_build()
+		elif _try_use_equipped_tool():
+			return
 
 	# Right-click while building: cancel selection (or exit build mode if none)
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
@@ -184,8 +186,27 @@ func _try_interact() -> void:
 	if hit.is_empty():
 		return
 	var collider: Object = hit.get("collider")
+	if collider and collider.has_method("interact_at"):
+		collider.interact_at(_fps, hit)
+	elif collider and collider.has_method("interact"):
+		collider.interact(_fps)
+
+
+func _try_use_equipped_tool() -> bool:
+	var selected_item: String = Inventory.get_selected_item()
+	if selected_item != "axe" and selected_item != "pickaxe" and selected_item != "hammer":
+		return false
+	var hit := _camera_ray(INTERACT_RAY_LENGTH, INTERACT_COLLISION_MASK)
+	if hit.is_empty():
+		return false
+	var collider: Object = hit.get("collider")
+	if collider and collider.has_method("interact_at"):
+		collider.interact_at(_fps, hit)
+		return true
 	if collider and collider.has_method("interact"):
 		collider.interact(_fps)
+		return true
+	return false
 
 
 func _try_build() -> void:
@@ -362,7 +383,7 @@ func _update_interact_hint() -> void:
 		return
 	var look_hit := _camera_ray(INTERACT_RAY_LENGTH, LOOK_COLLISION_MASK)
 	if not look_hit.is_empty():
-		var looked_name := _get_target_display_name(look_hit.get("collider"))
+		var looked_name := _get_target_display_name(look_hit)
 		if not looked_name.is_empty():
 			_hud.show_target_name(looked_name)
 		else:
@@ -372,7 +393,7 @@ func _update_interact_hint() -> void:
 	var hit := _camera_ray(INTERACT_RAY_LENGTH, INTERACT_COLLISION_MASK)
 	if not hit.is_empty():
 		var collider: Object = hit.get("collider")
-		if collider and collider.has_method("interact"):
+		if collider and (collider.has_method("interact_at") or collider.has_method("interact")):
 			var text := "[E] Interact"
 			if collider is PumpLever:
 				text = "[E] Pump"
@@ -380,6 +401,8 @@ func _update_interact_hint() -> void:
 				text = "[E] Direction"
 			elif collider is RailSwitch:
 				text = "[E] Switch"
+			elif collider.has_method("get_interact_text_at"):
+				text = collider.get_interact_text_at(hit)
 			elif collider.has_method("get_interact_text"):
 				text = collider.get_interact_text()
 			elif collider is Harvestable:
@@ -388,9 +411,14 @@ func _update_interact_hint() -> void:
 			return
 	_hud.hide_interact_hint()
 
-func _get_target_display_name(collider: Object) -> String:
+func _get_target_display_name(hit: Dictionary) -> String:
+	var collider: Object = hit.get("collider")
 	if collider == null or not (collider is Node):
 		return ""
+	if collider.has_method("get_target_name_at"):
+		var target_name: String = collider.get_target_name_at(hit)
+		if not target_name.is_empty():
+			return target_name
 	var node := collider as Node
 	var current: Node = node
 	while current:
