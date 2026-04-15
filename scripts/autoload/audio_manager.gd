@@ -23,6 +23,7 @@ func _ready() -> void:
 	_ambient_player = AudioStreamPlayer.new()
 	_ambient_player.bus = "Ambient"
 	_ambient_player.volume_db = -6.0
+	_ambient_player.finished.connect(_on_ambient_finished)
 	add_child(_ambient_player)
 	_scan_folder(SFX_DIR, _sfx_cache)
 	_scan_folder(AMBIENT_DIR, _ambient_cache)
@@ -77,16 +78,34 @@ func play_sfx(name: String, volume_db: float = 0.0, pitch: float = 1.0) -> void:
 	first.play()
 
 func play_ambient(name: String) -> void:
-	if _current_ambient == name:
+	if _current_ambient == name and _ambient_player.playing:
 		return
 	if not _ambient_cache.has(name):
 		_ambient_player.stop()
 		_current_ambient = ""
 		return
-	_ambient_player.stream = _ambient_cache[name]
+	var stream: AudioStream = _ambient_cache[name]
+	_configure_ambient_loop(stream)
+	_ambient_player.stream = stream
 	_ambient_player.play()
 	_current_ambient = name
 
 func stop_ambient() -> void:
 	_ambient_player.stop()
 	_current_ambient = ""
+
+func _configure_ambient_loop(stream: AudioStream) -> void:
+	if stream is AudioStreamWAV:
+		(stream as AudioStreamWAV).loop_mode = AudioStreamWAV.LOOP_FORWARD
+	elif stream is AudioStreamOggVorbis:
+		(stream as AudioStreamOggVorbis).loop = true
+	elif stream is AudioStreamMP3:
+		(stream as AudioStreamMP3).loop = true
+
+func _on_ambient_finished() -> void:
+	if _current_ambient.is_empty():
+		return
+	if not _ambient_cache.has(_current_ambient):
+		_current_ambient = ""
+		return
+	_ambient_player.play()
