@@ -31,6 +31,7 @@ var _first_bogie_curve: Curve3D = null
 var _first_bogie_rail_path: Node = null
 var _second_bogie_preview: Node3D = null
 var demolish_target: Node3D = null  # Node highlighted for demolition
+var _wall_sfx_index: int = 0
 var preview_material_demolish: StandardMaterial3D
 
 # Edge snapping for walls
@@ -661,6 +662,12 @@ func try_place_item(hit_point: Vector3, chassis: Node) -> Node3D:
 		instance.position = local_pos
 		chassis.place_item(grid_pos, instance)
 
+	if current_buildable_data:
+		if current_buildable_data.id == "placeable_wall_blue" or current_buildable_data.id == "placeable_wall_yellow":
+			_wall_sfx_index = (_wall_sfx_index + 1) % 3
+			AudioManager.play_sfx("wall_place_" + str(_wall_sfx_index + 1), linear_to_db(0.8))
+		elif current_buildable_data.id == "direction_lever":
+			AudioManager.play_sfx("levier_place")
 	item_placed.emit(instance)
 	return instance
 

@@ -4,7 +4,7 @@
 [ext_resource type="PackedScene" uid="uid://c17whh0atbrkh" path="res://assets/models/building/wall-blue.glb" id="2"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_wall_blue"]
-size = Vector3(1.0597961, 2.16709, 0.06558838)
+size = Vector3(0.9463135, 2.1226563, 0.103442386)
 
 [node name="PlaceableWallBlue" type="StaticBody3D" unique_id=1729667082]
 collision_layer = 16
@@ -16,5 +16,5 @@ max_health = 100.0
 transform = Transform3D(1.1, 0, 0, 0, 1.1, 0, 0, 0, 1.1, 0, -0.05, 0)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=939792620]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0012481809, 1.083545, -0.0014221147)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.016589403, 1.0613282, -0.00255128)
 shape = SubResource("BoxShape3D_wall_blue")

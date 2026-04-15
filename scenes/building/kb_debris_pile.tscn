@@ -1,19 +1,19 @@
-[gd_scene load_steps=3 format=3 uid="uid://kb_7a037a117aac"]
+[gd_scene format=3 uid="uid://behdwmak77j3v"]
 
-[ext_resource type="Script" path="res://scripts/building/placeable.gd" id="1"]
-[ext_resource type="PackedScene" path="res://assets/models/kitbash/prop_small/prop_small_006.glb" id="2_model"]
+[ext_resource type="Script" uid="uid://cnxmswaknsu6f" path="res://scripts/building/placeable.gd" id="1"]
+[ext_resource type="PackedScene" uid="uid://cw5nwy8qav20m" path="res://assets/models/kitbash/prop_small/prop_small_006.glb" id="2_model"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_col"]
-size = Vector3(0.55, 0.80, 0.50)
+size = Vector3(0.55, 0.8, 0.5)
 
-[node name="KbDebrisPile" type="StaticBody3D"]
+[node name="KbDebrisPile" type="StaticBody3D" unique_id=344169593]
 collision_layer = 16
 collision_mask = 7
 script = ExtResource("1")
 max_health = 20.0
 
-[node name="Model" parent="." instance=ExtResource("2_model")]
+[node name="Model" parent="." unique_id=396297762 instance=ExtResource("2_model")]
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1434143019]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
 shape = SubResource("BoxShape3D_col")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.40, 0)

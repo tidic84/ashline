@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /c/Users/Thomas/Desktop/ashline/audio/sfx)",
+      "Bash(cp \"/c/Users/Thomas/Desktop/JEU TRAIN/SFX/WallSFX.wav\" /c/Users/Thomas/Desktop/ashline/audio/sfx/wall_place.wav)",
+      "Bash(cp \"/c/Users/Thomas/Desktop/JEU TRAIN/SFX/WallSFX1.wav\" /c/Users/Thomas/Desktop/ashline/audio/sfx/wall_place_1.wav)",
+      "Bash(cp \"/c/Users/Thomas/Desktop/JEU TRAIN/SFX/WallSFX22.wav\" /c/Users/Thomas/Desktop/ashline/audio/sfx/wall_place_2.wav)",
+      "Bash(rm /c/Users/Thomas/Desktop/ashline/audio/sfx/wall_place.wav)",
+      "Bash(cp \"/c/Users/Thomas/Desktop/JEU TRAIN/SFX/WallSFX3.wav\" /c/Users/Thomas/Desktop/ashline/audio/sfx/wall_place_3.wav)",
+      "Bash(cp \"/c/Users/Thomas/Desktop/JEU TRAIN/SFX/LevierOrientation.wav\" /c/Users/Thomas/Desktop/ashline/audio/sfx/levier_place.wav)"
+    ]
+  }
+}
