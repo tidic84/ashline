@@ -9,6 +9,7 @@ extends Node
 const SFX_DIR: String = "res://audio/sfx/"
 const AMBIENT_DIR: String = "res://audio/ambient/"
 const MUSIC_DIR: String = "res://audio/music/"
+const DEFAULT_MASTER_VOLUME_DB: float = -15.0
 
 var _sfx_cache: Dictionary = {}   # name -> AudioStream
 var _ambient_cache: Dictionary = {}
@@ -19,6 +20,7 @@ const POOL_SIZE: int = 8
 
 func _ready() -> void:
 	_ensure_buses()
+	set_global_volume_db(DEFAULT_MASTER_VOLUME_DB)
 	_build_sfx_pool()
 	_ambient_player = AudioStreamPlayer.new()
 	_ambient_player.bus = "Ambient"
@@ -26,6 +28,12 @@ func _ready() -> void:
 	add_child(_ambient_player)
 	_scan_folder(SFX_DIR, _sfx_cache)
 	_scan_folder(AMBIENT_DIR, _ambient_cache)
+
+func set_global_volume_db(volume_db: float) -> void:
+	var master_idx: int = AudioServer.get_bus_index("Master")
+	if master_idx == -1:
+		return
+	AudioServer.set_bus_volume_db(master_idx, volume_db)
 
 func _ensure_buses() -> void:
 	var desired: Array[String] = ["SFX", "Ambient", "Music"]

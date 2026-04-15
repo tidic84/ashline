@@ -251,17 +251,19 @@ func _physics_process(delta: float) -> void:
 		_set_platform_velocity(actual_vel)
 
 
-func _orient_bogie(bogie: TrainChassis, progress: float, curve: Curve3D, total: float, delta: float, ref_fwd: Vector3 = Vector3.ZERO) -> void:
+func _orient_bogie(bogie: TrainChassis, progress: float, curve: Curve3D, total: float, delta: float, _ref_fwd: Vector3 = Vector3.ZERO) -> void:
 	var ahead: float = minf(progress + 1.0, total)
 	var behind: float = maxf(progress - 1.0, 0.0)
 	var fwd: Vector3 = curve.sample_baked(ahead) - curve.sample_baked(behind)
 	if fwd.length_squared() > 0.0001:
 		fwd = fwd.normalized()
-		# Flip tangent so it always points "forward" relative to wagon body,
-		# preventing 180° bogie flips at same-side junctions where the curve
-		# direction reverses. Keeps truck pivot on curves because ref_fwd and
-		# fwd only differ slightly when both bogies are on the same curve.
-		if ref_fwd.length_squared() > 0.0001 and fwd.dot(ref_fwd) < 0.0:
+		# Flip tangent only when clearly reversed (>120° from previous bogie
+		# forward). This prevents the 180° flip at same-side junctions where
+		# curve direction physically reverses, while avoiding oscillation at
+		# perpendicular junctions (where dot is near zero and noise could
+		# cause flip-flopping every frame).
+		var prev_fwd: Vector3 = bogie.global_basis.z.normalized()
+		if prev_fwd.length_squared() > 0.0001 and fwd.dot(prev_fwd) < -0.5:
 			fwd = -fwd
 		var rt: Vector3 = Vector3.UP.cross(fwd)
 		if rt.length_squared() < 0.0001:

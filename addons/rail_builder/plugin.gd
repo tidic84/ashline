@@ -869,23 +869,37 @@ func _sync_preview_controls() -> void:
 func _on_generate_terrain_pressed() -> void:
 	var root := get_tree().edited_scene_root if Engine.is_editor_hint() else get_tree().current_scene
 	if root == null:
-		_update_status("[color=#f44336]Pas de scene.[/color]")
+		_update_status("[color=#f44336]Pas de scene ouverte.[/color]")
 		return
-	var terrain := _find_node_with_method(root, "generate_terrain")
-	if terrain != null:
+	# Prefer class-based lookup — more reliable than method name search.
+	var terrain := _find_node_by_class_name(root, "TerrainGenerator")
+	if terrain == null:
+		terrain = _find_node_with_method(root, "generate_terrain")
+	if terrain == null:
+		_update_status("[color=#f44336]Aucun TerrainGenerator trouve dans la scene (racine: %s).[/color]" % root.name)
+		return
+	# Count rail paths visible from the scene tree so the user sees what the generator will find.
+	var rail_paths: Array = get_tree().get_nodes_in_group("rail_path")
+	# Fallback: recursive scan by script if group is empty (editor timing).
+	if rail_paths.is_empty():
+		var collected: Array[Node] = []
+		_collect_rail_paths(root, collected)
+		rail_paths = collected
+		# Ensure they're in the group for the generator to find.
+		for rp in collected:
+			if not rp.is_in_group("rail_path"):
+				rp.add_to_group("rail_path")
+	if rail_paths.is_empty():
+		_update_status("[color=#f44336]TerrainGenerator trouve (%s) mais AUCUN RailPath dans la scene.[/color]" % terrain.name)
+		return
+	if terrain.has_method("generate_terrain"):
 		terrain.call("generate_terrain")
-		_update_status("[color=#8bc34a]Terrain genere.[/color]")
-		return
-	# Fallback: look for TerrainGenerator and call _load_curve_from_rail_path
-	terrain = _find_node_by_class_name(root, "TerrainGenerator")
-	if terrain != null:
-		if terrain.has_method("_load_curve_from_rail_path"):
-			terrain.call("_load_curve_from_rail_path")
-			_update_status("[color=#8bc34a]Rails regeneres via TerrainGenerator.[/color]")
-		else:
-			_update_status("[color=#f44336]TerrainGenerator trouve mais pas de methode de generation.[/color]")
-		return
-	_update_status("[color=#f44336]Aucun TerrainGenerator trouve dans la scene.[/color]")
+		_update_status("[color=#8bc34a]Terrain genere (%s, %d RailPath).[/color]" % [terrain.name, rail_paths.size()])
+	elif terrain.has_method("_load_curve_from_rail_path"):
+		terrain.call("_load_curve_from_rail_path")
+		_update_status("[color=#8bc34a]Rails regeneres (%d RailPath).[/color]" % rail_paths.size())
+	else:
+		_update_status("[color=#f44336]TerrainGenerator trouve mais pas de methode de generation.[/color]")
 
 
 func _on_regenerate_rails_pressed() -> void:
