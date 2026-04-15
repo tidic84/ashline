@@ -500,7 +500,7 @@ func _ensure_icon_renderer() -> void:
 		Basis().rotated(Vector3.RIGHT, -0.55).rotated(Vector3.UP, 0.55),
 		Vector3(2.0, 1.8, 2.0)
 	)
-	_icon_camera.look_at(Vector3.ZERO, Vector3.UP)
+	_aim_icon_camera(Vector3.ZERO)
 	_icon_viewport.add_child(_icon_camera)
 
 	_icon_stage = Node3D.new()
@@ -516,10 +516,7 @@ func _render_item_icon(item_id: String) -> Texture2D:
 	var model_path: String = ITEM_MODELS.get(item_id, "")
 	if model_path.is_empty() or not ResourceLoader.exists(model_path):
 		return _fallback_icon(item_id)
-	var packed: PackedScene = load(model_path) as PackedScene
-	if packed == null:
-		return _fallback_icon(item_id)
-	var inst: Node3D = packed.instantiate() as Node3D
+	var inst: Node3D = _instantiate_icon_model(model_path)
 	if inst == null:
 		return _fallback_icon(item_id)
 	# Clear stage, add instance
@@ -569,7 +566,7 @@ func _render_item_icon(item_id: String) -> Texture2D:
 	await get_tree().process_frame
 	var final_aabb := _compute_world_aabb(_icon_stage)
 	if final_aabb.size.length() > 0.0001:
-		_icon_camera.look_at(final_aabb.get_center(), Vector3.UP)
+		_aim_icon_camera(final_aabb.get_center())
 		await get_tree().process_frame
 		_frame_icon_in_camera(_icon_stage, _icon_camera, 1.04 if is_tool else 1.12)
 
@@ -589,6 +586,27 @@ func _render_item_icon(item_id: String) -> Texture2D:
 	if tool_pivot != null:
 		tool_pivot.queue_free()
 	return tex
+
+func _aim_icon_camera(target: Vector3) -> void:
+	if _icon_camera == null:
+		return
+	if _icon_camera.is_inside_tree():
+		_icon_camera.look_at(target, Vector3.UP)
+	else:
+		_icon_camera.look_at_from_position(_icon_camera.position, target, Vector3.UP)
+
+func _instantiate_icon_model(model_path: String) -> Node3D:
+	var model_resource: Resource = ResourceLoader.load(model_path)
+	if model_resource == null:
+		return null
+	if model_resource is PackedScene:
+		return (model_resource as PackedScene).instantiate() as Node3D
+	if model_resource is Mesh:
+		var mesh_instance := MeshInstance3D.new()
+		mesh_instance.mesh = model_resource as Mesh
+		return mesh_instance
+	push_warning("Inventory: unsupported icon model %s (%s)" % [model_path, model_resource.get_class()])
+	return null
 
 func _fix_tool_textures(item_id: String, inst: Node3D) -> void:
 	var tex_path: String = ITEM_ALBEDO_TEXTURES.get(item_id, "")

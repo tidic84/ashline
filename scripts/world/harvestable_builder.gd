@@ -23,11 +23,9 @@ const CRATE_MODEL: String = "res://assets/models/survival/box.glb"
 
 
 static func _spawn_glb(body: StaticBody3D, path: String, rng: RandomNumberGenerator, scale_range: Vector2 = Vector2(1.0, 1.0), y_offset: float = 0.0, random_rot: bool = true) -> Node3D:
-	var packed: PackedScene = load(path) as PackedScene
-	if packed == null:
-		push_warning("HarvestableBuilder: missing model %s" % path)
+	var inst: Node3D = _instantiate_model(path)
+	if inst == null:
 		return null
-	var inst: Node3D = packed.instantiate() as Node3D
 	var s: float = rng.randf_range(scale_range.x, scale_range.y)
 	inst.scale = Vector3(s, s, s)
 	if random_rot:
@@ -35,6 +33,23 @@ static func _spawn_glb(body: StaticBody3D, path: String, rng: RandomNumberGenera
 	inst.position.y = y_offset
 	body.add_child(inst)
 	return inst
+
+static func _instantiate_model(path: String) -> Node3D:
+	var model_resource: Resource = ResourceLoader.load(path)
+	if model_resource == null:
+		push_warning("HarvestableBuilder: missing model %s" % path)
+		return null
+	if model_resource is PackedScene:
+		var inst: Node3D = (model_resource as PackedScene).instantiate() as Node3D
+		if inst == null:
+			push_warning("HarvestableBuilder: scene root is not Node3D for %s" % path)
+		return inst
+	if model_resource is Mesh:
+		var mesh_instance := MeshInstance3D.new()
+		mesh_instance.mesh = model_resource as Mesh
+		return mesh_instance
+	push_warning("HarvestableBuilder: unsupported model resource %s (%s)" % [path, model_resource.get_class()])
+	return null
 
 
 static func build_tree(body: StaticBody3D, rng: RandomNumberGenerator) -> void:
