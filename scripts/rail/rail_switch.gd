@@ -8,8 +8,12 @@ class_name RailSwitch
 @export_enum("Start:0", "End:1") var endpoint: int = 1
 @export var switch_cooldown: float = 0.4
 
+const LEVER_TILT_DEG: float = 22.0
+const LEVER_TWEEN_TIME: float = 0.12
+
 var _path_node: Node = null
 var _can_switch: bool = true
+var _lever_tween: Tween = null
 
 func _ready() -> void:
 	collision_layer = 32  # Layer 6 = Interactable
@@ -17,6 +21,7 @@ func _ready() -> void:
 	add_to_group("interactable")
 	add_to_group("rail_switch")
 	_path_node = get_node_or_null(rail_path)
+	call_deferred("_refresh_visual_state")
 
 func get_interact_text() -> String:
 	return "[E] Switch"
@@ -28,8 +33,20 @@ func interact(_player: CharacterBody3D) -> void:
 	var new_idx: int = RailNetwork.cycle_switch(_path_node, endpoint)
 	AudioManager.play_sfx("lever", 0.0, randf_range(0.90, 1.10))
 	_update_indicator(new_idx)
+	_update_lever_visual(new_idx, true)
 	await get_tree().create_timer(switch_cooldown).timeout
 	_can_switch = true
+
+
+func _refresh_visual_state() -> void:
+	await get_tree().process_frame
+	if _path_node == null:
+		_path_node = get_node_or_null(rail_path)
+	if _path_node == null:
+		return
+	var active_index := RailNetwork.get_active_index(_path_node, endpoint)
+	_update_indicator(active_index)
+	_update_lever_visual(active_index, false)
 
 func _update_indicator(active_index: int) -> void:
 	var arrow := get_node_or_null("Arrow") as Node3D
@@ -56,3 +73,33 @@ func _update_indicator(active_index: int) -> void:
 	dir.y = 0.0
 	if dir.length_squared() > 0.01:
 		arrow.look_at(global_position + dir.normalized(), Vector3.UP)
+
+
+func _update_lever_visual(active_index: int, animate: bool) -> void:
+	var lever := get_node_or_null("Lever") as Node3D
+	if lever == null:
+		return
+	var target_rot := lever.rotation_degrees
+	target_rot.z = _compute_lever_tilt(active_index)
+	if _lever_tween != null and _lever_tween.is_running():
+		_lever_tween.kill()
+	if animate:
+		_lever_tween = create_tween()
+		_lever_tween.set_trans(Tween.TRANS_SINE)
+		_lever_tween.set_ease(Tween.EASE_OUT)
+		_lever_tween.tween_property(lever, "rotation_degrees", target_rot, LEVER_TWEEN_TIME)
+	else:
+		lever.rotation_degrees = target_rot
+
+
+func _compute_lever_tilt(active_index: int) -> float:
+	if _path_node == null:
+		return 0.0
+	var conns: Array = RailNetwork.get_connections_at(_path_node, endpoint)
+	if conns.size() <= 1:
+		return 0.0
+	if conns.size() == 2:
+		return -LEVER_TILT_DEG if active_index == 0 else LEVER_TILT_DEG
+	var denom := maxf(float(conns.size() - 1), 1.0)
+	var t := clampf(float(active_index) / denom, 0.0, 1.0)
+	return lerpf(-LEVER_TILT_DEG, LEVER_TILT_DEG, t)

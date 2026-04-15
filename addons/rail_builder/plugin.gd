@@ -724,6 +724,10 @@ func _add_switch_at_endpoint(endpoint: int) -> void:
 	if _current_path == null:
 		_update_status("[color=#ff9800]Selectionne un RailPath d'abord.[/color]")
 		return
+	var scene_root := get_tree().edited_scene_root
+	if scene_root == null:
+		_update_status("[color=#f44336]Pas de scene editee.[/color]")
+		return
 	var switch_scene := load("res://scenes/rail/rail_switch.tscn") as PackedScene
 	if switch_scene == null:
 		_update_status("[color=#f44336]Impossible de charger rail_switch.tscn.[/color]")
@@ -744,11 +748,29 @@ func _add_switch_at_endpoint(endpoint: int) -> void:
 			_update_status("[color=#ff9800]Aucune connexion au %s. Connectez d'abord un autre rail.[/color]" % (
 				"debut" if endpoint == 0 else "fin"))
 			return
+		if conns.size() < 2:
+			_update_status("[color=#ff9800]Un aiguillage demande au moins 2 connexions au %s. Il n'y en a qu'une ici.[/color]" % (
+				"debut" if endpoint == 0 else "fin"))
+			return
+
+	var existing_switch := _find_existing_switch_for_endpoint(scene_root, _current_path, endpoint)
+	if existing_switch != null:
+		existing_switch.global_position = pos
+		get_editor_interface().get_selection().clear()
+		get_editor_interface().get_selection().add_node(existing_switch)
+		_update_status("[color=#64b5f6]Un aiguillage existe deja sur %s (%s). Je l'ai simplement reselectionne.[/color]" % [
+			_current_path.name,
+			"debut" if endpoint == 0 else "fin"
+		])
+		return
 
 	var instance := switch_scene.instantiate() as Node3D
-	var scene_root := get_tree().edited_scene_root
 	scene_root.add_child(instance)
 	instance.owner = scene_root
+	instance.name = "RailSwitch_%s_%s" % [
+		_current_path.name,
+		"Start" if endpoint == 0 else "End"
+	]
 	instance.global_position = pos
 	if _has_property(instance, "rail_path"):
 		instance.set("rail_path", instance.get_path_to(_current_path))
@@ -757,6 +779,32 @@ func _add_switch_at_endpoint(endpoint: int) -> void:
 
 	var label := "debut" if endpoint == 0 else "fin"
 	_update_status("[color=#8bc34a]Aiguillage place au %s de %s.[/color]" % [label, _current_path.name])
+
+
+func _find_existing_switch_for_endpoint(root: Node, rail_path: Path3D, endpoint: int) -> Node3D:
+	if root == null or rail_path == null:
+		return null
+	var stack: Array[Node] = [root]
+	while stack.size() > 0:
+		var node := stack.pop_back()
+		for child in node.get_children():
+			stack.append(child)
+		if node == root:
+			continue
+		if not (node is Node3D):
+			continue
+		if not _has_property(node, "rail_path") or not _has_property(node, "endpoint"):
+			continue
+		var node_endpoint := int(node.get("endpoint"))
+		if node_endpoint != endpoint:
+			continue
+		var target_np: Variant = node.get("rail_path")
+		if not (target_np is NodePath):
+			continue
+		var target: Node = node.get_node_or_null(target_np as NodePath)
+		if target == rail_path:
+			return node as Node3D
+	return null
 
 
 # ============================================================
