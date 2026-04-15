@@ -20,6 +20,11 @@ const BRANCH_MODEL: String = "res://assets/fab/tree_branch_b/glb/dry_tree_branch
 const BRANCH_ALT_MODEL: String = "res://assets/fab/tree_branch_a/fbx/mid/Tree_Branch_pcsvQ_Mid.fbx"
 const METAL_PANEL_MODEL: String = "res://assets/models/survival/metal-panel.glb"
 const CRATE_MODEL: String = "res://assets/models/survival/box.glb"
+const MODEL_ALBEDO_TEXTURES: Dictionary = {
+	"res://assets/fab/stone_pack_a/obj/source/Stone_extracted/stone.obj": "res://assets/fab/stone_pack_a/obj/source/Stone_extracted/stone_BaseColor.jpg",
+	"res://assets/fab/tree_branch_b/glb/dry_tree_branch_beach01.glb": "res://assets/fab/tree_branch_b/glb/dry_tree_branch_beach01_Dry_Tree_Branch_BeachD.png",
+	"res://assets/fab/tree_branch_a/fbx/mid/Tree_Branch_pcsvQ_Mid.fbx": "res://assets/fab/tree_branch_a/fbx/mid/Tree_Branch_pcsvQ_Mid_2K_BaseColor.jpg",
+}
 
 
 static func _spawn_glb(body: StaticBody3D, path: String, rng: RandomNumberGenerator, scale_range: Vector2 = Vector2(1.0, 1.0), y_offset: float = 0.0, random_rot: bool = true) -> Node3D:
@@ -30,8 +35,9 @@ static func _spawn_glb(body: StaticBody3D, path: String, rng: RandomNumberGenera
 	inst.scale = Vector3(s, s, s)
 	if random_rot:
 		inst.rotation.y = rng.randf_range(0.0, TAU)
-	inst.position.y = y_offset
 	body.add_child(inst)
+	_apply_model_texture_overrides(path, inst)
+	_align_instance_to_ground(inst, y_offset)
 	return inst
 
 static func _instantiate_model(path: String) -> Node3D:
@@ -50,6 +56,88 @@ static func _instantiate_model(path: String) -> Node3D:
 		return mesh_instance
 	push_warning("HarvestableBuilder: unsupported model resource %s (%s)" % [path, model_resource.get_class()])
 	return null
+
+
+static func _apply_model_texture_overrides(model_path: String, inst: Node3D) -> void:
+	var tex_path: String = MODEL_ALBEDO_TEXTURES.get(model_path, "")
+	if tex_path.is_empty() or not ResourceLoader.exists(tex_path):
+		return
+	var tex: Texture2D = load(tex_path) as Texture2D
+	if tex == null:
+		return
+	for mesh_inst in _gather_mesh_instances(inst):
+		var mi := mesh_inst as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		for surf_idx in range(mi.mesh.get_surface_count()):
+			var override_mat := StandardMaterial3D.new()
+			override_mat.albedo_texture = tex
+			override_mat.roughness = 1.0
+			mi.set_surface_override_material(surf_idx, override_mat)
+
+
+static func _align_instance_to_ground(inst: Node3D, y_offset: float = 0.0) -> void:
+	var bounds: Variant = _compute_visual_bounds(inst, Transform3D.IDENTITY)
+	if bounds == null:
+		inst.position.y = y_offset
+		return
+	var aabb: AABB = bounds as AABB
+	inst.position.y = y_offset - aabb.position.y
+
+
+static func _compute_visual_bounds(node: Node, parent_xf: Transform3D) -> Variant:
+	var current_xf := parent_xf
+	if node is Node3D:
+		current_xf = parent_xf * (node as Node3D).transform
+
+	var merged: Variant = null
+	if node is VisualInstance3D:
+		var vis := node as VisualInstance3D
+		merged = _transform_aabb(vis.get_aabb(), current_xf)
+
+	for child in node.get_children():
+		var child_node := child as Node
+		if child_node == null:
+			continue
+		var child_bounds: Variant = _compute_visual_bounds(child_node, current_xf)
+		if child_bounds == null:
+			continue
+		if merged == null:
+			merged = child_bounds
+		else:
+			merged = (merged as AABB).merge(child_bounds as AABB)
+	return merged
+
+
+static func _transform_aabb(aabb: AABB, xf: Transform3D) -> AABB:
+	var p: Vector3 = aabb.position
+	var s: Vector3 = aabb.size
+	var corners: Array[Vector3] = [
+		xf * p,
+		xf * (p + Vector3(s.x, 0.0, 0.0)),
+		xf * (p + Vector3(0.0, s.y, 0.0)),
+		xf * (p + Vector3(0.0, 0.0, s.z)),
+		xf * (p + Vector3(s.x, s.y, 0.0)),
+		xf * (p + Vector3(s.x, 0.0, s.z)),
+		xf * (p + Vector3(0.0, s.y, s.z)),
+		xf * (p + s),
+	]
+	var out := AABB(corners[0], Vector3.ZERO)
+	for i in range(1, corners.size()):
+		out = out.expand(corners[i])
+	return out
+
+
+static func _gather_mesh_instances(node: Node) -> Array[MeshInstance3D]:
+	var out: Array[MeshInstance3D] = []
+	if node is MeshInstance3D:
+		out.append(node as MeshInstance3D)
+	for child in node.get_children():
+		var child_node := child as Node
+		if child_node == null:
+			continue
+		out.append_array(_gather_mesh_instances(child_node))
+	return out
 
 
 static func build_tree(body: StaticBody3D, rng: RandomNumberGenerator) -> void:

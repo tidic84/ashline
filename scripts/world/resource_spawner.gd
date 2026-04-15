@@ -18,6 +18,8 @@ var _next_resource_net_id: int = 200000
 func _ready() -> void:
 	var seed_value: int = world_seed if world_seed != 0 else int(Time.get_unix_time_from_system())
 	_rng.seed = seed_value
+	await get_tree().process_frame
+	await get_tree().process_frame
 	_spawn_all()
 
 func _spawn_all() -> void:
@@ -26,7 +28,8 @@ func _spawn_all() -> void:
 	_spawn_batch(log_nodes, "log", 2, 4, 1, "", "Collect Logs")
 	_spawn_batch(stone_nodes, "stone", 2, 4, 1, "", "Pick Stones")
 	_spawn_batch(scrap_nodes, "metal_scrap", 2, 4, 1, "", "Collect Scrap")
-	_spawn_batch(tree_nodes, "log", 6, 10, 4, "axe", "Chop Tree")
+	if not _has_existing_tree_biome():
+		_spawn_batch(tree_nodes, "log", 6, 10, 4, "axe", "Chop Tree")
 	_spawn_batch(big_rock_nodes, "stone", 6, 10, 4, "pickaxe", "Break Rock")
 
 func _spawn_batch(count: int, item_id: String, amount_min: int, amount_max: int, hits: int, required_tool_id: String, label: String) -> void:
@@ -77,3 +80,10 @@ func _get_terrain() -> TerrainGenerator:
 	if nodes.is_empty():
 		return null
 	return nodes[0] as TerrainGenerator
+
+
+func _has_existing_tree_biome() -> bool:
+	var parent_node: Node = get_parent()
+	if parent_node == null:
+		return false
+	return parent_node.get_node_or_null("Trees") != null

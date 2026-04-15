@@ -89,6 +89,8 @@ const ITEM_ICON_SETTINGS: Dictionary = {
 
 # Albedo textures to force-assign when FBX importer fails to link external textures.
 const ITEM_ALBEDO_TEXTURES: Dictionary = {
+	"branch": "res://assets/fab/tree_branch_b/glb/dry_tree_branch_beach01_Dry_Tree_Branch_BeachD.png",
+	"stone": "res://assets/fab/stone_pack_a/obj/source/Stone_extracted/stone_BaseColor.jpg",
 	"axe": "res://assets/fab/axe/fbx/T_AXE_01_4K_D.tga",
 	"pickaxe": "res://assets/fab/pickaxe/T_BasicPickaxe_BaseColor.tga",
 	"hammer": "res://assets/fab/hammer/fbx/source/Sledge Hammer_extracted/Sledge Hammer/texures/SledgeHammer_Albedo.png",
