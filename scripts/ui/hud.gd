@@ -45,6 +45,10 @@ var _preview_tuner_config_label: Label
 var _preview_tuner_syncing: bool = false
 var _preview_tuner_item_ids: Array[String] = []
 var _selected_preview_item_id: String = ""
+var _chat_panel: PanelContainer
+var _chat_log: RichTextLabel
+var _chat_input: LineEdit
+var _chat_open: bool = false
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -58,6 +62,7 @@ func _ready() -> void:
 	Inventory.selected_hotbar_changed.connect(_on_hotbar_selected)
 	Inventory.survival_changed.connect(_on_survival_changed)
 	Inventory.item_icon_preview_settings_changed.connect(_on_item_icon_preview_settings_changed)
+	NetworkManager.chat_message_received.connect(_on_chat_message_received)
 
 	_crafting_system = get_node_or_null("/root/CraftingSystem")
 	if _crafting_system and _crafting_system.has_signal("crafted"):
@@ -73,6 +78,7 @@ func _ready() -> void:
 	_build_hotbar_ui()
 	_build_inventory_slots_ui()
 	_build_preview_tuner_ui()
+	_build_chat_ui()
 	pause_menu.resume_requested.connect(_on_pause_resume_requested)
 	pause_menu.move_to_front()
 
@@ -80,6 +86,17 @@ func _ready() -> void:
 	_on_inventory_updated()
 	_on_survival_changed(Inventory.health, Inventory.hunger, Inventory.thirst)
 	_on_game_state_changed(GameManager.current_state)
+
+func _input(event: InputEvent) -> void:
+	if not visible:
+		return
+	if event.is_action_pressed("chat") and not _chat_open:
+		open_chat()
+		get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("ui_cancel") and _chat_open:
+		close_chat()
+		get_viewport().set_input_as_handled()
 
 
 func _process(delta: float) -> void:
@@ -251,6 +268,79 @@ func toggle_inventory_panel(force_state: Variant = null) -> bool:
 		_update_inventory_panel()
 		_refresh_preview_tuner_preview()
 	return inventory_panel.visible
+
+func is_chat_open() -> bool:
+	return _chat_open
+
+func open_chat() -> void:
+	if _chat_input == null:
+		return
+	_chat_open = true
+	_chat_panel.visible = true
+	_chat_input.visible = true
+	_chat_input.grab_focus()
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+func close_chat() -> void:
+	if _chat_input == null:
+		return
+	_chat_open = false
+	_chat_input.release_focus()
+	_chat_input.visible = false
+	if GameManager.current_state == GameManager.GameState.PLAYING:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+func _build_chat_ui() -> void:
+	_chat_panel = PanelContainer.new()
+	_chat_panel.name = "ChatPanel"
+	_chat_panel.anchor_left = 0.0
+	_chat_panel.anchor_top = 1.0
+	_chat_panel.anchor_right = 0.0
+	_chat_panel.anchor_bottom = 1.0
+	_chat_panel.offset_left = 14.0
+	_chat_panel.offset_top = -244.0
+	_chat_panel.offset_right = 434.0
+	_chat_panel.offset_bottom = -116.0
+	_chat_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_chat_panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 8)
+	margin.add_theme_constant_override("margin_top", 8)
+	margin.add_theme_constant_override("margin_right", 8)
+	margin.add_theme_constant_override("margin_bottom", 8)
+	_chat_panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 6)
+	margin.add_child(vbox)
+
+	_chat_log = RichTextLabel.new()
+	_chat_log.custom_minimum_size = Vector2(0, 74)
+	_chat_log.bbcode_enabled = false
+	_chat_log.scroll_following = true
+	_chat_log.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(_chat_log)
+
+	_chat_input = LineEdit.new()
+	_chat_input.placeholder_text = "T pour parler"
+	_chat_input.max_length = 160
+	_chat_input.visible = false
+	_chat_input.text_submitted.connect(_on_chat_submitted)
+	vbox.add_child(_chat_input)
+
+func _on_chat_submitted(text: String) -> void:
+	NetworkManager.send_chat_message(text)
+	if _chat_input:
+		_chat_input.clear()
+	close_chat()
+
+func _on_chat_message_received(_peer_id: int, player_name: String, message: String, is_system: bool) -> void:
+	if _chat_log == null:
+		return
+	var prefix := "*" if is_system else player_name + ":"
+	_chat_log.append_text("%s %s\n" % [prefix, message])
+	_chat_log.scroll_to_line(_chat_log.get_line_count())
 
 
 func select_next_recipe() -> void:

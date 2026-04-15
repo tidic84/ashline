@@ -21,7 +21,7 @@ func change_state(new_state: GameState) -> void:
 			get_tree().paused = false
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		GameState.PAUSED:
-			get_tree().paused = true
+			get_tree().paused = false
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		GameState.GAME_OVER:
 			get_tree().paused = true
@@ -39,6 +39,9 @@ func start_game() -> void:
 	change_state(GameState.PLAYING)
 
 func _input(event: InputEvent) -> void:
+	var focus := get_viewport().gui_get_focus_owner()
+	if focus is LineEdit or focus is TextEdit:
+		return
 	if event.is_action_pressed("ui_cancel"):
 		if current_state == GameState.PLAYING:
 			change_state(GameState.PAUSED)

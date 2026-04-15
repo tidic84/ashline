@@ -75,6 +75,8 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if _camera == null:
 		return
+	if GameManager.current_state == GameManager.GameState.PAUSED or _is_chat_open():
+		return
 
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
@@ -158,6 +160,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	if _camera == null:
+		return
+	if GameManager.current_state == GameManager.GameState.PAUSED or _is_chat_open():
+		BuildSystem.hide_preview()
 		return
 	if BuildSystem.is_building:
 		if _is_inventory_open():
@@ -531,6 +536,11 @@ func _is_inventory_open() -> bool:
 	if _hud == null or not _hud.has_method("is_inventory_open"):
 		return false
 	return _hud.is_inventory_open()
+
+func _is_chat_open() -> bool:
+	if _hud == null or not _hud.has_method("is_chat_open"):
+		return false
+	return _hud.is_chat_open()
 
 
 func _is_build_menu_open() -> bool:

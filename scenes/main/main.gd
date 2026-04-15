@@ -43,6 +43,9 @@ func _spawn_multiplayer_players(base: Vector3) -> void:
 	for peer_id in NetworkManager.players_info:
 		var player: Node3D = player_scene.instantiate()
 		player.name = "Player_%d" % int(peer_id)
+		var info: Dictionary = NetworkManager.players_info[peer_id]
+		if player.has_method("set_display_name"):
+			player.set_display_name(String(info.get("name", "Player %d" % int(peer_id))))
 		player.set_multiplayer_authority(peer_id)
 		players_container.add_child(player)
 		WorldSync.register_entity(player, int(peer_id))

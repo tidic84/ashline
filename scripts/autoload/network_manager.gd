@@ -6,6 +6,7 @@ signal server_started
 signal connection_failed
 signal connection_succeeded
 signal lobby_updated
+signal chat_message_received(peer_id: int, player_name: String, message: String, is_system: bool)
 
 const DEFAULT_PORT: int = 27015
 const MAX_PLAYERS: int = 4
@@ -31,6 +32,7 @@ func host_game(port: int = DEFAULT_PORT) -> Error:
 	players_info[1] = { "name": local_player_name, "ready": false }
 	server_started.emit()
 	lobby_updated.emit()
+	_emit_system_chat("%s hosts the game." % local_player_name)
 	return OK
 
 func join_game(address: String, port: int = DEFAULT_PORT) -> Error:
@@ -66,6 +68,7 @@ func request_register_player(player_name: String) -> void:
 	player_connected.emit(sender_id)
 	lobby_updated.emit()
 	_sync_lobby_state.rpc(players_info)
+	_broadcast_system_chat("%s joined." % player_name)
 
 @rpc("authority", "reliable")
 func _sync_lobby_state(snapshot: Dictionary) -> void:
@@ -110,11 +113,13 @@ func _on_peer_connected(id: int) -> void:
 		_sync_lobby_state.rpc_id(id, players_info)
 
 func _on_peer_disconnected(id: int) -> void:
+	var player_name := _get_player_name(id)
 	players_info.erase(id)
 	player_disconnected.emit(id)
 	lobby_updated.emit()
 	if multiplayer.is_server():
 		_sync_lobby_state.rpc(players_info)
+		_broadcast_system_chat("%s left." % player_name)
 	# Remove their player node
 	var player_node: Node = get_tree().current_scene.get_node_or_null("Players/Player_%d" % id)
 	if player_node == null:
@@ -135,3 +140,53 @@ func _on_connection_failed() -> void:
 func _on_server_disconnected() -> void:
 	disconnect_game()
 	get_tree().change_scene_to_file("res://scenes/ui/lobby.tscn")
+
+func send_chat_message(message: String) -> void:
+	var clean := message.strip_edges()
+	if clean.is_empty():
+		return
+	if clean.length() > 160:
+		clean = clean.substr(0, 160)
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		request_chat_message.rpc_id(1, clean)
+		return
+	var peer_id := multiplayer.get_unique_id() if multiplayer.has_multiplayer_peer() else 1
+	_broadcast_chat_message(peer_id, _get_player_name(peer_id), clean, false)
+
+@rpc("any_peer", "reliable")
+func request_chat_message(message: String) -> void:
+	if not multiplayer.is_server():
+		return
+	var sender_id := multiplayer.get_remote_sender_id()
+	if sender_id == 0:
+		sender_id = 1
+	var clean := message.strip_edges()
+	if clean.is_empty():
+		return
+	if clean.length() > 160:
+		clean = clean.substr(0, 160)
+	_broadcast_chat_message(sender_id, _get_player_name(sender_id), clean, false)
+
+func _broadcast_system_chat(message: String) -> void:
+	_broadcast_chat_message(0, "System", message, true)
+
+func _emit_system_chat(message: String) -> void:
+	chat_message_received.emit(0, "System", message, true)
+
+func _broadcast_chat_message(peer_id: int, player_name: String, message: String, is_system: bool) -> void:
+	chat_message_received.emit(peer_id, player_name, message, is_system)
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		receive_chat_message.rpc(peer_id, player_name, message, is_system)
+
+@rpc("authority", "reliable")
+func receive_chat_message(peer_id: int, player_name: String, message: String, is_system: bool) -> void:
+	chat_message_received.emit(peer_id, player_name, message, is_system)
+
+func _get_player_name(peer_id: int) -> String:
+	if peer_id == 0:
+		return "System"
+	if players_info.has(peer_id):
+		return String(players_info[peer_id].get("name", "Player %d" % peer_id))
+	if peer_id == 1:
+		return local_player_name
+	return "Player %d" % peer_id

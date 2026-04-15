@@ -12,11 +12,13 @@ const GAME_AMBIENT_NAME: String = "train_ambience"
 @onready var build_ray: RayCast3D = $Head/Camera3D/BuildRay
 @onready var weapon_holder: Node3D = $Head/Camera3D/WeaponHolder
 @onready var hud: Control = $HUD
+@onready var name_label: Label3D = $NameLabel
 
 var current_speed: float = WALK_SPEED
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var current_weapon: Node3D = null
 var is_local: bool = false
+var display_name: String = ""
 var _ambient_timer: float = 0.0
 
 func _enter_tree() -> void:
@@ -29,16 +31,19 @@ func _enter_tree() -> void:
 func _ready() -> void:
 	add_to_group("player")
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_apply_display_name()
 
 	if not is_local:
 		camera.current = false
 		set_physics_process(false)
 		set_process_unhandled_input(false)
 		hud.visible = false
+		name_label.visible = true
 		return
 
 	camera.current = true
 	hud.visible = true
+	name_label.visible = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	GraphicsSettings.set_fov_on_camera(camera)
 	hud.settings_menu.closed.connect(func():
@@ -56,6 +61,8 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_local:
+		return
+	if _is_chat_open():
 		return
 
 	if event is InputEventMouseButton and event.pressed:
@@ -136,6 +143,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	if not is_local:
+		return
+	if GameManager.current_state == GameManager.GameState.PAUSED or _is_chat_open():
+		velocity.x = 0.0
+		velocity.z = 0.0
 		return
 
 	if not is_on_floor():
@@ -270,7 +281,7 @@ func _on_game_state_changed(new_state: int) -> void:
 	if new_state == GameManager.GameState.PAUSED:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif new_state == GameManager.GameState.PLAYING:
-		if hud.build_menu.visible or hud.settings_menu.visible:
+		if hud.build_menu.visible or hud.settings_menu.visible or _is_chat_open():
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		else:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -340,6 +351,32 @@ func _hotbar_index_from_key(keycode: Key) -> int:
 
 func _is_inventory_open() -> bool:
 	return hud != null and hud.has_method("is_inventory_open") and hud.is_inventory_open()
+
+func _is_chat_open() -> bool:
+	return hud != null and hud.has_method("is_chat_open") and hud.is_chat_open()
+
+func set_display_name(new_name: String) -> void:
+	display_name = new_name.strip_edges()
+	_apply_display_name()
+
+func _apply_display_name() -> void:
+	if name_label == null:
+		return
+	var label_text := display_name
+	if label_text.is_empty() and multiplayer.has_multiplayer_peer():
+		var peer_id := _peer_id_from_name()
+		if NetworkManager.players_info.has(peer_id):
+			label_text = String(NetworkManager.players_info[peer_id].get("name", "Player %d" % peer_id))
+	if label_text.is_empty():
+		label_text = "Player"
+	name_label.text = label_text
+
+func _peer_id_from_name() -> int:
+	if name.begins_with("Player_"):
+		return int(name.substr("Player_".length()))
+	if name.is_valid_int():
+		return int(name)
+	return 1
 
 func _toggle_inventory_panel() -> void:
 	if hud == null or not hud.has_method("toggle_inventory_panel"):

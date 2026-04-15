@@ -8,6 +8,9 @@ extends Control
 @onready var start_button: Button = get_node_or_null("VBoxContainer/StartButton") as Button
 @onready var player_list: ItemList = get_node_or_null("VBoxContainer/PlayerList") as ItemList
 @onready var status_label: Label = get_node_or_null("VBoxContainer/StatusLabel") as Label
+@onready var chat_log: RichTextLabel = get_node_or_null("VBoxContainer/ChatLog") as RichTextLabel
+@onready var chat_input: LineEdit = get_node_or_null("VBoxContainer/ChatRow/ChatInput") as LineEdit
+@onready var chat_send_button: Button = get_node_or_null("VBoxContainer/ChatRow/ChatSendButton") as Button
 
 @onready var solo_button: Button = get_node_or_null("VBoxContainer/SoloButton") as Button
 
@@ -21,6 +24,10 @@ func _ready() -> void:
 		start_button.visible = false
 	if solo_button:
 		solo_button.pressed.connect(_on_solo_pressed)
+	if chat_input:
+		chat_input.text_submitted.connect(_on_chat_submitted)
+	if chat_send_button:
+		chat_send_button.pressed.connect(_on_chat_send_pressed)
 
 	_connect_network_signal(NetworkManager.player_connected, _on_player_connected)
 	_connect_network_signal(NetworkManager.player_disconnected, _on_player_disconnected)
@@ -28,6 +35,7 @@ func _ready() -> void:
 	_connect_network_signal(NetworkManager.connection_succeeded, _on_connection_succeeded)
 	_connect_network_signal(NetworkManager.connection_failed, _on_connection_failed)
 	_connect_network_signal(NetworkManager.lobby_updated, _refresh_player_list)
+	_connect_network_signal(NetworkManager.chat_message_received, _on_chat_message_received)
 
 	if address_input:
 		address_input.text = "localhost"
@@ -113,3 +121,19 @@ func _refresh_player_list() -> void:
 func _set_status(text: String) -> void:
 	if status_label:
 		status_label.text = text
+
+func _on_chat_send_pressed() -> void:
+	if chat_input:
+		_on_chat_submitted(chat_input.text)
+
+func _on_chat_submitted(text: String) -> void:
+	NetworkManager.send_chat_message(text)
+	if chat_input:
+		chat_input.clear()
+
+func _on_chat_message_received(_peer_id: int, player_name: String, message: String, is_system: bool) -> void:
+	if chat_log == null:
+		return
+	var prefix := "*" if is_system else player_name + ":"
+	chat_log.append_text("%s %s\n" % [prefix, message])
+	chat_log.scroll_to_line(chat_log.get_line_count())
