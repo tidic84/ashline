@@ -13,6 +13,7 @@ const GAME_AMBIENT_NAME: String = "train_ambience"
 @onready var weapon_holder: Node3D = $Head/Camera3D/WeaponHolder
 @onready var hud: Control = $HUD
 @onready var name_label: Label3D = $NameLabel
+@onready var visual_root: Node3D = $VisualRoot
 
 var current_speed: float = WALK_SPEED
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
@@ -20,6 +21,8 @@ var current_weapon: Node3D = null
 var is_local: bool = false
 var display_name: String = ""
 var _ambient_timer: float = 0.0
+var _controls_locked_position: Vector3 = Vector3.ZERO
+var _controls_were_locked: bool = false
 
 func _enter_tree() -> void:
 	if not multiplayer.has_multiplayer_peer():
@@ -32,6 +35,7 @@ func _ready() -> void:
 	add_to_group("player")
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_apply_display_name()
+	_update_visual_visibility()
 
 	if not is_local:
 		camera.current = false
@@ -59,10 +63,13 @@ func _ready() -> void:
 	hud.build_menu.exit_build_requested.connect(_on_build_exit_requested)
 	hud.build_menu.close_requested.connect(_close_build_menu)
 
+func _process(_delta: float) -> void:
+	_update_visual_rotation()
+
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_local:
 		return
-	if _is_chat_open():
+	if _controls_blocked():
 		return
 
 	if event is InputEventMouseButton and event.pressed:
@@ -144,9 +151,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if not is_local:
 		return
-	if GameManager.current_state == GameManager.GameState.PAUSED or _is_chat_open():
-		velocity.x = 0.0
-		velocity.z = 0.0
+	if _lock_position_while_blocked():
 		return
 
 	if not is_on_floor():
@@ -355,6 +360,21 @@ func _is_inventory_open() -> bool:
 func _is_chat_open() -> bool:
 	return hud != null and hud.has_method("is_chat_open") and hud.is_chat_open()
 
+func _controls_blocked() -> bool:
+	return GameManager.current_state == GameManager.GameState.PAUSED or _is_chat_open()
+
+func _lock_position_while_blocked() -> bool:
+	if not _controls_blocked():
+		_controls_were_locked = false
+		return false
+	if not _controls_were_locked:
+		_controls_locked_position = global_position
+		_controls_were_locked = true
+	global_position = _controls_locked_position
+	velocity = Vector3.ZERO
+	BuildSystem.hide_preview()
+	return true
+
 func set_display_name(new_name: String) -> void:
 	display_name = new_name.strip_edges()
 	_apply_display_name()
@@ -377,6 +397,16 @@ func _peer_id_from_name() -> int:
 	if name.is_valid_int():
 		return int(name)
 	return 1
+
+func _update_visual_visibility() -> void:
+	if visual_root == null:
+		return
+	visual_root.visible = not is_local
+
+func _update_visual_rotation() -> void:
+	if visual_root == null or head == null:
+		return
+	visual_root.rotation.y = head.rotation.y
 
 func _toggle_inventory_panel() -> void:
 	if hud == null or not hud.has_method("toggle_inventory_panel"):

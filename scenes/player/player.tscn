@@ -1,7 +1,8 @@
-[gd_scene load_steps=4 format=3 uid="uid://player001"]
+[gd_scene load_steps=5 format=3 uid="uid://player001"]
 
 [ext_resource type="Script" path="res://scripts/player/player_controller.gd" id="1"]
 [ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="hud_scene"]
+[ext_resource type="PackedScene" uid="uid://d3n1a7vep9s0q" path="res://assets/models/player/Personnage1.glb" id="player_model"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_001"]
 radius = 0.35
@@ -38,10 +39,14 @@ collision_mask = 48
 
 [node name="BuildRay" type="RayCast3D" parent="Head/Camera3D"]
 target_position = Vector3(0, 0, -6)
-collision_mask = 9
+collision_mask = 137
 
 [node name="WeaponHolder" type="Node3D" parent="Head/Camera3D"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.3, -0.3, -0.5)
+
+[node name="VisualRoot" type="Node3D" parent="."]
+
+[node name="Personnage1" parent="VisualRoot" instance=ExtResource("player_model")]
 
 [node name="NameLabel" type="Label3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.25, 0)

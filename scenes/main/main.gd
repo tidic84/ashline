@@ -22,6 +22,7 @@ func _ready() -> void:
 		Inventory.grant_starter_inventory()
 
 	GraphicsSettings.apply_all()
+	AudioManager.play_ambient("train_ambience")
 	GameManager.start_game()
 
 

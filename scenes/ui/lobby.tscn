@@ -45,7 +45,7 @@ layout_mode = 2
 
 [node name="SoloButton" type="Button" parent="VBoxContainer"]
 layout_mode = 2
-text = "Play Solo"
+text = "Play"
 
 [node name="Separator1" type="HSeparator" parent="VBoxContainer"]
 layout_mode = 2

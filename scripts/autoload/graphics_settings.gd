@@ -1,7 +1,7 @@
 extends Node
 
 const CONFIG_PATH: String = "user://settings.cfg"
-const FPS_LIMITS: Array[int] = [60, 75, 90, 120]
+const FPS_LIMITS: Array[int] = [60, 90, 120, 240]
 
 enum Quality { LOW, MEDIUM, HIGH, ULTRA }
 

@@ -3,7 +3,7 @@ class_name PauseMenu
 
 signal resume_requested
 
-const FPS_LIMITS: Array[int] = [60, 75, 90, 120]
+const FPS_LIMITS: Array[int] = [60, 90, 120, 240]
 
 @onready var _resume_button: Button = $Margin/VBox/Tabs/Resume/ResumeButton
 @onready var _volume_label: Label = $Margin/VBox/Tabs/Parametres/SettingsGrid/MasterVolumeLabel

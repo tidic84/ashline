@@ -19,6 +19,8 @@ var _ambient_timer: float = 0.0
 var _ray_exclude: Array[RID] = []
 var _build_preview_accum: float = 0.0
 var _interact_check_accum: float = 0.0
+var _controls_locked_position: Vector3 = Vector3.ZERO
+var _controls_were_locked: bool = false
 const BUILD_RAY_LENGTH: float = 8.0
 const INTERACT_RAY_LENGTH: float = 4.0
 const BUILD_COLLISION_MASK: int = 137  # World (1) + Train (8) + BuildDetect (128)
@@ -75,7 +77,7 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if _camera == null:
 		return
-	if GameManager.current_state == GameManager.GameState.PAUSED or _is_chat_open():
+	if _controls_blocked():
 		return
 
 	if event is InputEventMouseButton and event.pressed:
@@ -161,7 +163,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if _camera == null:
 		return
-	if GameManager.current_state == GameManager.GameState.PAUSED or _is_chat_open():
+	if _lock_position_while_blocked():
 		BuildSystem.hide_preview()
 		return
 	if BuildSystem.is_building:
@@ -541,6 +543,25 @@ func _is_chat_open() -> bool:
 	if _hud == null or not _hud.has_method("is_chat_open"):
 		return false
 	return _hud.is_chat_open()
+
+
+func _controls_blocked() -> bool:
+	return GameManager.current_state == GameManager.GameState.PAUSED or _is_chat_open()
+
+
+func _lock_position_while_blocked() -> bool:
+	if not _controls_blocked():
+		if _controls_were_locked and not _is_inventory_open() and not _is_build_menu_open():
+			_set_player_look_enabled(true)
+		_controls_were_locked = false
+		return false
+	if not _controls_were_locked:
+		_controls_locked_position = _fps.global_position
+		_controls_were_locked = true
+	_fps.global_position = _controls_locked_position
+	_fps.velocity = Vector3.ZERO
+	_set_player_look_enabled(false)
+	return true
 
 
 func _is_build_menu_open() -> bool:

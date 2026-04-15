@@ -49,7 +49,18 @@ func _connect_network_signal(sig: Signal, callback: Callable) -> void:
 		sig.connect(callback)
 
 func _on_solo_pressed() -> void:
-	get_tree().change_scene_to_file("res://scenes/main/main.tscn")
+	NetworkManager.local_player_name = name_input.text if name_input else "Player"
+	var port := int(port_input.text) if port_input else NetworkManager.DEFAULT_PORT
+	if multiplayer.has_multiplayer_peer() and not NetworkManager.is_host():
+		_set_status("Only the host can launch the game.")
+		return
+	if not multiplayer.has_multiplayer_peer():
+		var error := NetworkManager.host_game(port)
+		if error != OK:
+			_set_status("Failed to start: %s" % error_string(error))
+			return
+	_set_status("Launching shared game on port %d..." % port)
+	NetworkManager.host_start_game()
 
 func _on_host_pressed() -> void:
 	NetworkManager.local_player_name = name_input.text if name_input else "Player"
