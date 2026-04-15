@@ -403,6 +403,15 @@ func _build_point_positions_hash() -> String:
 # --- Smoothing ---
 
 func _apply_smoothing() -> void:
+	_apply_smoothing_internal({})
+
+
+func _apply_smoothing_internal(visited: Dictionary) -> void:
+	var visit_key := get_instance_id()
+	if visited.has(visit_key):
+		return
+	visited[visit_key] = true
+
 	if curve == null or curve.point_count < 2:
 		return
 	if not is_inside_tree():
@@ -417,6 +426,8 @@ func _apply_smoothing() -> void:
 		return
 
 	var n := curve.point_count
+	var start_connections := _get_connected_paths_for_endpoint(0)
+	var end_connections := _get_connected_paths_for_endpoint(1)
 
 	# Compute segment directions and lengths
 	var seg_dirs: Array[Vector3] = []
@@ -428,8 +439,8 @@ func _apply_smoothing() -> void:
 
 	# First and last points: zero tangents unless connected to another path
 	# (connections set tangents for visual continuity at junctions)
-	var start_connected := connections_at_start.size() > 0
-	var end_connected := connections_at_end.size() > 0
+	var start_connected := not start_connections.is_empty()
+	var end_connected := not end_connections.is_empty()
 	if not start_connected:
 		curve.set_point_in(0, Vector3.ZERO)
 		curve.set_point_out(0, Vector3.ZERO)
@@ -493,7 +504,114 @@ func _apply_smoothing() -> void:
 			curve.set_point_in(i, tangent_in)
 			curve.set_point_out(i, tangent_out)
 
+	if start_connected:
+		_apply_endpoint_smoothing(0, start_connections)
+	if end_connected:
+		_apply_endpoint_smoothing(n - 1, end_connections)
+
 	_preview_signature = ""
+
+	for other in _get_all_connected_paths():
+		if is_instance_valid(other):
+			other._apply_smoothing_internal(visited)
+
+
+func _get_connected_paths_for_endpoint(endpoint: int) -> Array[RailPath]:
+	var result: Array[RailPath] = []
+	var node_paths: Array[NodePath] = connections_at_start if endpoint == 0 else connections_at_end
+	for np in node_paths:
+		var node := get_node_or_null(np)
+		if node is RailPath and node not in result:
+			result.append(node as RailPath)
+	return result
+
+
+func _get_all_connected_paths() -> Array[RailPath]:
+	var result: Array[RailPath] = []
+	for path in _get_connected_paths_for_endpoint(0):
+		if path not in result:
+			result.append(path)
+	for path in _get_connected_paths_for_endpoint(1):
+		if path not in result:
+			result.append(path)
+	return result
+
+
+func _apply_endpoint_smoothing(point_idx: int, connected_paths: Array[RailPath]) -> void:
+	var endpoint := 0 if point_idx == 0 else 1
+	var self_state := _get_endpoint_state_world(endpoint)
+	if self_state.is_empty():
+		curve.set_point_in(point_idx, Vector3.ZERO)
+		curve.set_point_out(point_idx, Vector3.ZERO)
+		return
+
+	var junction_world: Vector3 = self_state.junction
+	var axis_dir: Vector3 = self_state.dir
+	var tangent_len: float = smooth_length
+	var segment_lengths: Array[float] = [self_state.length]
+
+	for other in connected_paths:
+		if not is_instance_valid(other):
+			continue
+		var other_endpoint := 1 - endpoint if other == self else _closest_end_of(other, junction_world)
+		var other_state := other._get_endpoint_state_world(other_endpoint)
+		if other_state.is_empty():
+			continue
+		var other_dir: Vector3 = other_state.dir
+		if axis_dir.length_squared() > 0.0001 and other_dir.dot(axis_dir) < 0.0:
+			other_dir = -other_dir
+		axis_dir += other_dir
+		segment_lengths.append(other_state.length)
+
+	axis_dir = axis_dir.normalized()
+	if axis_dir.length_squared() < 0.0001:
+		axis_dir = self_state.dir
+	if axis_dir.length_squared() < 0.0001:
+		curve.set_point_in(point_idx, Vector3.ZERO)
+		curve.set_point_out(point_idx, Vector3.ZERO)
+		return
+
+	var yaw_deg := _yaw_delta_deg(self_state.dir, axis_dir)
+	if yaw_deg > 0.001:
+		tangent_len = minf(tangent_len, yaw_deg / max_curvature_deg_per_m)
+
+	var pitch_delta := absf(_pitch_of(axis_dir) - _pitch_of(self_state.dir))
+	if pitch_delta > 0.001:
+		tangent_len = minf(tangent_len, pitch_delta / max_pitch_curvature_deg_per_m)
+
+	for seg_len in segment_lengths:
+		tangent_len = minf(tangent_len, seg_len * 0.45)
+	tangent_len = clampf(tangent_len, 0.5, smooth_length)
+
+	var local_anchor := curve.get_point_position(point_idx)
+	var toward_interior := to_local(junction_world + axis_dir * tangent_len) - local_anchor
+	var toward_connection := to_local(junction_world - axis_dir * tangent_len) - local_anchor
+	if endpoint == 0:
+		curve.set_point_in(point_idx, toward_connection)
+		curve.set_point_out(point_idx, toward_interior)
+	else:
+		curve.set_point_in(point_idx, toward_interior)
+		curve.set_point_out(point_idx, toward_connection)
+
+
+func _get_endpoint_state_world(endpoint: int) -> Dictionary:
+	if curve == null or curve.point_count < 2:
+		return {}
+	var point_idx := 0 if endpoint == 0 else curve.point_count - 1
+	var junction_world := to_global(curve.get_point_position(point_idx))
+	var step := 1 if endpoint == 0 else -1
+	var stop := curve.point_count if step > 0 else -1
+	for idx in range(point_idx + step, stop, step):
+		var candidate_world := to_global(curve.get_point_position(idx))
+		var delta := candidate_world - junction_world
+		var seg_len := delta.length()
+		if seg_len > 0.001:
+			return {
+				"junction": junction_world,
+				"dir": delta / seg_len,
+				"length": seg_len,
+			}
+	return {}
 
 
 # --- Validation ---
@@ -700,21 +818,21 @@ func _update_preview_mesh(force: bool = false) -> void:
 	if preview_match_runtime_deformed and _build_preview_deformed_rails(root):
 		var sections_old_match := root.get_node_or_null(PREVIEW_SECTIONS_NAME)
 		if sections_old_match != null:
-			sections_old_match.queue_free()
+			_free_preview_node(sections_old_match)
 		return
 
 	if preview_real_rails_enabled and _build_preview_real_sections(root):
 		var rails_old := root.get_node_or_null(PREVIEW_RAILS_NAME)
 		if rails_old != null:
-			rails_old.queue_free()
+			_free_preview_node(rails_old)
 		var ties_old := root.get_node_or_null(PREVIEW_TIES_NAME)
 		if ties_old != null:
-			ties_old.queue_free()
+			_free_preview_node(ties_old)
 		return
 
 	var sections_old := root.get_node_or_null(PREVIEW_SECTIONS_NAME)
 	if sections_old != null:
-		sections_old.queue_free()
+		_free_preview_node(sections_old)
 
 	var rails_mesh := _build_preview_rails_mesh()
 	var rails := root.get_node_or_null(PREVIEW_RAILS_NAME) as MeshInstance3D
@@ -723,8 +841,6 @@ func _update_preview_mesh(force: bool = false) -> void:
 		rails.name = PREVIEW_RAILS_NAME
 		rails.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		root.add_child(rails)
-		if Engine.is_editor_hint():
-			rails.owner = get_tree().edited_scene_root
 	rails.mesh = rails_mesh
 	rails.material_override = _preview_rails_material
 
@@ -736,14 +852,12 @@ func _update_preview_mesh(force: bool = false) -> void:
 			ties.name = PREVIEW_TIES_NAME
 			ties.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			root.add_child(ties)
-			if Engine.is_editor_hint():
-				ties.owner = get_tree().edited_scene_root
 		ties.mesh = ties_mesh
 		ties.material_override = _preview_ties_material
 	else:
 		var ties_old := root.get_node_or_null(PREVIEW_TIES_NAME)
 		if ties_old != null:
-			ties_old.queue_free()
+			_free_preview_node(ties_old)
 
 
 func _build_preview_signature() -> String:
@@ -824,7 +938,16 @@ func _ensure_preview_root() -> Node3D:
 func _clear_preview_mesh() -> void:
 	var root := get_node_or_null(PREVIEW_ROOT_NAME)
 	if root != null:
-		root.queue_free()
+		_free_preview_node(root)
+
+
+func _free_preview_node(node: Node) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	var parent := node.get_parent()
+	if parent != null:
+		parent.remove_child(node)
+	node.free()
 
 
 func _sample_preview_frame(offset: float, total_len: float) -> Dictionary:
@@ -871,7 +994,7 @@ func _build_preview_deformed_rails(root: Node3D) -> bool:
 
 	var sections_old := root.get_node_or_null(PREVIEW_SECTIONS_NAME)
 	if sections_old != null:
-		sections_old.queue_free()
+		_free_preview_node(sections_old)
 
 	var rails_node := root.get_node_or_null(PREVIEW_RAILS_NAME) as Node3D
 	if rails_node == null:
@@ -896,7 +1019,7 @@ func _build_preview_deformed_rails(root: Node3D) -> bool:
 
 	var ties_old := root.get_node_or_null(PREVIEW_TIES_NAME)
 	if ties_old != null:
-		ties_old.queue_free()
+		_free_preview_node(ties_old)
 	if preview_show_ties:
 		var tie_spacing := maxf(preview_tie_spacing, 0.1)
 		var tie_count := int(total_len / tie_spacing)

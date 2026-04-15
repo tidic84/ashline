@@ -22,8 +22,10 @@ var is_on_rails: bool = false
 # Movement
 var travel_direction: float = 1.0  # 1.0 = forward, -1.0 = reverse
 var speed: float = 0.0
-var max_speed: float = 4.0  # Handcar cap — upgrade to engine for more
-var pump_impulse: float = 0.45  # Small per-pump kick
+#var max_speed: float = 4.0  # Handcar cap — upgrade to engine for more
+var max_speed: float = 400.0  # Handcar cap — upgrade to engine for more
+#var pump_impulse: float = 0.45  # Small per-pump kick
+var pump_impulse: float = 1  # Small per-pump kick
 var friction: float = 0.35  # Low — momentum carries between pumps
 var distance_traveled: float = 0.0
 
@@ -34,7 +36,8 @@ var current_rail_path: Node = null  # RailPath node we're currently on
 
 var _basis_scale: Vector3 = Vector3.ONE  # preserved from tscn
 var _just_transitioned: bool = false  # skip velocity spike on path transition
-var _last_transition_target_end: int = -1  # which end of the next path we entered (0=start, 1=end)
+var _last_transition_target_end: int = -1  # which end of the active curve we entered (0=start, 1=end)
+var _curve_reversed: bool = false  # true when active curve traversal is reversed vs RailPath point order
 
 func _ready() -> void:
 	_basis_scale = basis.get_scale()
@@ -97,7 +100,7 @@ func _physics_process(delta: float) -> void:
 		var fwd: Vector3 = rail_curve.sample_baked(ahead) - rail_curve.sample_baked(behind)
 		global_position = pos
 		if fwd.length_squared() > 0.0001:
-			fwd = fwd.normalized()
+			fwd = _stabilize_curve_forward(fwd)
 			var rt: Vector3 = Vector3.UP.cross(fwd)
 			if rt.length_squared() < 0.0001:
 				rt = Vector3.RIGHT
@@ -140,7 +143,8 @@ func set_direction(dir: float) -> void:
 func _try_path_transition(at_end: int, overflow: float) -> bool:
 	if current_rail_path == null:
 		return false
-	var route: Dictionary = RailNetwork.get_active_route(current_rail_path, at_end)
+	var actual_exit_end: int = _map_active_end_to_path_end(at_end)
+	var route: Dictionary = RailNetwork.get_active_route(current_rail_path, actual_exit_end)
 	if route.is_empty():
 		return false
 	var next_path: Node = route.path
@@ -149,21 +153,18 @@ func _try_path_transition(at_end: int, overflow: float) -> bool:
 	var next_curve: Curve3D = next_path.get_rail_curve()
 	if next_curve == null or next_curve.get_baked_length() < 0.1:
 		return false
-	var world_curve := _build_world_curve(next_path)
+	var active_entry_end: int = 0 if speed >= 0.0 else 1
+	var reverse_next_curve: bool = route.end != active_entry_end
+	var world_curve := _build_world_curve(next_path, reverse_next_curve)
 	if world_curve == null:
 		return false
 	var next_total: float = world_curve.get_baked_length()
-	var target_end: int = route.end
-	_last_transition_target_end = target_end
-	if target_end == 0:
+	_curve_reversed = reverse_next_curve
+	_last_transition_target_end = active_entry_end
+	if active_entry_end == 0:
 		rail_progress = overflow
 	else:
 		rail_progress = next_total - overflow
-	# Flip speed when connecting same-side endpoints (start→start or end→end)
-	# so the train continues in the same real-world direction.
-	if at_end == target_end:
-		speed = -speed
-		speed_changed.emit(speed)
 	rail_progress = clampf(rail_progress, 0.0, next_total)
 	rail_curve = world_curve
 	current_rail_path = next_path
@@ -171,17 +172,24 @@ func _try_path_transition(at_end: int, overflow: float) -> bool:
 	return true
 
 
-func _build_world_curve(path_node: Node) -> Curve3D:
+func _build_world_curve(path_node: Node, reverse_order: bool = false) -> Curve3D:
 	var src_curve: Curve3D = path_node.get_rail_curve()
 	if src_curve == null or src_curve.point_count < 2:
 		return null
 	var world_curve := Curve3D.new()
 	world_curve.bake_interval = src_curve.bake_interval
-	for i in range(src_curve.point_count):
-		var p: Vector3 = path_node.to_global(src_curve.get_point_position(i))
-		var t_in: Vector3 = path_node.global_basis * src_curve.get_point_in(i)
-		var t_out: Vector3 = path_node.global_basis * src_curve.get_point_out(i)
-		world_curve.add_point(p, t_in, t_out)
+	if reverse_order:
+		for i in range(src_curve.point_count - 1, -1, -1):
+			var p: Vector3 = path_node.to_global(src_curve.get_point_position(i))
+			var old_in: Vector3 = path_node.global_basis * src_curve.get_point_in(i)
+			var old_out: Vector3 = path_node.global_basis * src_curve.get_point_out(i)
+			world_curve.add_point(p, -old_out, -old_in)
+	else:
+		for i in range(src_curve.point_count):
+			var p: Vector3 = path_node.to_global(src_curve.get_point_position(i))
+			var t_in: Vector3 = path_node.global_basis * src_curve.get_point_in(i)
+			var t_out: Vector3 = path_node.global_basis * src_curve.get_point_out(i)
+			world_curve.add_point(p, t_in, t_out)
 	return world_curve
 
 
@@ -211,6 +219,7 @@ func snap_to_rails() -> void:
 		rail_curve = best_curve
 		rail_progress = best_progress
 		current_rail_path = best_path
+		_curve_reversed = false
 		global_position = rail_curve.sample_baked(rail_progress)
 		_orient_to_curve()
 	else:
@@ -220,6 +229,7 @@ func snap_to_rails() -> void:
 			rail_curve = terrain.get_rail_curve()
 			if rail_curve and rail_curve.get_baked_length() > 0.0:
 				rail_progress = rail_curve.get_closest_offset(global_position)
+				_curve_reversed = false
 				global_position = rail_curve.sample_baked(rail_progress)
 				_orient_to_curve()
 
@@ -232,13 +242,23 @@ func _orient_to_curve() -> void:
 	var behind: float = maxf(rail_progress - 1.0, 0.0)
 	var fwd: Vector3 = rail_curve.sample_baked(ahead) - rail_curve.sample_baked(behind)
 	if fwd.length_squared() > 0.0001:
-		fwd = fwd.normalized()
+		fwd = _stabilize_curve_forward(fwd)
 		var rt: Vector3 = Vector3.UP.cross(fwd)
 		if rt.length_squared() < 0.0001:
 			rt = Vector3.RIGHT
 		rt = rt.normalized()
 		var up_v: Vector3 = fwd.cross(rt).normalized()
 		basis = Basis(rt, up_v, fwd).scaled(_basis_scale)
+
+
+func _stabilize_curve_forward(candidate: Vector3, reference: Vector3 = Vector3.ZERO) -> Vector3:
+	var fwd := candidate.normalized()
+	if fwd.length_squared() < 0.0001:
+		return Vector3.ZERO
+	var desired := reference.normalized() if reference.length_squared() > 0.0001 else basis.z.normalized()
+	if desired.length_squared() > 0.0001 and fwd.dot(desired) < 0.0:
+		fwd = -fwd
+	return fwd
 
 func _find_terrain() -> TerrainGenerator:
 	var nodes := get_tree().get_nodes_in_group("terrain")
@@ -251,6 +271,10 @@ func _set_platform_velocity(vel: Vector3) -> void:
 	for child in get_children():
 		if child is StaticBody3D:
 			child.constant_linear_velocity = vel
+
+
+func _map_active_end_to_path_end(active_end: int) -> int:
+	return 1 - active_end if _curve_reversed else active_end
 
 # --- Grid system ---
 

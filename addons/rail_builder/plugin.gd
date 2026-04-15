@@ -655,6 +655,8 @@ func _connect_endpoint(endpoint: int) -> void:
 
 		var my_label := "debut" if endpoint == 0 else "fin"
 		var their_label := "debut" if best_end == 0 else "fin"
+		_try_call_rail_method(_current_path, "_apply_smoothing", "action_apply_smoothing")
+		_curve_signature = _curve_points_signature(_current_path.curve)
 		_update_status("[color=#8bc34a]Connecte[/color] %s (%s) -> %s (%s) [%.1fm]" % [
 			_current_path.name, my_label, best_path.name, their_label, best_dist])
 	else:
@@ -722,6 +724,10 @@ func _add_switch_at_endpoint(endpoint: int) -> void:
 	if _current_path == null:
 		_update_status("[color=#ff9800]Selectionne un RailPath d'abord.[/color]")
 		return
+	var scene_root := get_tree().edited_scene_root
+	if scene_root == null:
+		_update_status("[color=#f44336]Pas de scene editee.[/color]")
+		return
 	var switch_scene := load("res://scenes/rail/rail_switch.tscn") as PackedScene
 	if switch_scene == null:
 		_update_status("[color=#f44336]Impossible de charger rail_switch.tscn.[/color]")
@@ -742,11 +748,29 @@ func _add_switch_at_endpoint(endpoint: int) -> void:
 			_update_status("[color=#ff9800]Aucune connexion au %s. Connectez d'abord un autre rail.[/color]" % (
 				"debut" if endpoint == 0 else "fin"))
 			return
+		if conns.size() < 2:
+			_update_status("[color=#ff9800]Un aiguillage demande au moins 2 connexions au %s. Il n'y en a qu'une ici.[/color]" % (
+				"debut" if endpoint == 0 else "fin"))
+			return
+
+	var existing_switch := _find_existing_switch_for_endpoint(scene_root, _current_path, endpoint)
+	if existing_switch != null:
+		existing_switch.global_position = pos
+		get_editor_interface().get_selection().clear()
+		get_editor_interface().get_selection().add_node(existing_switch)
+		_update_status("[color=#64b5f6]Un aiguillage existe deja sur %s (%s). Je l'ai simplement reselectionne.[/color]" % [
+			_current_path.name,
+			"debut" if endpoint == 0 else "fin"
+		])
+		return
 
 	var instance := switch_scene.instantiate() as Node3D
-	var scene_root := get_tree().edited_scene_root
 	scene_root.add_child(instance)
 	instance.owner = scene_root
+	instance.name = "RailSwitch_%s_%s" % [
+		_current_path.name,
+		"Start" if endpoint == 0 else "End"
+	]
 	instance.global_position = pos
 	if _has_property(instance, "rail_path"):
 		instance.set("rail_path", instance.get_path_to(_current_path))
@@ -755,6 +779,32 @@ func _add_switch_at_endpoint(endpoint: int) -> void:
 
 	var label := "debut" if endpoint == 0 else "fin"
 	_update_status("[color=#8bc34a]Aiguillage place au %s de %s.[/color]" % [label, _current_path.name])
+
+
+func _find_existing_switch_for_endpoint(root: Node, rail_path: Path3D, endpoint: int) -> Node3D:
+	if root == null or rail_path == null:
+		return null
+	var stack: Array[Node] = [root]
+	while stack.size() > 0:
+		var node := stack.pop_back()
+		for child in node.get_children():
+			stack.append(child)
+		if node == root:
+			continue
+		if not (node is Node3D):
+			continue
+		if not _has_property(node, "rail_path") or not _has_property(node, "endpoint"):
+			continue
+		var node_endpoint := int(node.get("endpoint"))
+		if node_endpoint != endpoint:
+			continue
+		var target_np: Variant = node.get("rail_path")
+		if not (target_np is NodePath):
+			continue
+		var target: Node = node.get_node_or_null(target_np as NodePath)
+		if target == rail_path:
+			return node as Node3D
+	return null
 
 
 # ============================================================
@@ -869,23 +919,37 @@ func _sync_preview_controls() -> void:
 func _on_generate_terrain_pressed() -> void:
 	var root := get_tree().edited_scene_root if Engine.is_editor_hint() else get_tree().current_scene
 	if root == null:
-		_update_status("[color=#f44336]Pas de scene.[/color]")
+		_update_status("[color=#f44336]Pas de scene ouverte.[/color]")
 		return
-	var terrain := _find_node_with_method(root, "generate_terrain")
-	if terrain != null:
+	# Prefer class-based lookup — more reliable than method name search.
+	var terrain := _find_node_by_class_name(root, "TerrainGenerator")
+	if terrain == null:
+		terrain = _find_node_with_method(root, "generate_terrain")
+	if terrain == null:
+		_update_status("[color=#f44336]Aucun TerrainGenerator trouve dans la scene (racine: %s).[/color]" % root.name)
+		return
+	# Count rail paths visible from the scene tree so the user sees what the generator will find.
+	var rail_paths: Array = get_tree().get_nodes_in_group("rail_path")
+	# Fallback: recursive scan by script if group is empty (editor timing).
+	if rail_paths.is_empty():
+		var collected: Array[Node] = []
+		_collect_rail_paths(root, collected)
+		rail_paths = collected
+		# Ensure they're in the group for the generator to find.
+		for rp in collected:
+			if not rp.is_in_group("rail_path"):
+				rp.add_to_group("rail_path")
+	if rail_paths.is_empty():
+		_update_status("[color=#f44336]TerrainGenerator trouve (%s) mais AUCUN RailPath dans la scene.[/color]" % terrain.name)
+		return
+	if terrain.has_method("generate_terrain"):
 		terrain.call("generate_terrain")
-		_update_status("[color=#8bc34a]Terrain genere.[/color]")
-		return
-	# Fallback: look for TerrainGenerator and call _load_curve_from_rail_path
-	terrain = _find_node_by_class_name(root, "TerrainGenerator")
-	if terrain != null:
-		if terrain.has_method("_load_curve_from_rail_path"):
-			terrain.call("_load_curve_from_rail_path")
-			_update_status("[color=#8bc34a]Rails regeneres via TerrainGenerator.[/color]")
-		else:
-			_update_status("[color=#f44336]TerrainGenerator trouve mais pas de methode de generation.[/color]")
-		return
-	_update_status("[color=#f44336]Aucun TerrainGenerator trouve dans la scene.[/color]")
+		_update_status("[color=#8bc34a]Terrain genere (%s, %d RailPath).[/color]" % [terrain.name, rail_paths.size()])
+	elif terrain.has_method("_load_curve_from_rail_path"):
+		terrain.call("_load_curve_from_rail_path")
+		_update_status("[color=#8bc34a]Rails regeneres (%d RailPath).[/color]" % rail_paths.size())
+	else:
+		_update_status("[color=#f44336]TerrainGenerator trouve mais pas de methode de generation.[/color]")
 
 
 func _on_regenerate_rails_pressed() -> void:
