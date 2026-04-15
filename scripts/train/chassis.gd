@@ -7,6 +7,10 @@ signal direction_changed(dir: float)
 
 const GRID_SIZE: float = 1.0
 const BUILD_SURFACE_LOCAL_Y: float = 0.22
+const EDGE_NORTH: int = 1
+const EDGE_SOUTH: int = 2
+const EDGE_EAST: int = 3
+const EDGE_WEST: int = 4
 
 @export var max_width: int = 3
 @export var max_length: int = 1
@@ -341,7 +345,10 @@ func can_place_edge(grid_pos: Vector2i, edge: int) -> bool:
 	if not grid_cells[grid_pos].floor:
 		return false
 	var cell := _ensure_cell(grid_pos)
-	return not cell.edges.has(edge)
+	if cell.edges.has(edge):
+		return false
+	var mirrored := _get_mirrored_edge_slot(grid_pos, edge)
+	return mirrored.is_empty()
 
 func place_item(grid_pos: Vector2i, item: Node3D) -> void:
 	grid_cells[grid_pos].item = item
@@ -349,6 +356,12 @@ func place_item(grid_pos: Vector2i, item: Node3D) -> void:
 func place_edge_item(grid_pos: Vector2i, edge: int, item: Node3D) -> void:
 	var cell := _ensure_cell(grid_pos)
 	cell.edges[edge] = item
+	var mirrored := _get_mirrored_edge_slot(grid_pos, edge)
+	if not mirrored.is_empty():
+		var mirrored_grid: Vector2i = mirrored["grid_pos"]
+		var mirrored_edge: int = mirrored["edge"]
+		var mirrored_cell := _ensure_cell(mirrored_grid)
+		mirrored_cell.edges[mirrored_edge] = item
 
 func remove_item(grid_pos: Vector2i) -> void:
 	if grid_cells.has(grid_pos) and grid_cells[grid_pos].item:
@@ -358,9 +371,41 @@ func remove_edge_item(grid_pos: Vector2i, edge: int) -> void:
 	if grid_cells.has(grid_pos):
 		var cell := _ensure_cell(grid_pos)
 		cell.edges.erase(edge)
+	var mirrored := _get_mirrored_edge_slot(grid_pos, edge)
+	if not mirrored.is_empty():
+		var mirrored_grid: Vector2i = mirrored["grid_pos"]
+		var mirrored_edge: int = mirrored["edge"]
+		if grid_cells.has(mirrored_grid):
+			var mirrored_cell := _ensure_cell(mirrored_grid)
+			mirrored_cell.edges.erase(mirrored_edge)
 
 func has_floor_at(grid_pos: Vector2i) -> bool:
 	return grid_cells.has(grid_pos) and grid_cells[grid_pos].floor
+
+func _get_mirrored_edge_slot(grid_pos: Vector2i, edge: int) -> Dictionary:
+	var mirrored_grid := grid_pos
+	var mirrored_edge := edge
+	match edge:
+		EDGE_NORTH:
+			mirrored_grid = Vector2i(grid_pos.x, grid_pos.y - 1)
+			mirrored_edge = EDGE_SOUTH
+		EDGE_SOUTH:
+			mirrored_grid = Vector2i(grid_pos.x, grid_pos.y + 1)
+			mirrored_edge = EDGE_NORTH
+		EDGE_EAST:
+			mirrored_grid = Vector2i(grid_pos.x + 1, grid_pos.y)
+			mirrored_edge = EDGE_WEST
+		EDGE_WEST:
+			mirrored_grid = Vector2i(grid_pos.x - 1, grid_pos.y)
+			mirrored_edge = EDGE_EAST
+		_:
+			return {}
+	if not has_floor_at(mirrored_grid):
+		return {}
+	return {
+		"grid_pos": mirrored_grid,
+		"edge": mirrored_edge,
+	}
 
 func _has_adjacent_floor(grid_pos: Vector2i) -> bool:
 	var neighbors: Array[Vector2i] = [

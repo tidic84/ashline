@@ -23,6 +23,7 @@ const BUILD_RAY_LENGTH: float = 8.0
 const INTERACT_RAY_LENGTH: float = 4.0
 const BUILD_COLLISION_MASK: int = 137  # World (1) + Train (8) + BuildDetect (128)
 const INTERACT_COLLISION_MASK: int = 48
+const LOOK_COLLISION_MASK: int = 57  # World (1) + Train (8) + Placeables (16) + Interactable (32)
 const BUILD_PREVIEW_INTERVAL: float = 0.033
 const INTERACT_CHECK_INTERVAL: float = 0.05
 
@@ -356,7 +357,17 @@ func _ray_plane_intersection(
 func _update_interact_hint() -> void:
 	if _is_inventory_open():
 		_hud.hide_interact_hint()
+		_hud.hide_target_name()
 		return
+	var look_hit := _camera_ray(INTERACT_RAY_LENGTH, LOOK_COLLISION_MASK)
+	if not look_hit.is_empty():
+		var looked_name := _get_target_display_name(look_hit.get("collider"))
+		if not looked_name.is_empty():
+			_hud.show_target_name(looked_name)
+		else:
+			_hud.hide_target_name()
+	else:
+		_hud.hide_target_name()
 	var hit := _camera_ray(INTERACT_RAY_LENGTH, INTERACT_COLLISION_MASK)
 	if not hit.is_empty():
 		var collider: Object = hit.get("collider")
@@ -375,6 +386,48 @@ func _update_interact_hint() -> void:
 			_hud.show_interact_hint(text)
 			return
 	_hud.hide_interact_hint()
+
+func _get_target_display_name(collider: Object) -> String:
+	if collider == null or not (collider is Node):
+		return ""
+	var node := collider as Node
+	var current: Node = node
+	while current:
+		if current.has_meta("buildable_id"):
+			var buildable_id: String = str(current.get_meta("buildable_id"))
+			if BuildSystem.buildable_catalog.has(buildable_id):
+				var data: BuildableData = BuildSystem.buildable_catalog[buildable_id]
+				return data.display_name
+		if current is PumpLever:
+			return "Pump Lever"
+		if current is DirectionLever:
+			return "Direction Lever"
+		if current is RailSwitch:
+			return "Rail Switch"
+		if current is Harvestable:
+			return _get_harvestable_name(current as Harvestable)
+		if current is WagonFrame:
+			return "Wagon"
+		if current is TrainChassis:
+			return "Train Chassis"
+		current = current.get_parent()
+	return _prettify_node_name(node.name)
+
+func _get_harvestable_name(harvestable: Harvestable) -> String:
+	if harvestable.required_tool_id == "axe":
+		return "Tree"
+	if harvestable.required_tool_id == "pickaxe":
+		return "Rock"
+	var item_id: String = harvestable.drop_item_id if not harvestable.drop_item_id.is_empty() else harvestable.resource_id
+	if not item_id.is_empty():
+		return Inventory.get_item_name(item_id)
+	return _prettify_node_name(harvestable.name)
+
+func _prettify_node_name(raw_name: String) -> String:
+	var cleaned := raw_name.replace("_", " ").replace("-", " ").strip_edges()
+	if cleaned.is_empty():
+		return ""
+	return cleaned.capitalize()
 
 
 func _update_ambient(delta: float) -> void:

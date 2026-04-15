@@ -37,8 +37,6 @@ var preview_material_demolish: StandardMaterial3D
 enum EdgeSide { NONE, NORTH, SOUTH, EAST, WEST }
 var _last_edge: EdgeSide = EdgeSide.NONE
 var _last_edge_grid: Vector2i = Vector2i.ZERO
-var _cached_player: Node3D = null
-
 # Costs
 const CHASSIS_COST: Dictionary = { "wood": 10, "metal": 15 }
 const FLOOR_COST: Dictionary = { "wood": 3 }
@@ -340,7 +338,7 @@ func _update_item_preview(hit_point: Vector3, _hit_normal: Vector3, chassis: Nod
 	var rot_y: float = preview_rotation
 
 	if is_edge_item:
-		var edge: EdgeSide = _detect_edge_from_player_view(chassis, grid_pos)
+		var edge: EdgeSide = _detect_edge_from_hit(chassis, hit_point, grid_pos)
 		_last_edge = edge
 		_last_edge_grid = grid_pos
 		var edge_offset: Vector3 = _edge_offset(edge)
@@ -626,12 +624,14 @@ func try_place_item(hit_point: Vector3, chassis: Node) -> Node3D:
 	if not chassis.is_grid_in_bounds(grid_pos):
 		return null
 	var is_edge_item: bool = _is_edge_category()
+	var edge: EdgeSide = EdgeSide.NONE
 
 	# Validate placement
 	if is_edge_item:
-		if _last_edge == EdgeSide.NONE:
+		edge = _detect_edge_from_hit(chassis, hit_point, grid_pos)
+		if edge == EdgeSide.NONE:
 			return null
-		if not chassis.can_place_edge(grid_pos, _last_edge):
+		if not chassis.can_place_edge(grid_pos, edge):
 			return null
 	else:
 		if not chassis.can_place_item(grid_pos):
@@ -648,14 +648,14 @@ func try_place_item(hit_point: Vector3, chassis: Node) -> Node3D:
 	var local_pos: Vector3 = chassis.grid_to_local(grid_pos)
 	local_pos.y = chassis.get_build_surface_local_y() + 0.05
 
-	if is_edge_item and _last_edge != EdgeSide.NONE:
-		local_pos += _edge_offset(_last_edge)
-		instance.rotation.y = _edge_rotation(_last_edge) + preview_rotation
-		instance.set_meta("edge_side", _last_edge)
+	if is_edge_item and edge != EdgeSide.NONE:
+		local_pos += _edge_offset(edge)
+		instance.rotation.y = _edge_rotation(edge) + preview_rotation
+		instance.set_meta("edge_side", edge)
 		instance.set_meta("grid_pos_x", grid_pos.x)
 		instance.set_meta("grid_pos_y", grid_pos.y)
 		instance.position = local_pos
-		chassis.place_edge_item(grid_pos, _last_edge, instance)
+		chassis.place_edge_item(grid_pos, edge, instance)
 	else:
 		instance.rotation.y = preview_rotation
 		instance.position = local_pos
@@ -674,29 +674,16 @@ func _is_edge_category() -> bool:
 		BuildableData.Category.BARRICADE,
 	]
 
-func _detect_edge_from_player_view(chassis: Node, grid_pos: Vector2i) -> EdgeSide:
-	var player: Node3D = _get_primary_player()
-	if player == null:
-		return EdgeSide.NORTH
-	var player_local: Vector3 = chassis.to_local(player.global_position)
+func _detect_edge_from_hit(chassis: Node, hit_point: Vector3, grid_pos: Vector2i) -> EdgeSide:
+	var hit_local: Vector3 = chassis.to_local(hit_point)
 	var cell_center: Vector3 = chassis.grid_to_local(grid_pos)
-	var from_player: Vector3 = cell_center - player_local
-	from_player.y = 0.0
-	if from_player.length_squared() < 0.0001:
+	var local_offset: Vector3 = hit_local - cell_center
+	local_offset.y = 0.0
+	if local_offset.length_squared() < 0.0001:
 		return EdgeSide.NORTH
-	if absf(from_player.x) > absf(from_player.z):
-		return EdgeSide.EAST if from_player.x > 0.0 else EdgeSide.WEST
-	return EdgeSide.SOUTH if from_player.z > 0.0 else EdgeSide.NORTH
-
-func _get_primary_player() -> Node3D:
-	if _cached_player != null and is_instance_valid(_cached_player):
-		return _cached_player
-	var players := get_tree().get_nodes_in_group("player")
-	if players.is_empty():
-		_cached_player = null
-		return null
-	_cached_player = players[0] as Node3D
-	return _cached_player
+	if absf(local_offset.x) > absf(local_offset.z):
+		return EdgeSide.EAST if local_offset.x > 0.0 else EdgeSide.WEST
+	return EdgeSide.SOUTH if local_offset.z > 0.0 else EdgeSide.NORTH
 
 func _edge_offset(edge: EdgeSide) -> Vector3:
 	match edge:
