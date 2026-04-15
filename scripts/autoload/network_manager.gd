@@ -5,6 +5,7 @@ signal player_disconnected(peer_id: int)
 signal server_started
 signal connection_failed
 signal connection_succeeded
+signal lobby_updated
 
 const DEFAULT_PORT: int = 27015
 const MAX_PLAYERS: int = 4
@@ -26,8 +27,10 @@ func host_game(port: int = DEFAULT_PORT) -> Error:
 	if error != OK:
 		return error
 	multiplayer.multiplayer_peer = peer
+	players_info.clear()
 	players_info[1] = { "name": local_player_name, "ready": false }
 	server_started.emit()
+	lobby_updated.emit()
 	return OK
 
 func join_game(address: String, port: int = DEFAULT_PORT) -> Error:
@@ -44,6 +47,7 @@ func disconnect_game() -> void:
 		peer = null
 	multiplayer.multiplayer_peer = null
 	players_info.clear()
+	lobby_updated.emit()
 
 func is_host() -> bool:
 	return multiplayer.is_server()
@@ -52,19 +56,21 @@ func get_player_count() -> int:
 	return players_info.size()
 
 @rpc("any_peer", "reliable")
-func register_player(player_name: String) -> void:
+func request_register_player(player_name: String) -> void:
+	if not multiplayer.is_server():
+		return
 	var sender_id := multiplayer.get_remote_sender_id()
+	if sender_id == 0:
+		sender_id = 1
 	players_info[sender_id] = { "name": player_name, "ready": false }
 	player_connected.emit(sender_id)
-	# Send existing players to new player
-	if multiplayer.is_server():
-		for id in players_info:
-			if id != sender_id:
-				_sync_player_info.rpc_id(sender_id, id, players_info[id].name)
+	lobby_updated.emit()
+	_sync_lobby_state.rpc(players_info)
 
 @rpc("authority", "reliable")
-func _sync_player_info(peer_id: int, player_name: String) -> void:
-	players_info[peer_id] = { "name": player_name, "ready": false }
+func _sync_lobby_state(snapshot: Dictionary) -> void:
+	players_info = snapshot.duplicate(true)
+	lobby_updated.emit()
 
 @rpc("any_peer", "reliable")
 func set_player_ready(ready: bool) -> void:
@@ -90,20 +96,26 @@ func start_game() -> void:
 	get_tree().change_scene_to_file("res://scenes/main/main.tscn")
 
 func _on_peer_connected(id: int) -> void:
-	register_player.rpc_id(id, local_player_name)
+	if multiplayer.is_server():
+		_sync_lobby_state.rpc_id(id, players_info)
 
 func _on_peer_disconnected(id: int) -> void:
 	players_info.erase(id)
 	player_disconnected.emit(id)
+	lobby_updated.emit()
+	if multiplayer.is_server():
+		_sync_lobby_state.rpc(players_info)
 	# Remove their player node
-	var player_node: Node = get_tree().current_scene.get_node_or_null(str(id))
+	var player_node: Node = get_tree().current_scene.get_node_or_null("Players/Player_%d" % id)
+	if player_node == null:
+		player_node = get_tree().current_scene.get_node_or_null(str(id))
 	if player_node:
 		player_node.queue_free()
 
 func _on_connected_to_server() -> void:
 	var my_id := multiplayer.get_unique_id()
 	players_info[my_id] = { "name": local_player_name, "ready": false }
-	register_player.rpc(local_player_name)
+	request_register_player.rpc_id(1, local_player_name)
 	connection_succeeded.emit()
 
 func _on_connection_failed() -> void:

@@ -10,8 +10,13 @@ func _ready() -> void:
 		max_health = data.health
 	current_health = max_health
 	add_to_group("placeable")
+	if not has_meta(WorldSync.NET_ID_META) and WorldSync.is_host():
+		WorldSync.register_entity(self)
 
 func take_damage(amount: float) -> void:
+	if WorldSync.should_request_host():
+		WorldSync.request_damage(WorldSync.get_net_id(self), amount)
+		return
 	current_health -= amount
 	if current_health <= 0:
 		_on_destroyed()
@@ -23,6 +28,8 @@ func _on_destroyed() -> void:
 	var wagon := _find_wagon()
 	if wagon and wagon.has_method("unregister_built_item"):
 		wagon.unregister_built_item(self)
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		WorldSync.replicate_despawn(WorldSync.get_net_id(self))
 	queue_free()
 
 func _find_wagon() -> Node3D:

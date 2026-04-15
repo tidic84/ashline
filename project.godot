@@ -12,7 +12,7 @@ config_version=5
 
 config/name="Ashline"
 config/description="Cooperative first-person train defense and building game"
-run/main_scene="res://scenes/main/main.tscn"
+run/main_scene="res://scenes/ui/lobby.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 
@@ -28,6 +28,7 @@ TrainManager="*res://scripts/autoload/train_manager.gd"
 BuildSystem="*res://scripts/autoload/build_system.gd"
 WaveManager="*res://scripts/autoload/wave_manager.gd"
 NetworkManager="*res://scripts/autoload/network_manager.gd"
+WorldSync="*res://scripts/autoload/world_sync.gd"
 Inventory="*res://scripts/autoload/inventory.gd"
 GraphicsSettings="*res://scripts/autoload/graphics_settings.gd"
 AudioManager="*res://scripts/autoload/audio_manager.gd"

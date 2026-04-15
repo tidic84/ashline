@@ -65,8 +65,11 @@ func _ready() -> void:
 	var settings_menu: Node = _hud.get_node_or_null("SettingsMenu")
 	if settings_menu and settings_menu.has_signal("closed"):
 		settings_menu.closed.connect(func():
-			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+			if GameManager.current_state == GameManager.GameState.PLAYING:
+				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+				_set_player_look_enabled(true)
 		)
+	GameManager.game_state_changed.connect(_on_game_state_changed)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -478,6 +481,19 @@ func _set_player_look_enabled(enabled: bool) -> void:
 		head_rot.set_process_unhandled_input(enabled)
 
 
+func _on_game_state_changed(new_state: int) -> void:
+	if new_state == GameManager.GameState.PAUSED:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		_set_player_look_enabled(false)
+	elif new_state == GameManager.GameState.PLAYING:
+		if _is_inventory_open() or _is_build_menu_open():
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+			_set_player_look_enabled(false)
+		else:
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+			_set_player_look_enabled(true)
+
+
 func _open_build_menu() -> void:
 	if _is_inventory_open():
 		_hud.toggle_inventory_panel(false)
@@ -515,6 +531,11 @@ func _is_inventory_open() -> bool:
 	if _hud == null or not _hud.has_method("is_inventory_open"):
 		return false
 	return _hud.is_inventory_open()
+
+
+func _is_build_menu_open() -> bool:
+	var bm: Node = _hud.get_node_or_null("BuildMenu") if _hud else null
+	return bm != null and bm.visible
 
 
 func _toggle_inventory_panel() -> void:

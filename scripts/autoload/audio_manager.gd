@@ -9,22 +9,27 @@ extends Node
 const SFX_DIR: String = "res://audio/sfx/"
 const AMBIENT_DIR: String = "res://audio/ambient/"
 const MUSIC_DIR: String = "res://audio/music/"
+const CONFIG_PATH: String = "user://settings.cfg"
 const DEFAULT_MASTER_VOLUME_DB: float = -15.0
+const MIN_VOLUME_LINEAR: float = 0.0001
 
 var _sfx_cache: Dictionary = {}   # name -> AudioStream
 var _ambient_cache: Dictionary = {}
 var _ambient_player: AudioStreamPlayer = null
 var _current_ambient: String = ""
 var _sfx_pool: Array[AudioStreamPlayer] = []
+var master_volume: float = 0.18
 const POOL_SIZE: int = 8
 
 func _ready() -> void:
 	_ensure_buses()
-	set_global_volume_db(DEFAULT_MASTER_VOLUME_DB)
+	load_settings()
+	set_master_volume(master_volume)
 	_build_sfx_pool()
 	_ambient_player = AudioStreamPlayer.new()
 	_ambient_player.bus = "Ambient"
 	_ambient_player.volume_db = 6.0
+	_ambient_player.finished.connect(_on_ambient_finished)
 	add_child(_ambient_player)
 	_scan_folder(SFX_DIR, _sfx_cache)
 	_scan_folder(AMBIENT_DIR, _ambient_cache)
@@ -34,6 +39,30 @@ func set_global_volume_db(volume_db: float) -> void:
 	if master_idx == -1:
 		return
 	AudioServer.set_bus_volume_db(master_idx, volume_db)
+
+func set_master_volume(volume: float) -> void:
+	master_volume = clampf(volume, 0.0, 1.0)
+	var master_idx: int = AudioServer.get_bus_index("Master")
+	if master_idx == -1:
+		return
+	AudioServer.set_bus_mute(master_idx, master_volume <= 0.0)
+	AudioServer.set_bus_volume_db(master_idx, linear_to_db(maxf(master_volume, MIN_VOLUME_LINEAR)))
+
+func get_master_volume() -> float:
+	return master_volume
+
+func load_settings() -> void:
+	master_volume = db_to_linear(DEFAULT_MASTER_VOLUME_DB)
+	var cfg := ConfigFile.new()
+	if cfg.load(CONFIG_PATH) != OK:
+		return
+	master_volume = cfg.get_value("audio", "master_volume", master_volume)
+
+func save_settings() -> void:
+	var cfg := ConfigFile.new()
+	cfg.load(CONFIG_PATH)
+	cfg.set_value("audio", "master_volume", master_volume)
+	cfg.save(CONFIG_PATH)
 
 func _ensure_buses() -> void:
 	var desired: Array[String] = ["SFX", "Ambient", "Music"]
@@ -85,16 +114,34 @@ func play_sfx(name: String, volume_db: float = 0.0, pitch: float = 1.0) -> void:
 	first.play()
 
 func play_ambient(name: String) -> void:
-	if _current_ambient == name:
+	if _current_ambient == name and _ambient_player.playing:
 		return
 	if not _ambient_cache.has(name):
 		_ambient_player.stop()
 		_current_ambient = ""
 		return
-	_ambient_player.stream = _ambient_cache[name]
+	var stream: AudioStream = _ambient_cache[name]
+	_configure_ambient_loop(stream)
+	_ambient_player.stream = stream
 	_ambient_player.play()
 	_current_ambient = name
 
 func stop_ambient() -> void:
 	_ambient_player.stop()
 	_current_ambient = ""
+
+func _configure_ambient_loop(stream: AudioStream) -> void:
+	if stream is AudioStreamWAV:
+		(stream as AudioStreamWAV).loop_mode = AudioStreamWAV.LOOP_FORWARD
+	elif stream is AudioStreamOggVorbis:
+		(stream as AudioStreamOggVorbis).loop = true
+	elif stream is AudioStreamMP3:
+		(stream as AudioStreamMP3).loop = true
+
+func _on_ambient_finished() -> void:
+	if _current_ambient.is_empty():
+		return
+	if not _ambient_cache.has(_current_ambient):
+		_current_ambient = ""
+		return
+	_ambient_player.play()

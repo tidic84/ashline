@@ -2,37 +2,37 @@ extends Node3D
 
 @onready var players_container: Node3D = $Players
 @onready var fps_controller: CharacterBody3D = $UP_FPSController_Prefab
+@onready var build_controller: Node = $BuildController
 
 var player_scene: PackedScene = preload("res://scenes/player/player.tscn")
 
 func _ready() -> void:
+	var spawn_origin: Vector3 = fps_controller.global_position
+	if multiplayer.has_multiplayer_peer():
+		_disable_solo_controller()
+
 	await get_tree().physics_frame
 	await get_tree().physics_frame
 
 	if multiplayer.has_multiplayer_peer():
-		_spawn_multiplayer_players()
-
-	# Generous starter stock for fast early progression.
-	Inventory.add_resource("wood", 800)
-	Inventory.add_resource("metal", 600)
-	Inventory.add_resource("components", 250)
-	Inventory.add_resource("fuel", 500)
-
-	# Extra raw materials for immediate crafting.
-	Inventory.add_item("branch", 180)
-	Inventory.add_item("log", 140)
-	Inventory.add_item("stone", 220)
-	Inventory.add_item("metal_scrap", 160)
-	Inventory.add_item("axe", 1)
-	Inventory.add_item("pickaxe", 1)
-	Inventory.add_item("hammer", 1)
-	Inventory.select_hotbar_item("hammer")
+		if multiplayer.is_server():
+			Inventory.setup_server_inventories(NetworkManager.players_info.keys())
+		_spawn_multiplayer_players(spawn_origin)
+	else:
+		Inventory.grant_starter_inventory()
 
 	GraphicsSettings.apply_all()
 	GameManager.start_game()
 
 
-func _spawn_multiplayer_players() -> void:
+func _disable_solo_controller() -> void:
+	if build_controller and is_instance_valid(build_controller):
+		build_controller.queue_free()
+	if fps_controller and is_instance_valid(fps_controller):
+		fps_controller.queue_free()
+
+
+func _spawn_multiplayer_players(base: Vector3) -> void:
 	var spawn_offsets: Array[Vector3] = [
 		Vector3(4, 0, 0),
 		Vector3(-4, 0, 0),
@@ -40,12 +40,12 @@ func _spawn_multiplayer_players() -> void:
 		Vector3(-4, 0, 3),
 	]
 	var idx: int = 0
-	var base: Vector3 = fps_controller.global_position
 	for peer_id in NetworkManager.players_info:
 		var player: Node3D = player_scene.instantiate()
-		player.name = str(peer_id)
+		player.name = "Player_%d" % int(peer_id)
 		player.set_multiplayer_authority(peer_id)
 		players_container.add_child(player)
+		WorldSync.register_entity(player, int(peer_id))
 		if idx < spawn_offsets.size():
 			player.global_position = base + spawn_offsets[idx]
 		idx += 1

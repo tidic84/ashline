@@ -24,7 +24,7 @@ func _enter_tree() -> void:
 		is_local = true
 	else:
 		var my_id := multiplayer.get_unique_id()
-		is_local = (str(my_id) == name)
+		is_local = name == str(my_id) or name == "Player_%d" % my_id
 
 func _ready() -> void:
 	add_to_group("player")
@@ -42,9 +42,11 @@ func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	GraphicsSettings.set_fov_on_camera(camera)
 	hud.settings_menu.closed.connect(func():
-		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		if GameManager.current_state == GameManager.GameState.PLAYING:
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		GraphicsSettings.set_fov_on_camera(camera)
 	)
+	GameManager.game_state_changed.connect(_on_game_state_changed)
 
 	# Connect build menu signals
 	hud.build_menu.item_selected.connect(_on_build_item_selected)
@@ -54,6 +56,35 @@ func _ready() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_local:
+		return
+
+	if event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			Inventory.cycle_hotbar(-1)
+			return
+		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			Inventory.cycle_hotbar(1)
+			return
+
+	if event is InputEventKey and event.pressed and not event.echo:
+		var hotbar_index := _hotbar_index_from_key(event.keycode)
+		if hotbar_index >= 0:
+			Inventory.select_hotbar_slot(hotbar_index)
+			return
+
+	if event.is_action_pressed("inventory"):
+		_toggle_inventory_panel()
+		return
+
+	if _is_inventory_open():
+		if event is InputEventKey and event.pressed and not event.echo:
+			match event.keycode:
+				KEY_LEFT, KEY_Q:
+					hud.select_previous_recipe()
+				KEY_RIGHT, KEY_D:
+					hud.select_next_recipe()
+				KEY_ENTER, KEY_KP_ENTER, KEY_F:
+					hud.craft_selected_recipe()
 		return
 
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
@@ -91,6 +122,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_try_interact()
 
 	if event.is_action_pressed("shoot"):
+		if _is_inventory_open():
+			return
 		if hud.build_menu.visible:
 			return
 		if BuildSystem.is_building:
@@ -233,6 +266,15 @@ func _find_build_target(node: Node) -> Node:
 		current = current.get_parent()
 	return null
 
+func _on_game_state_changed(new_state: int) -> void:
+	if new_state == GameManager.GameState.PAUSED:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif new_state == GameManager.GameState.PLAYING:
+		if hud.build_menu.visible or hud.settings_menu.visible:
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		else:
+			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
 func _get_build_point_on_target(target: Node) -> Variant:
 	var origin: Vector3 = build_ray.global_transform.origin
 	var dir: Vector3 = -build_ray.global_transform.basis.z
@@ -282,6 +324,29 @@ func _toggle_settings_menu() -> void:
 	else:
 		hud.settings_menu.open()
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+func _hotbar_index_from_key(keycode: Key) -> int:
+	match keycode:
+		KEY_1: return 0
+		KEY_2: return 1
+		KEY_3: return 2
+		KEY_4: return 3
+		KEY_5: return 4
+		KEY_6: return 5
+		KEY_7: return 6
+		KEY_8: return 7
+		KEY_9: return 8
+		_: return -1
+
+func _is_inventory_open() -> bool:
+	return hud != null and hud.has_method("is_inventory_open") and hud.is_inventory_open()
+
+func _toggle_inventory_panel() -> void:
+	if hud == null or not hud.has_method("toggle_inventory_panel"):
+		return
+	var open: bool = hud.toggle_inventory_panel()
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if open else Input.MOUSE_MODE_CAPTURED
+	BuildSystem.hide_preview()
 
 func _on_build_item_selected(buildable_id: String) -> void:
 	BuildSystem.select_buildable(buildable_id)
