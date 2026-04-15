@@ -1,3 +1,4 @@
+@tool
 extends Node3D
 class_name TerrainGenerator
 
@@ -26,19 +27,56 @@ enum SegmentType { GROUND, BRIDGE, TUNNEL }
 @export var tunnel_threshold: float = 3.5
 ## Optional explicit reference — if null, scans the "rail_path" group
 @export var rail_path_node: NodePath
+## If true, terrain and rails are generated automatically at _ready().
+## If false, call generate_terrain() or use the Rail Builder plugin button.
+@export var auto_generate: bool = false
+## Runtime keeps automatic generation so the game always has rails,
+## even if editor generation is manual.
+@export var auto_generate_in_game: bool = true
 
 var _terrain_patch: Node = null
 var _rail_curve: Curve3D = null
 var _rail_points: Array[Vector3] = []
 var _rail_types: Array[int] = []
+var _generated := false
 
 
 func _ready() -> void:
 	add_to_group("terrain")
 	await get_tree().process_frame
 	_find_terrain_patch()
-	if not _load_curve_from_rail_path():
+	if Engine.is_editor_hint():
+		if auto_generate:
+			generate_terrain()
+	elif auto_generate or auto_generate_in_game:
+		generate_terrain()
+
+
+## Public API: call this to generate terrain + rails on demand.
+func generate_terrain() -> void:
+	if not _load_curve_from_rail_path(true):
 		push_warning("TerrainGenerator: no valid RailPath found — rails disabled")
+	else:
+		_generated = true
+		print("[TerrainGenerator] Terrain and rails generated successfully.")
+
+
+## Public API: rebuild only rail meshes without re-sculpting terrain.
+func rebuild_rail_meshes() -> void:
+	if not _load_curve_from_rail_path(false, false):
+		push_warning("TerrainGenerator: no valid RailPath found — unable to rebuild rails")
+		return
+	# Remove old rails
+	var old_rails := get_node_or_null("Rails")
+	if old_rails:
+		old_rails.queue_free()
+		await get_tree().process_frame
+	var old_path := get_node_or_null("RailPath")
+	if old_path:
+		old_path.queue_free()
+		await get_tree().process_frame
+	_build_rail_meshes()
+	print("[TerrainGenerator] Rail meshes rebuilt.")
 
 
 func _find_terrain_patch() -> void:
@@ -51,7 +89,7 @@ func _find_terrain_patch() -> void:
 			return
 
 
-func _load_curve_from_rail_path() -> bool:
+func _load_curve_from_rail_path(sculpt_terrain: bool = true, rebuild_meshes: bool = true) -> bool:
 	var node: Node = null
 	if not rail_path_node.is_empty():
 		node = get_node_or_null(rail_path_node)
@@ -81,12 +119,13 @@ func _load_curve_from_rail_path() -> bool:
 		t += 1.0
 	if _rail_points.size() == 0 or _rail_points[-1] != _rail_curve.sample_baked(total_len):
 		_rail_points.append(_rail_curve.sample_baked(total_len))
-	if _terrain_patch and _terrain_patch.has_method("sculpt_terrain_for_rails"):
+	if sculpt_terrain and _terrain_patch and _terrain_patch.has_method("sculpt_terrain_for_rails"):
 		_terrain_patch.sculpt_terrain_for_rails(
 			_rail_points, roadbed_half_width, roadbed_blend_width, ground_offset
 		)
 	_classify_segments_from_curve()
-	_build_rail_meshes()
+	if rebuild_meshes:
+		_build_rail_meshes()
 	return true
 
 

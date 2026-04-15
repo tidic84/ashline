@@ -143,6 +143,10 @@ func _try_path_transition(at_end: int, overflow: float) -> bool:
 		rail_progress = overflow
 	else:
 		rail_progress = next_total - overflow
+		# Entering from the far end: flip speed so the train continues
+		# traveling in the correct direction along this new curve.
+		speed = -speed
+		speed_changed.emit(speed)
 	rail_progress = clampf(rail_progress, 0.0, next_total)
 	rail_curve = world_curve
 	current_rail_path = next_path

@@ -23,10 +23,10 @@ var _connected_noise: FastNoiseLite
 var _noise_changed_callable := Callable(self, "_on_noise_changed")
 var _grass_dirty := true
 
-# Rail sculpting data — set by TerrainGenerator or editor scan
-var _rail_sculpt_points: PackedVector3Array = PackedVector3Array()  # local-space
-var _rail_sculpt_half_width: float = 2.5
-var _rail_sculpt_blend_width: float = 3.5
+# Rail sculpting data — persisted so manual terrain generation survives scene reloads.
+@export_storage var _rail_sculpt_points: PackedVector3Array = PackedVector3Array()  # local-space
+@export_storage var _rail_sculpt_half_width: float = 2.5
+@export_storage var _rail_sculpt_blend_width: float = 3.5
 var _editor_rail_signature: String = ""
 var _editor_rail_check_msec: int = 0
 var _grass_last_camera_local := Vector3.INF
@@ -203,6 +203,8 @@ var _grass_mask_cache_key := ""
         if value:
             _queue_regenerate()
 
+@export var editor_follow_rail_changes := false
+
 @export_tool_button("Regenerate")
 var regenerate_button := regenerate
 
@@ -244,7 +246,8 @@ func _process(_delta: float) -> void:
             if not _regenerate_queued:
                 _regenerate_queued = true
                 call_deferred("_deferred_regenerate")
-        _editor_check_rail_changes()
+        if editor_follow_rail_changes:
+            _editor_check_rail_changes()
     _flush_grass_build_if_ready()
     _update_grass_if_needed()
 
@@ -273,7 +276,7 @@ func _deferred_regenerate() -> void:
     _regenerate_queued = false
     if not is_inside_tree():
         return
-    if Engine.is_editor_hint():
+    if Engine.is_editor_hint() and (editor_follow_rail_changes or _rail_sculpt_points.is_empty()):
         scan_rail_paths_for_sculpt()
     _generate()
 
