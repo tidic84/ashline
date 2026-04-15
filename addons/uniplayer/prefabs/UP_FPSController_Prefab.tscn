@@ -21,6 +21,7 @@ height = 1.68
 [node name="UP_FPSController_Prefab" type="CharacterBody3D"]
 wall_min_slide_angle = 0.0698132
 floor_max_angle = 1.0472
+collision_mask = 25
 script = ExtResource("1_0mtdh")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]

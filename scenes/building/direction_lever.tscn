@@ -5,7 +5,7 @@
 [ext_resource type="PackedScene" uid="uid://bs7xj8o0fwx3k" path="res://assets/models/train/Levier_Orientation.glb" id="3"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_lever"]
-size = Vector3(0.6, 1, 0.4)
+size = Vector3(1.1067139, 1.3618164, 0.5989502)
 
 [node name="DirectionLever" type="StaticBody3D" unique_id=2074153438]
 transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0, 0)
@@ -23,5 +23,5 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.7068661, -0.31115007, -0.10040355)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=546881739]
-transform = Transform3D(1.0975, 0, 0, 0, 0.9375, 0, 0, 0, 0.8225, 0.018237352, 1.0015936, 0)
+transform = Transform3D(1.0975, 0, 0, 0, 0.9375, 0, 0, 0, 0.8225, 0.016589474, 0.83199215, 0.06252083)
 shape = SubResource("BoxShape3D_lever")

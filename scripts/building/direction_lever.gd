@@ -32,6 +32,7 @@ func interact(_player: CharacterBody3D) -> void:
 		current_dir = _target.travel_direction
 	var new_dir: float = -current_dir
 	_target.set_direction(new_dir)
+	AudioManager.play_sfx("levier_activation", 0.0, randf_range(0.95, 1.05))
 	AudioManager.play_sfx("lever", 0.0, randf_range(0.95, 1.05))
 	_animate_switch(new_dir)
 	await get_tree().create_timer(switch_cooldown).timeout
