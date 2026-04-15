@@ -63,19 +63,15 @@ func generate_terrain() -> void:
 
 ## Public API: rebuild only rail meshes without re-sculpting terrain.
 func rebuild_rail_meshes() -> void:
-	if not _load_curve_from_rail_path(false, false):
+	# Remove all previously generated rail nodes (supports both old and new naming)
+	for child in get_children():
+		if child.name == "Rails" or child.name == "RailPath" \
+				or child.name.begins_with("Rails_") or child.name.begins_with("RailPath_"):
+			child.queue_free()
+	await get_tree().process_frame
+	if not _load_curve_from_rail_path(false, true):
 		push_warning("TerrainGenerator: no valid RailPath found — unable to rebuild rails")
 		return
-	# Remove old rails
-	var old_rails := get_node_or_null("Rails")
-	if old_rails:
-		old_rails.queue_free()
-		await get_tree().process_frame
-	var old_path := get_node_or_null("RailPath")
-	if old_path:
-		old_path.queue_free()
-		await get_tree().process_frame
-	_build_rail_meshes()
 	print("[TerrainGenerator] Rail meshes rebuilt.")
 
 
@@ -90,18 +86,30 @@ func _find_terrain_patch() -> void:
 
 
 func _load_curve_from_rail_path(sculpt_terrain: bool = true, rebuild_meshes: bool = true) -> bool:
-	var node: Node = null
+	var paths_to_process: Array[Path3D] = []
+
 	if not rail_path_node.is_empty():
-		node = get_node_or_null(rail_path_node)
-	if node == null:
-		var candidates := get_tree().get_nodes_in_group("rail_path")
-		if candidates.size() > 0:
-			node = candidates[0]
-	if node == null or not (node is Path3D):
+		var node := get_node_or_null(rail_path_node)
+		if node is Path3D:
+			paths_to_process.append(node as Path3D)
+	else:
+		for candidate in get_tree().get_nodes_in_group("rail_path"):
+			if candidate is Path3D:
+				paths_to_process.append(candidate as Path3D)
+
+	if paths_to_process.is_empty():
 		return false
-	var path: Path3D = node
+
+	var any_success := false
+	for i in paths_to_process.size():
+		if _process_one_rail_path(paths_to_process[i], sculpt_terrain, rebuild_meshes, i):
+			any_success = true
+	return any_success
+
+
+func _process_one_rail_path(path: Path3D, sculpt_terrain: bool, rebuild_meshes: bool, idx: int) -> bool:
 	if path.curve == null or path.curve.point_count < 2:
-		push_warning("RailPath found but curve is empty")
+		push_warning("RailPath '%s' has empty curve — skipped" % path.name)
 		return false
 	var world_curve := Curve3D.new()
 	world_curve.bake_interval = maxf(path.curve.bake_interval, 0.05)
@@ -125,7 +133,7 @@ func _load_curve_from_rail_path(sculpt_terrain: bool = true, rebuild_meshes: boo
 		)
 	_classify_segments_from_curve()
 	if rebuild_meshes:
-		_build_rail_meshes()
+		_build_rail_meshes(idx)
 	return true
 
 
@@ -239,19 +247,19 @@ func _pitch_of_vector(v: Vector3) -> float:
 
 var _rail_section_scene: PackedScene = null
 
-func _build_rail_meshes() -> void:
+func _build_rail_meshes(idx: int = 0) -> void:
 	if _rail_curve == null or _rail_curve.point_count < 2:
 		return
 
 	var path := Path3D.new()
-	path.name = "RailPath"
+	path.name = "RailPath_%d" % idx
 	path.curve = _rail_curve
 	add_child(path)
 
 	var total_len: float = _rail_curve.get_baked_length()
 
 	var rail_container := Node3D.new()
-	rail_container.name = "Rails"
+	rail_container.name = "Rails_%d" % idx
 	add_child(rail_container)
 
 	# Try tiled rail sections from glb asset, fall back to procedural strips
@@ -405,7 +413,7 @@ func _build_deformed_rail_section_mesh(total_len: float, section_scene: PackedSc
 	var src_aabb: AABB = _transform_aabb(src_mesh.get_aabb(), src_xf)
 	var tile_len: float = maxf(src_aabb.size.x, 0.05)
 	var x_min: float = src_aabb.position.x
-	var tile_count: int = int(floor(total_len / tile_len))
+	var tile_count: int = int(ceil(total_len / tile_len))
 	if tile_count <= 0:
 		tile_count = 1
 

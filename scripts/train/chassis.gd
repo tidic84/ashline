@@ -29,6 +29,7 @@ var rail_progress: float = 0.0
 var current_rail_path: Node = null  # RailPath node we're currently on
 
 var _basis_scale: Vector3 = Vector3.ONE  # preserved from tscn
+var _just_transitioned: bool = false  # skip velocity spike on path transition
 
 func _ready() -> void:
 	_basis_scale = basis.get_scale()
@@ -102,9 +103,21 @@ func _physics_process(delta: float) -> void:
 	else:
 		global_position.z += ds
 
-	# Platform velocity from actual displacement so it matches curves
-	var actual_vel: Vector3 = (global_position - old_pos) / delta
-	_set_platform_velocity(actual_vel)
+	# Platform velocity — use curve tangent on transition frame to avoid spike
+	if _just_transitioned:
+		_just_transitioned = false
+		var total_t: float = rail_curve.get_baked_length()
+		var ahead_t: float = minf(rail_progress + 1.0, total_t)
+		var behind_t: float = maxf(rail_progress - 1.0, 0.0)
+		var fwd_t: Vector3 = rail_curve.sample_baked(ahead_t) - rail_curve.sample_baked(behind_t)
+		if fwd_t.length_squared() > 0.0001:
+			fwd_t = fwd_t.normalized()
+		else:
+			fwd_t = Vector3.FORWARD
+		_set_platform_velocity(fwd_t * speed)
+	else:
+		var actual_vel: Vector3 = (global_position - old_pos) / delta
+		_set_platform_velocity(actual_vel)
 
 func pump() -> void:
 	if not is_on_rails:
@@ -131,25 +144,24 @@ func _try_path_transition(at_end: int, overflow: float) -> bool:
 	var next_curve: Curve3D = next_path.get_rail_curve()
 	if next_curve == null or next_curve.get_baked_length() < 0.1:
 		return false
-	# Build a world-space curve for the next path (same as terrain_generator does)
 	var world_curve := _build_world_curve(next_path)
 	if world_curve == null:
 		return false
 	var next_total: float = world_curve.get_baked_length()
 	var target_end: int = route.end
-	# If we connect to the target's start (end=0), we enter from offset 0 moving forward.
-	# If we connect to the target's end (end=1), we enter from the end moving backward.
 	if target_end == 0:
 		rail_progress = overflow
 	else:
 		rail_progress = next_total - overflow
-		# Entering from the far end: flip speed so the train continues
-		# traveling in the correct direction along this new curve.
+	# Flip speed when connecting same-side endpoints (start→start or end→end)
+	# so the train continues in the same real-world direction.
+	if at_end == target_end:
 		speed = -speed
 		speed_changed.emit(speed)
 	rail_progress = clampf(rail_progress, 0.0, next_total)
 	rail_curve = world_curve
 	current_rail_path = next_path
+	_just_transitioned = true
 	return true
 
 

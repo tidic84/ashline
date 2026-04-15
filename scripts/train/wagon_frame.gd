@@ -143,9 +143,21 @@ func _physics_process(delta: float) -> void:
 	rear_bogie.rail_progress = rear_progress
 	rear_bogie.current_rail_path = front_bogie.current_rail_path
 
-	# Platform velocity from actual displacement
-	var actual_vel: Vector3 = (global_position - old_pos) / delta
-	_set_platform_velocity(actual_vel)
+	# Platform velocity — use curve tangent on transition frame to avoid spike
+	if front_bogie._just_transitioned:
+		front_bogie._just_transitioned = false
+		var total_t: float = curve.get_baked_length()
+		var ahead_t: float = minf(front_bogie.rail_progress + 1.0, total_t)
+		var behind_t: float = maxf(front_bogie.rail_progress - 1.0, 0.0)
+		var fwd_t: Vector3 = curve.sample_baked(ahead_t) - curve.sample_baked(behind_t)
+		if fwd_t.length_squared() > 0.0001:
+			fwd_t = fwd_t.normalized()
+		else:
+			fwd_t = Vector3.FORWARD
+		_set_platform_velocity(fwd_t * front_bogie.speed)
+	else:
+		var actual_vel: Vector3 = (global_position - old_pos) / delta
+		_set_platform_velocity(actual_vel)
 
 
 func _orient_bogie(bogie: TrainChassis, progress: float, curve: Curve3D, total: float, delta: float) -> void:

@@ -18,6 +18,8 @@ var rail_path: Path3D = null
 var path_progress: float = 0.0
 var is_moving: bool = false
 var train_container: Node3D = null
+# 1 = forward (toward end), -1 = backward (toward start)
+var _direction: int = 1
 
 func _ready() -> void:
 	pass
@@ -26,7 +28,59 @@ func _physics_process(delta: float) -> void:
 	if not is_moving or rail_path == null:
 		return
 	path_progress += train_speed * delta
+	_check_junction()
 	_update_train_positions()
+
+func _check_junction() -> void:
+	if rail_path == null or rail_path.curve == null:
+		return
+	var length := rail_path.curve.get_baked_length()
+	if length == 0.0:
+		return
+
+	if path_progress >= length:
+		# Reached end (endpoint 1)
+		var route := RailNetwork.get_active_route(rail_path, 1)
+		if route.is_empty():
+			path_progress = length
+			stop_train()
+			return
+		var next_path: Path3D = route.path
+		var next_length := next_path.curve.get_baked_length() if next_path.curve else 0.0
+		var overflow := path_progress - length
+		rail_path = next_path
+		if route.end == 1:
+			# Enter next path from its end — reverse
+			path_progress = next_length - overflow
+			train_speed = -abs(train_speed)
+			_direction = -1
+		else:
+			# Enter next path from its start — continue forward
+			path_progress = overflow
+			train_speed = abs(train_speed)
+			_direction = 1
+
+	elif path_progress < 0.0:
+		# Reached start (endpoint 0)
+		var route := RailNetwork.get_active_route(rail_path, 0)
+		if route.is_empty():
+			path_progress = 0.0
+			stop_train()
+			return
+		var next_path: Path3D = route.path
+		var next_length := next_path.curve.get_baked_length() if next_path.curve else 0.0
+		var overflow := -path_progress
+		rail_path = next_path
+		if route.end == 0:
+			# Enter next path from its start — reverse (now going forward)
+			path_progress = overflow
+			train_speed = abs(train_speed)
+			_direction = 1
+		else:
+			# Enter next path from its end — continue backward
+			path_progress = next_length - overflow
+			train_speed = -abs(train_speed)
+			_direction = -1
 
 func set_rail_path(path: Path3D) -> void:
 	rail_path = path
@@ -37,7 +91,7 @@ func register_locomotive(loco: Node3D, container: Node3D) -> void:
 
 func start_train() -> void:
 	is_moving = true
-	train_speed = max_speed
+	train_speed = max_speed * _direction
 	train_speed_changed.emit(train_speed)
 	train_started.emit()
 

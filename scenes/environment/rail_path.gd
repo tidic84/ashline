@@ -89,6 +89,21 @@ const RAIL_SECTION_SCENE_PATH := "res://assets/models/rails/rail_section.glb"
 @export var connections_at_start: Array[NodePath] = []
 ## Paths connected at the END of this rail (last point).
 @export var connections_at_end: Array[NodePath] = []
+## Max distance (meters) to auto-detect and snap nearby endpoints.
+@export_range(0.5, 20.0, 0.5) var auto_connect_radius: float = 5.0
+## Scan all RailPaths and connect this path's endpoints within radius.
+## Snaps endpoints to match the neighbor exactly so meshes join visually.
+@export var action_auto_connect: bool = false:
+	set(value):
+		if value:
+			_auto_connect_endpoints()
+		action_auto_connect = false
+## Run auto-connect on ALL RailPaths in the scene (batch operation).
+@export var action_auto_connect_all: bool = false:
+	set(value):
+		if value:
+			_auto_connect_all_paths()
+		action_auto_connect_all = false
 
 @export_group("Preview")
 @export var preview_enabled: bool = true
@@ -231,6 +246,146 @@ func _closest_end_of(other: RailPath, world_pos: Vector3) -> int:
 	return 0 if start_dist < end_dist else 1
 
 
+func _auto_connect_endpoints() -> void:
+	if curve == null or curve.point_count < 2:
+		push_warning("[RailPath] Need at least 2 points to auto-connect")
+		return
+	var tree := get_tree()
+	if tree == null:
+		return
+	var others: Array[RailPath] = []
+	for node in tree.get_nodes_in_group("rail_path"):
+		if node is RailPath and node != self:
+			others.append(node as RailPath)
+	if others.is_empty():
+		push_warning("[RailPath] No other RailPaths found to connect to")
+		return
+
+	var radius_sq := auto_connect_radius * auto_connect_radius
+	var my_start := _get_start_world()
+	var my_end := _get_end_world()
+	var found_start := 0
+	var found_end := 0
+
+	connections_at_start.clear()
+	connections_at_end.clear()
+
+	for other in others:
+		if other.curve == null or other.curve.point_count < 2:
+			continue
+		var other_start := other._get_start_world()
+		var other_end := other._get_end_world()
+
+		# Check MY START against other's endpoints
+		var dist_to_other_start := my_start.distance_squared_to(other_start)
+		var dist_to_other_end := my_start.distance_squared_to(other_end)
+		if dist_to_other_start < radius_sq or dist_to_other_end < radius_sq:
+			var closer_end: int
+			var snap_target: Vector3
+			if dist_to_other_start < dist_to_other_end:
+				closer_end = 0
+				snap_target = other_start
+			else:
+				closer_end = 1
+				snap_target = other_end
+			# Snap my start point to match neighbor exactly
+			curve.set_point_position(0, to_local(snap_target))
+			my_start = snap_target
+			var np := get_path_to(other)
+			if np not in connections_at_start:
+				connections_at_start.append(np)
+			found_start += 1
+			# Align tangent at my start toward neighbor's direction
+			_align_tangent_at_junction(0, other, closer_end)
+
+		# Check MY END against other's endpoints
+		var last_idx := curve.point_count - 1
+		var dist_end_to_other_start := my_end.distance_squared_to(other_start)
+		var dist_end_to_other_end := my_end.distance_squared_to(other_end)
+		if dist_end_to_other_start < radius_sq or dist_end_to_other_end < radius_sq:
+			var closer_end: int
+			var snap_target: Vector3
+			if dist_end_to_other_start < dist_end_to_other_end:
+				closer_end = 0
+				snap_target = other_start
+			else:
+				closer_end = 1
+				snap_target = other_end
+			# Snap my end point to match neighbor exactly
+			curve.set_point_position(last_idx, to_local(snap_target))
+			my_end = snap_target
+			var np := get_path_to(other)
+			if np not in connections_at_end:
+				connections_at_end.append(np)
+			found_end += 1
+			_align_tangent_at_junction(last_idx, other, closer_end)
+
+	_preview_signature = ""
+	notify_property_list_changed()
+	print("[RailPath] Auto-connect: %d at start, %d at end (radius=%.1fm)" % [found_start, found_end, auto_connect_radius])
+
+
+func _auto_connect_all_paths() -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	var all_paths: Array[RailPath] = []
+	for node in tree.get_nodes_in_group("rail_path"):
+		if node is RailPath:
+			all_paths.append(node as RailPath)
+	print("[RailPath] Auto-connect ALL: processing %d paths..." % all_paths.size())
+	for path in all_paths:
+		path._auto_connect_endpoints()
+	print("[RailPath] Auto-connect ALL: done.")
+
+
+func _align_tangent_at_junction(my_point_idx: int, other: RailPath, other_end: int) -> void:
+	## Make tangent at junction smooth so rail meshes join visually.
+	## Points the tangent toward the other path's interior direction.
+	if other.curve == null or other.curve.point_count < 2:
+		return
+	var other_curve := other.curve
+	var other_idx: int
+	var other_interior_idx: int
+	if other_end == 0:
+		other_idx = 0
+		other_interior_idx = 1
+	else:
+		other_idx = other_curve.point_count - 1
+		other_interior_idx = other_curve.point_count - 2
+	# Direction from junction toward other path's interior (in world space)
+	var junction_world := other.to_global(other_curve.get_point_position(other_idx))
+	var interior_world := other.to_global(other_curve.get_point_position(other_interior_idx))
+	var other_dir := (interior_world - junction_world).normalized()
+
+	# My interior direction
+	var my_pos := curve.get_point_position(my_point_idx)
+	var my_interior_idx: int
+	if my_point_idx == 0:
+		my_interior_idx = 1
+	else:
+		my_interior_idx = curve.point_count - 2
+	var my_interior_world := to_global(curve.get_point_position(my_interior_idx))
+	var my_junction_world := to_global(my_pos)
+	var my_dir := (my_interior_world - my_junction_world).normalized()
+
+	# Tangent length = fraction of distance to interior point
+	var tangent_len := my_junction_world.distance_to(my_interior_world) * 0.3
+	tangent_len = clampf(tangent_len, 1.0, smooth_length)
+
+	# Set tangent pointing toward my interior (in local space)
+	var tangent_local := to_local(my_junction_world + my_dir * tangent_len) - my_pos
+	if my_point_idx == 0:
+		curve.set_point_out(0, tangent_local)
+		# in-tangent points toward the connected path
+		var in_local := to_local(my_junction_world + other_dir * tangent_len) - my_pos
+		curve.set_point_in(0, in_local)
+	else:
+		curve.set_point_in(my_point_idx, -tangent_local)
+		var out_local := to_local(my_junction_world + other_dir * tangent_len) - my_pos
+		curve.set_point_out(my_point_idx, out_local)
+
+
 func _build_point_positions_hash() -> String:
 	if curve == null:
 		return ""
@@ -268,11 +423,16 @@ func _apply_smoothing() -> void:
 		seg_lens.append(seg.length())
 		seg_dirs.append(seg.normalized() if seg.length() > 0.001 else Vector3.FORWARD)
 
-	# First and last points: zero tangents (track starts/ends straight)
-	curve.set_point_in(0, Vector3.ZERO)
-	curve.set_point_out(0, Vector3.ZERO)
-	curve.set_point_in(n - 1, Vector3.ZERO)
-	curve.set_point_out(n - 1, Vector3.ZERO)
+	# First and last points: zero tangents unless connected to another path
+	# (connections set tangents for visual continuity at junctions)
+	var start_connected := connections_at_start.size() > 0
+	var end_connected := connections_at_end.size() > 0
+	if not start_connected:
+		curve.set_point_in(0, Vector3.ZERO)
+		curve.set_point_out(0, Vector3.ZERO)
+	if not end_connected:
+		curve.set_point_in(n - 1, Vector3.ZERO)
+		curve.set_point_out(n - 1, Vector3.ZERO)
 
 	# For interior points, compute smooth tangents
 	for i in range(1, n - 1):
@@ -951,7 +1111,7 @@ func _build_preview_deformed_section_mesh(world_curve: Curve3D, total_len: float
 	var src_aabb: AABB = _transform_aabb(src_mesh.get_aabb(), src_xf)
 	var tile_len: float = maxf(src_aabb.size.x, 0.05)
 	var x_min: float = src_aabb.position.x
-	var tile_count: int = int(floor(total_len / tile_len))
+	var tile_count: int = int(ceil(total_len / tile_len))
 	if tile_count <= 0:
 		tile_count = 1
 
