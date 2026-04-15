@@ -76,7 +76,7 @@ func _on_join_pressed() -> void:
 func _on_start_pressed() -> void:
 	if not NetworkManager.is_host():
 		return
-	NetworkManager.start_game.rpc()
+	NetworkManager.host_start_game()
 
 func _on_server_started() -> void:
 	_set_status("Server running. Waiting for players...")

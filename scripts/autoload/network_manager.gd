@@ -89,7 +89,17 @@ func _check_all_ready() -> void:
 		if not players_info[id].ready:
 			return
 	# All ready - start game
-	start_game.rpc()
+	host_start_game()
+
+func host_start_game() -> void:
+	if not multiplayer.is_server():
+		return
+	for id in players_info:
+		var peer_id := int(id)
+		if peer_id == 1:
+			continue
+		start_game.rpc_id(peer_id)
+	start_game()
 
 @rpc("authority", "call_local", "reliable")
 func start_game() -> void:
