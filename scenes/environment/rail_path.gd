@@ -196,14 +196,21 @@ func _register_connections() -> void:
 	for np in connections_at_start:
 		var node := get_node_or_null(np)
 		if node is RailPath:
-			# Determine which end of the target is closest to our start
-			var target_end := _closest_end_of(node as RailPath, _get_start_world())
-			RailNetwork.add_connection(self, 0, node, target_end)
+			if node == self:
+				# Self-loop: start connects to own end
+				RailNetwork.add_connection(self, 0, self, 1)
+			else:
+				var target_end := _closest_end_of(node as RailPath, _get_start_world())
+				RailNetwork.add_connection(self, 0, node, target_end)
 	for np in connections_at_end:
 		var node := get_node_or_null(np)
 		if node is RailPath:
-			var target_end := _closest_end_of(node as RailPath, _get_end_world())
-			RailNetwork.add_connection(self, 1, node, target_end)
+			if node == self:
+				# Self-loop: end connects to own start
+				RailNetwork.add_connection(self, 1, self, 0)
+			else:
+				var target_end := _closest_end_of(node as RailPath, _get_end_world())
+				RailNetwork.add_connection(self, 1, node, target_end)
 
 
 func _get_start_world() -> Vector3:
