@@ -1,9 +1,7 @@
-[gd_scene load_steps=6 format=3 uid="uid://player001"]
+[gd_scene load_steps=4 format=3 uid="uid://player001"]
 
 [ext_resource type="Script" path="res://scripts/player/player_controller.gd" id="1"]
-[ext_resource type="Script" path="res://scripts/ui/hud.gd" id="hud_script"]
-[ext_resource type="PackedScene" path="res://scenes/ui/build_menu.tscn" id="build_menu"]
-[ext_resource type="PackedScene" path="res://scenes/ui/settings_menu.tscn" id="settings_menu"]
+[ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="hud_scene"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_001"]
 radius = 0.35
@@ -45,125 +43,7 @@ collision_mask = 9
 [node name="WeaponHolder" type="Node3D" parent="Head/Camera3D"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.3, -0.3, -0.5)
 
-[node name="HUD" type="Control" parent="."]
-layout_mode = 3
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-script = ExtResource("hud_script")
-
-[node name="ResourcePanel" type="PanelContainer" parent="HUD"]
-layout_mode = 1
-anchors_preset = 10
-anchor_right = 1.0
-offset_bottom = 40.0
-grow_horizontal = 2
-mouse_filter = 2
-
-[node name="ResourceLabel" type="Label" parent="HUD/ResourcePanel"]
-layout_mode = 2
-horizontal_alignment = 1
-mouse_filter = 2
-text = "Wood: 0  |  Metal: 0  |  Parts: 0  |  Fuel: 0"
-
-[node name="BuildPanel" type="PanelContainer" parent="HUD"]
-layout_mode = 1
-anchors_preset = 7
-anchor_left = 0.5
-anchor_top = 1.0
-anchor_right = 0.5
-anchor_bottom = 1.0
-offset_left = -200.0
-offset_top = -80.0
-offset_right = 200.0
-grow_horizontal = 2
-grow_vertical = 0
-mouse_filter = 2
-
-[node name="BuildLabel" type="Label" parent="HUD/BuildPanel"]
-layout_mode = 2
-horizontal_alignment = 1
-mouse_filter = 2
-text = "[B] Build Mode"
-
-[node name="Crosshair" type="ColorRect" parent="HUD"]
-layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -2.0
-offset_top = -2.0
-offset_right = 2.0
-offset_bottom = 2.0
-grow_horizontal = 2
-grow_vertical = 2
-mouse_filter = 2
-color = Color(1, 1, 1, 1)
-
-[node name="SpeedLabel" type="Label" parent="HUD"]
-layout_mode = 1
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -180.0
-offset_top = 50.0
-offset_right = -10.0
-offset_bottom = 80.0
-grow_horizontal = 0
-horizontal_alignment = 2
-mouse_filter = 2
-text = "0.0 m/s"
-
-[node name="DistanceLabel" type="Label" parent="HUD"]
-layout_mode = 1
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -180.0
-offset_top = 80.0
-offset_right = -10.0
-offset_bottom = 110.0
-grow_horizontal = 0
-horizontal_alignment = 2
-mouse_filter = 2
-text = "0 m"
-
-[node name="TimeLabel" type="Label" parent="HUD"]
-layout_mode = 1
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -180.0
-offset_top = 110.0
-offset_right = -10.0
-offset_bottom = 140.0
-grow_horizontal = 0
-horizontal_alignment = 2
-mouse_filter = 2
-text = "Day"
-
-[node name="InteractHint" type="Label" parent="HUD"]
-layout_mode = 1
-anchors_preset = 7
-anchor_left = 0.5
-anchor_top = 1.0
-anchor_right = 0.5
-anchor_bottom = 1.0
-offset_left = -150.0
-offset_top = -120.0
-offset_right = 150.0
-offset_bottom = -100.0
-grow_horizontal = 2
-grow_vertical = 0
-horizontal_alignment = 1
-mouse_filter = 2
-text = "[E] Interact"
-
-[node name="BuildMenu" parent="HUD" instance=ExtResource("build_menu")]
-
-[node name="SettingsMenu" parent="HUD" instance=ExtResource("settings_menu")]
+[node name="HUD" parent="." instance=ExtResource("hud_scene")]
 
 [node name="MultiplayerSynchronizer" type="MultiplayerSynchronizer" parent="."]
 replication_config = SubResource("SceneReplicationConfig_001")
