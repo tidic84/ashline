@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="BuildableData" load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/building/placeable_wall_yellow.tscn" id="1"]
+[ext_resource type="Script" path="res://scripts/building/buildable_data.gd" id="2"]
+
+[resource]
+script = ExtResource("2")
+id = "placeable_wall_yellow"
+display_name = "Yellow Wall"
+description = "A solid yellow wall that snaps to floor edges."
+scene = ExtResource("1")
+category = 0
+health = 100.0
+build_weight = 2
+cost = { "metal": 4 }
+can_rotate = true
