@@ -34,6 +34,7 @@ var current_rail_path: Node = null  # RailPath node we're currently on
 
 var _basis_scale: Vector3 = Vector3.ONE  # preserved from tscn
 var _just_transitioned: bool = false  # skip velocity spike on path transition
+var _last_transition_target_end: int = -1  # which end of the next path we entered (0=start, 1=end)
 
 func _ready() -> void:
 	_basis_scale = basis.get_scale()
@@ -153,6 +154,7 @@ func _try_path_transition(at_end: int, overflow: float) -> bool:
 		return false
 	var next_total: float = world_curve.get_baked_length()
 	var target_end: int = route.end
+	_last_transition_target_end = target_end
 	if target_end == 0:
 		rail_progress = overflow
 	else:

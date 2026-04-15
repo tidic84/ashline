@@ -381,7 +381,10 @@ func _align_tangent_at_junction(my_point_idx: int, other: RailPath, other_end: i
 		var in_local := to_local(my_junction_world + other_dir * tangent_len) - my_pos
 		curve.set_point_in(0, in_local)
 	else:
-		curve.set_point_in(my_point_idx, -tangent_local)
+		# in-tangent must point toward the interior so the Bézier control
+		# point stays on the approach side of the junction (same convention
+		# as _apply_smoothing: in = -dir_before * len, i.e. toward prev point).
+		curve.set_point_in(my_point_idx, tangent_local)
 		var out_local := to_local(my_junction_world + other_dir * tangent_len) - my_pos
 		curve.set_point_out(my_point_idx, out_local)
 
@@ -1139,10 +1142,17 @@ func _build_preview_deformed_section_mesh(world_curve: Curve3D, total_len: float
 
 		for tile in range(tile_count):
 			var base_arc: float = float(tile) * tile_len
+			# Scale the last (partial) tile along X so its end exactly meets
+			# total_len. Without this, clamping end-side vertices to total_len
+			# collapses them to a single point and pinches the mesh.
+			var this_tile_len: float = minf(tile_len, total_len - base_arc)
+			if this_tile_len < 0.001:
+				continue
+			var x_scale: float = this_tile_len / tile_len
 			var base_idx: int = out_verts.size()
 			for i in range(vc):
 				var v_local: Vector3 = src_xf * src_verts[i]
-				var along: float = base_arc + (v_local.x - x_min)
+				var along: float = base_arc + (v_local.x - x_min) * x_scale
 				along = clampf(along, 0.0, total_len)
 				var lateral: float = -v_local.z
 				var vertical: float = v_local.y

@@ -27,6 +27,19 @@ var _frame_visuals: Array[Node3D] = []
 var _build_surface: StaticBody3D = null
 var _floor_bodies: Array[StaticBody3D] = []
 
+# Split-path transition: rear bogie stays on old curve while front is on new curve
+var _split_mode: bool = false
+var _rear_old_curve: Curve3D = null
+var _rear_old_total: float = 0.0
+var _rear_old_rail_path: Node = null
+var _junction_at_old_end: bool = true  # true = junction was at old curve's end
+# Persistent direction flag for the current curve. True = front entered at
+# rail_progress=0 (forward travel increases progress). False = front entered
+# at rail_progress=total (forward travel decreases progress). Used so the
+# rear bogie sits at the correct side of the front bogie on any curve, even
+# after same-side junction transitions where the curve is traversed backward.
+var _front_entered_at_start: bool = true
+
 
 func _ready() -> void:
 	if get_meta("is_preview", false):
@@ -82,41 +95,101 @@ func _physics_process(delta: float) -> void:
 
 	# Advance front bogie progress
 	var raw_progress: float = front_bogie.rail_progress + ds
-	if raw_progress < spacing or raw_progress > total:
-		# Try path transition at boundary
-		var at_end: int = 0 if raw_progress < spacing else 1
+	# Bounds depend on direction flag: if front entered at start, rear sits
+	# at front_progress - spacing, so we need front_progress >= spacing.
+	# If front entered at end, rear sits at front_progress + spacing, so we
+	# need front_progress <= total - spacing.  In split mode the rear is on
+	# the old curve, so only the curve endpoints (0 / total) matter.
+	var lower_bound: float
+	var upper_bound: float
+	if _split_mode:
+		lower_bound = 0.0
+		upper_bound = total
+	elif _front_entered_at_start:
+		lower_bound = spacing
+		upper_bound = total
+	else:
+		lower_bound = 0.0
+		upper_bound = total - spacing
+	if raw_progress < lower_bound or raw_progress > upper_bound:
+		var at_end: int = 0 if raw_progress < lower_bound else 1
+		if _split_mode:
+			# Already straddling a junction — stop rather than chain transitions
+			front_bogie.rail_progress = 0.0 if at_end == 0 else total
+			front_bogie.speed = 0.0
+			front_bogie.speed_changed.emit(0.0)
+			_set_platform_velocity(Vector3.ZERO)
+			return
+		# Compute overflow past the exited endpoint, and the endpoint index
+		# (0=curve start, 1=curve end) for the transition call.
+		var exit_end: int
+		var overflow: float
 		if at_end == 1:
-			var overflow: float = raw_progress - total
-			if front_bogie._try_path_transition(at_end, overflow):
-				curve = front_bogie.rail_curve
-				total = curve.get_baked_length()
-			else:
-				front_bogie.rail_progress = total
-				front_bogie.speed = 0.0
-				front_bogie.speed_changed.emit(0.0)
-				_set_platform_velocity(Vector3.ZERO)
-				return
+			exit_end = 1
+			overflow = raw_progress - upper_bound
 		else:
-			# Going backward — rear bogie would leave the path start.
-			# Try transitioning: front bogie enters the previous path at its end.
-			var overflow: float = spacing - raw_progress  # how far rear overshot start
-			if front_bogie._try_path_transition(0, overflow):
-				curve = front_bogie.rail_curve
-				total = curve.get_baked_length()
-			else:
-				# No connected path — stop at boundary
-				front_bogie.rail_progress = spacing
-				front_bogie.speed = 0.0
-				front_bogie.speed_changed.emit(0.0)
-				_set_platform_velocity(Vector3.ZERO)
-				return
+			exit_end = 0
+			overflow = lower_bound - raw_progress
+		var old_curve_save: Curve3D = curve
+		var old_total_save: float = total
+		var old_path_save: Node = front_bogie.current_rail_path
+		if front_bogie._try_path_transition(exit_end, overflow):
+			_split_mode = true
+			_rear_old_curve = old_curve_save
+			_rear_old_total = old_total_save
+			_rear_old_rail_path = old_path_save
+			_junction_at_old_end = (exit_end == 1)
+			_front_entered_at_start = front_bogie._last_transition_target_end == 0
+			curve = front_bogie.rail_curve
+			total = curve.get_baked_length()
+		else:
+			front_bogie.rail_progress = upper_bound if at_end == 1 else lower_bound
+			front_bogie.speed = 0.0
+			front_bogie.speed_changed.emit(0.0)
+			_set_platform_velocity(Vector3.ZERO)
+			return
 	else:
 		front_bogie.rail_progress = raw_progress
 
 	# Sample positions
 	var front_pos: Vector3 = curve.sample_baked(front_bogie.rail_progress)
-	var rear_progress: float = clampf(front_bogie.rail_progress - spacing, 0.0, total)
-	var rear_pos: Vector3 = curve.sample_baked(rear_progress)
+	var rear_progress: float = 0.0
+	var rear_pos: Vector3
+	var rear_on_old_curve: bool = false
+	var rear_old_progress: float = 0.0
+
+	if _split_mode:
+		# Compute how far the front bogie is from the junction along the new curve
+		var front_dist: float
+		if _front_entered_at_start:
+			front_dist = front_bogie.rail_progress
+		else:
+			front_dist = total - front_bogie.rail_progress
+		var rear_dist: float = spacing - front_dist
+
+		if rear_dist <= 0.0:
+			# Rear has crossed the junction — end split mode
+			_split_mode = false
+			_rear_old_curve = null
+			_rear_old_rail_path = null
+			if _front_entered_at_start:
+				rear_progress = clampf(front_bogie.rail_progress - spacing, 0.0, total)
+			else:
+				rear_progress = clampf(front_bogie.rail_progress + spacing, 0.0, total)
+			rear_pos = curve.sample_baked(rear_progress)
+		else:
+			rear_on_old_curve = true
+			if _junction_at_old_end:
+				rear_old_progress = clampf(_rear_old_total - rear_dist, 0.0, _rear_old_total)
+			else:
+				rear_old_progress = clampf(rear_dist, 0.0, _rear_old_total)
+			rear_pos = _rear_old_curve.sample_baked(rear_old_progress)
+	else:
+		if _front_entered_at_start:
+			rear_progress = clampf(front_bogie.rail_progress - spacing, 0.0, total)
+		else:
+			rear_progress = clampf(front_bogie.rail_progress + spacing, 0.0, total)
+		rear_pos = curve.sample_baked(rear_progress)
 
 	# Position WagonFrame at midpoint
 	var mid: Vector3 = (front_pos + rear_pos) * 0.5
@@ -138,14 +211,28 @@ func _physics_process(delta: float) -> void:
 	front_bogie.position = to_local(front_pos)
 	rear_bogie.position = to_local(rear_pos)
 
-	# Orient bogies to follow the curve independently (trucks pivot)
-	_orient_bogie(front_bogie, front_bogie.rail_progress, curve, total, delta)
-	_orient_bogie(rear_bogie, rear_progress, curve, total, delta)
+	# Orient bogies to follow the curve (trucks pivot).
+	# Use frame_fwd as the reference so bogies never flip 180° at junctions
+	# where curve tangent direction reverses (same-side connections).
+	var ref_fwd: Vector3 = (front_pos - rear_pos)
+	if ref_fwd.length_squared() > 0.0001:
+		ref_fwd = ref_fwd.normalized()
+	else:
+		ref_fwd = -global_basis.z
+	_orient_bogie(front_bogie, front_bogie.rail_progress, curve, total, delta, ref_fwd)
+	if rear_on_old_curve:
+		_orient_bogie(rear_bogie, rear_old_progress, _rear_old_curve, _rear_old_total, delta, ref_fwd)
+	else:
+		_orient_bogie(rear_bogie, rear_progress, curve, total, delta, ref_fwd)
 
 	# Sync rear bogie state for any code that reads it
-	rear_bogie.rail_curve = curve
-	rear_bogie.rail_progress = rear_progress
-	rear_bogie.current_rail_path = front_bogie.current_rail_path
+	if rear_on_old_curve:
+		rear_bogie.rail_curve = _rear_old_curve
+		rear_bogie.rail_progress = rear_old_progress
+	else:
+		rear_bogie.rail_curve = curve
+		rear_bogie.rail_progress = rear_progress
+		rear_bogie.current_rail_path = front_bogie.current_rail_path
 
 	# Platform velocity — use curve tangent on transition frame to avoid spike
 	if front_bogie._just_transitioned:
@@ -164,12 +251,18 @@ func _physics_process(delta: float) -> void:
 		_set_platform_velocity(actual_vel)
 
 
-func _orient_bogie(bogie: TrainChassis, progress: float, curve: Curve3D, total: float, delta: float) -> void:
+func _orient_bogie(bogie: TrainChassis, progress: float, curve: Curve3D, total: float, delta: float, ref_fwd: Vector3 = Vector3.ZERO) -> void:
 	var ahead: float = minf(progress + 1.0, total)
 	var behind: float = maxf(progress - 1.0, 0.0)
 	var fwd: Vector3 = curve.sample_baked(ahead) - curve.sample_baked(behind)
 	if fwd.length_squared() > 0.0001:
 		fwd = fwd.normalized()
+		# Flip tangent so it always points "forward" relative to wagon body,
+		# preventing 180° bogie flips at same-side junctions where the curve
+		# direction reverses. Keeps truck pivot on curves because ref_fwd and
+		# fwd only differ slightly when both bogies are on the same curve.
+		if ref_fwd.length_squared() > 0.0001 and fwd.dot(ref_fwd) < 0.0:
+			fwd = -fwd
 		var rt: Vector3 = Vector3.UP.cross(fwd)
 		if rt.length_squared() < 0.0001:
 			rt = Vector3.RIGHT

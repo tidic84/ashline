@@ -54,8 +54,22 @@ func _ready() -> void:
 
 ## Public API: call this to generate terrain + rails on demand.
 func generate_terrain() -> void:
+	# Re-scan for terrain patch in case it was added after _ready.
+	if _terrain_patch == null or not is_instance_valid(_terrain_patch):
+		_find_terrain_patch()
+	# Remove previously generated nodes so repeated presses don't stack meshes.
+	for child in get_children():
+		if child.name == "Rails" or child.name == "RailPath" \
+				or child.name.begins_with("Rails_") or child.name.begins_with("RailPath_"):
+			child.queue_free()
+	var rail_paths := get_tree().get_nodes_in_group("rail_path")
+	print("[TerrainGenerator] generate_terrain: %d RailPath nodes in group, terrain_patch=%s" % [
+		rail_paths.size(), "found" if _terrain_patch != null else "missing"])
+	if rail_paths.is_empty():
+		push_warning("TerrainGenerator: no RailPath found in 'rail_path' group — add a RailPath to the scene")
+		return
 	if not _load_curve_from_rail_path(true):
-		push_warning("TerrainGenerator: no valid RailPath found — rails disabled")
+		push_warning("TerrainGenerator: no valid RailPath curve found — rails disabled")
 	else:
 		_generated = true
 		print("[TerrainGenerator] Terrain and rails generated successfully.")
@@ -441,10 +455,17 @@ func _build_deformed_rail_section_mesh(total_len: float, section_scene: PackedSc
 
 		for tile in range(tile_count):
 			var base_arc: float = float(tile) * tile_len
+			# Scale the last (partial) tile along X so its end exactly meets
+			# total_len. Without this, clamping end-side vertices to total_len
+			# collapses them to a single point and pinches the mesh.
+			var this_tile_len: float = minf(tile_len, total_len - base_arc)
+			if this_tile_len < 0.001:
+				continue
+			var x_scale: float = this_tile_len / tile_len
 			var base_idx: int = out_verts.size()
 			for i in range(vc):
 				var v_local: Vector3 = src_xf * src_verts[i]
-				var along: float = base_arc + (v_local.x - x_min)
+				var along: float = base_arc + (v_local.x - x_min) * x_scale
 				along = clampf(along, 0.0, total_len)
 				var lateral: float = -v_local.z
 				var vertical: float = v_local.y
