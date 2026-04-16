@@ -3,6 +3,7 @@ class_name InventorySlotUI
 
 signal slot_pressed(slot_index: int, button_index: int)
 signal slot_dropped(source_index: int, target_index: int)
+signal slot_drag_started(slot_index: int)
 signal slot_hovered(slot_index: int, item_id: String)
 signal slot_unhovered(slot_index: int)
 
@@ -51,6 +52,7 @@ func _get_drag_data(_at_position: Vector2) -> Variant:
 	if not _has_item or _icon == null or _icon.texture == null:
 		return null
 	set_drag_preview(_make_icon_preview(_icon.texture, Vector2(48, 48), Vector2(40, 40), Color(1, 1, 1, 0.85)))
+	slot_drag_started.emit(slot_index)
 	return {"source_index": slot_index}
 
 func _can_drop_data(_at_position: Vector2, data: Variant) -> bool:

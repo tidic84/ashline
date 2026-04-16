@@ -3,12 +3,12 @@
 importer="wav"
 type="AudioStreamWAV"
 uid="uid://by3tmijgomr4u"
-path="res://.godot/imported/levier_place.wav-4e31388dbe2aa770ee6d08307e706ea4.sample"
+path="res://.godot/imported/levier_place.wav-99d59e76bc89eb8eb8688b67799f7c26.sample"
 
 [deps]
 
-source_file="res://audio/sfx/levier_place.wav"
-dest_files=["res://.godot/imported/levier_place.wav-4e31388dbe2aa770ee6d08307e706ea4.sample"]
+source_file="res://assets/audio/sfx/levier_place.wav"
+dest_files=["res://.godot/imported/levier_place.wav-99d59e76bc89eb8eb8688b67799f7c26.sample"]
 
 [params]
 

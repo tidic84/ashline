@@ -122,6 +122,8 @@ var _slots: Array[Dictionary] = []
 var _item_icons: Dictionary = {}
 var _item_icon_setting_overrides: Dictionary = {}
 var player_inventories: Dictionary = {}
+# peer_name (String, lower-cased) -> exported state — survives disconnect for rejoin
+var _preserved_inventories: Dictionary = {}
 var _suppress_notifications: bool = false
 var _suppress_network_requests: bool = false
 
@@ -140,6 +142,15 @@ var health_regen_per_second: float = 0.3
 func _ready() -> void:
 	reset_local_inventory()
 	set_process(true)
+	_notify_inventory_changed()
+	survival_changed.emit(health, hunger, thirst)
+
+
+func reset_network_state(clear_preserved: bool = false) -> void:
+	player_inventories.clear()
+	if clear_preserved:
+		_preserved_inventories.clear()
+	reset_local_inventory()
 	_notify_inventory_changed()
 	survival_changed.emit(health, hunger, thirst)
 
@@ -230,21 +241,73 @@ func apply_state(state: Dictionary, emit_signals: bool = true) -> void:
 func setup_server_inventories(peer_ids: Array) -> void:
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
 		return
+	var local_id := get_local_peer_id()
 	for peer_id_value in peer_ids:
 		var peer_id := int(peer_id_value)
 		if not player_inventories.has(peer_id):
-			var previous := export_state()
-			_suppress_notifications = true
-			grant_starter_inventory()
-			player_inventories[peer_id] = export_state()
-			_suppress_notifications = false
-			if peer_id == get_local_peer_id():
-				apply_state(player_inventories[peer_id])
+			if peer_id == local_id:
+				grant_starter_inventory()
+				player_inventories[peer_id] = export_state()
 			else:
-				apply_state(previous, false)
-	if player_inventories.has(get_local_peer_id()):
-		apply_state(player_inventories[get_local_peer_id()])
+				player_inventories[peer_id] = _build_inventory_state_for_peer(peer_id)
 	sync_all_peer_inventories()
+
+
+func _build_inventory_state_for_peer(peer_id: int) -> Dictionary:
+	var player_name := _peer_name_key(peer_id)
+	if not player_name.is_empty() and _preserved_inventories.has(player_name):
+		var preserved: Dictionary = _preserved_inventories[player_name]
+		_preserved_inventories.erase(player_name)
+		return preserved.duplicate(true)
+	return _build_fresh_starter_state()
+
+
+func _build_fresh_starter_state() -> Dictionary:
+	var slots := []
+	var total := get_total_slot_count()
+	for i in range(total):
+		slots.append(_empty_slot())
+	for i in range(STARTER_HOTBAR_ITEMS.size()):
+		var tool_id := STARTER_HOTBAR_ITEMS[i]
+		if STARTER_ITEMS.has(tool_id):
+			slots[i] = {"item_id": tool_id, "amount": int(STARTER_ITEMS[tool_id])}
+	var slot_index := HOTBAR_SIZE
+	for item_id_key in STARTER_ITEMS:
+		var item_id := String(item_id_key)
+		if STARTER_HOTBAR_ITEMS.has(item_id):
+			continue
+		var amount := int(STARTER_ITEMS[item_id])
+		var stack_max := get_stack_size(item_id)
+		while amount > 0 and slot_index < total:
+			var to_add := mini(amount, stack_max)
+			slots[slot_index] = {"item_id": item_id, "amount": to_add}
+			amount -= to_add
+			slot_index += 1
+	return {
+		"slots": slots,
+		"selected_hotbar_index": maxi(0, STARTER_HOTBAR_ITEMS.find("hammer")),
+		"health": MAX_STAT,
+		"hunger": MAX_STAT,
+		"thirst": MAX_STAT,
+	}
+
+
+func _peer_name_key(peer_id: int) -> String:
+	if not NetworkManager.players_info.has(peer_id):
+		return ""
+	var info: Dictionary = NetworkManager.players_info[peer_id]
+	return String(info.get("name", "")).to_lower().strip_edges()
+
+
+func preserve_disconnected_peer(peer_id: int) -> void:
+	if not player_inventories.has(peer_id):
+		return
+	var key := _peer_name_key(peer_id)
+	if key.is_empty():
+		player_inventories.erase(peer_id)
+		return
+	_preserved_inventories[key] = player_inventories[peer_id]
+	player_inventories.erase(peer_id)
 
 func sync_all_peer_inventories() -> void:
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
@@ -285,18 +348,22 @@ func apply_inventory_snapshot(slots: Array, selected_index: int, stats: Dictiona
 func ensure_peer_inventory(peer_id: int) -> void:
 	if player_inventories.has(peer_id):
 		return
-	var previous := export_state()
-	_suppress_notifications = true
-	grant_starter_inventory()
-	player_inventories[peer_id] = export_state()
-	_suppress_notifications = false
-	apply_state(previous, false)
+	var key := _peer_name_key(peer_id)
+	var from_preserved := not key.is_empty() and _preserved_inventories.has(key)
+	if not from_preserved and GameManager.current_state == GameManager.GameState.PLAYING:
+		push_warning("Inventory: creating starter inventory mid-game for peer %d (no preserved state found)" % peer_id)
+	player_inventories[peer_id] = _build_inventory_state_for_peer(peer_id)
+	if peer_id == get_local_peer_id():
+		apply_state(player_inventories[peer_id])
+	sync_peer_inventory(peer_id)
 
 func server_has_items(peer_id: int, cost: Dictionary) -> bool:
-	return _server_read_bool(peer_id, func(): return has_items(cost))
+	ensure_peer_inventory(peer_id)
+	return _state_has_items(player_inventories[peer_id], cost)
 
 func server_has_item(peer_id: int, item_id: String, amount: int = 1) -> bool:
-	return _server_read_bool(peer_id, func(): return has_item(item_id, amount))
+	ensure_peer_inventory(peer_id)
+	return _state_get_item_amount(player_inventories[peer_id], item_id) >= amount
 
 func server_get_selected_item(peer_id: int) -> String:
 	ensure_peer_inventory(peer_id)
@@ -311,53 +378,104 @@ func server_get_selected_item(peer_id: int) -> String:
 	return String(slot.item_id)
 
 func server_spend_items(peer_id: int, cost: Dictionary) -> bool:
-	return _server_edit_bool(peer_id, func(): return spend_items(cost))
+	ensure_peer_inventory(peer_id)
+	var state: Dictionary = (player_inventories[peer_id] as Dictionary).duplicate(true)
+	if not _state_spend_items(state, cost):
+		return false
+	_commit_peer_state(peer_id, state)
+	return true
 
 func server_add_item(peer_id: int, item_id: String, amount: int) -> void:
-	_server_edit_bool(peer_id, func():
-		add_item(item_id, amount)
-		return true
-	)
+	ensure_peer_inventory(peer_id)
+	var state: Dictionary = (player_inventories[peer_id] as Dictionary).duplicate(true)
+	_state_add_item(state, item_id, amount)
+	_commit_peer_state(peer_id, state)
 
 func server_remove_item(peer_id: int, item_id: String, amount: int) -> bool:
-	return _server_edit_bool(peer_id, func(): return remove_item(item_id, amount))
+	ensure_peer_inventory(peer_id)
+	var state: Dictionary = (player_inventories[peer_id] as Dictionary).duplicate(true)
+	var ok := _state_remove_item(state, item_id, amount)
+	if ok:
+		_commit_peer_state(peer_id, state)
+	return ok
 
 func server_select_hotbar(peer_id: int, index: int) -> void:
-	_server_edit_bool(peer_id, func():
-		select_hotbar_slot(index)
-		return true
-	)
+	ensure_peer_inventory(peer_id)
+	var state: Dictionary = (player_inventories[peer_id] as Dictionary).duplicate(true)
+	state["selected_hotbar_index"] = clampi(index, 0, HOTBAR_SIZE - 1)
+	_commit_peer_state(peer_id, state)
 
 func server_move_slot(peer_id: int, source_index: int, target_index: int) -> void:
-	_server_edit_bool(peer_id, func(): return move_slot(source_index, target_index))
-
-func _server_read_bool(peer_id: int, action: Callable) -> bool:
 	ensure_peer_inventory(peer_id)
-	var previous := export_state()
-	_suppress_notifications = true
-	apply_state(player_inventories[peer_id], false)
-	var result := bool(action.call())
-	apply_state(previous, false)
-	_suppress_notifications = false
-	return result
+	var state: Dictionary = (player_inventories[peer_id] as Dictionary).duplicate(true)
+	if _state_move_slot(state, source_index, target_index):
+		_commit_peer_state(peer_id, state)
 
-func _server_edit_bool(peer_id: int, action: Callable) -> bool:
+
+func drop_slot(slot_index: int, amount: int = -1, drop_position: Vector3 = Vector3.ZERO) -> void:
+	if slot_index < 0 or slot_index >= _slots.size():
+		return
+	var slot := _slots[slot_index]
+	if _is_slot_empty(slot):
+		return
+	var drop_amount := int(slot.amount) if amount < 0 else mini(amount, int(slot.amount))
+	if drop_amount <= 0:
+		return
+	var drop_item_id := String(slot.item_id)
+	if WorldSync.should_request_host():
+		var t := Transform3D(Basis.IDENTITY, drop_position)
+		WorldSync.request_drop_slot(slot_index, drop_amount, t)
+		return
+	remove_item(drop_item_id, drop_amount)
+	_spawn_local_drop(drop_item_id, drop_amount, drop_position)
+
+
+func server_drop_slot(peer_id: int, slot_index: int, amount: int, drop_transform: Transform3D) -> void:
+	if not multiplayer.is_server():
+		return
 	ensure_peer_inventory(peer_id)
-	var local_peer_id := get_local_peer_id()
-	var previous := export_state()
-	_suppress_notifications = true
-	_suppress_network_requests = true
-	apply_state(player_inventories[peer_id], false)
-	var result := bool(action.call())
-	player_inventories[peer_id] = export_state()
-	_suppress_network_requests = false
-	_suppress_notifications = false
-	if peer_id == local_peer_id:
+	var state: Dictionary = player_inventories[peer_id].duplicate(true)
+	var slots: Array = state.get("slots", [])
+	if slot_index < 0 or slot_index >= slots.size():
+		return
+	var slot: Dictionary = slots[slot_index]
+	var item_id := String(slot.get("item_id", ""))
+	var current_amount := int(slot.get("amount", 0))
+	if item_id.is_empty() or current_amount <= 0:
+		return
+	var drop_amount := current_amount if amount < 0 else mini(amount, current_amount)
+	if drop_amount <= 0:
+		return
+	if not _state_remove_item(state, item_id, drop_amount):
+		return
+	_commit_peer_state(peer_id, state)
+	_spawn_local_drop(item_id, drop_amount, drop_transform.origin)
+
+
+func _spawn_local_drop(item_id: String, amount: int, position: Vector3) -> void:
+	var scene := load("res://scenes/world/dropped_item.tscn") as PackedScene
+	if scene == null:
+		return
+	var drop := scene.instantiate() as Node3D
+	if drop == null:
+		return
+	var tree := get_tree()
+	if tree == null or tree.current_scene == null:
+		drop.queue_free()
+		return
+	tree.current_scene.add_child(drop)
+	drop.global_position = position
+	var net_id := WorldSync.register_entity(drop)
+	if drop.has_method("setup"):
+		drop.setup(item_id, amount)
+	if WorldSync.is_networked() and multiplayer.is_server():
+		WorldSync.replicate_spawn_drop(net_id, item_id, amount, drop.global_transform)
+
+func _commit_peer_state(peer_id: int, state: Dictionary) -> void:
+	player_inventories[peer_id] = state.duplicate(true)
+	if peer_id == get_local_peer_id():
 		apply_state(player_inventories[peer_id])
-	else:
-		apply_state(previous, false)
 	sync_peer_inventory(peer_id)
-	return result
 
 # Compatibility wrappers used by existing systems.
 func add_resource(resource_id: String, amount: int) -> void:
@@ -528,6 +646,140 @@ func move_slot(source_index: int, target_index: int) -> bool:
 	if not _suppress_network_requests and WorldSync.should_request_host():
 		WorldSync.request_move_slot(source_index, target_index)
 	return true
+
+
+func _state_has_items(state: Dictionary, cost: Dictionary) -> bool:
+	for item_id in cost:
+		if _state_get_item_amount(state, String(item_id)) < int(cost[item_id]):
+			return false
+	return true
+
+
+func _state_spend_items(state: Dictionary, cost: Dictionary) -> bool:
+	if not _state_has_items(state, cost):
+		return false
+	for item_id in cost:
+		_state_remove_item(state, String(item_id), int(cost[item_id]))
+	return true
+
+
+func _state_get_item_amount(state: Dictionary, item_id: String) -> int:
+	var total := 0
+	for slot_data in state.get("slots", []):
+		var slot := slot_data as Dictionary
+		if String(slot.get("item_id", "")) == item_id:
+			total += int(slot.get("amount", 0))
+	return total
+
+
+func _state_add_item(state: Dictionary, item_id: String, amount: int) -> void:
+	if amount <= 0 or not ITEM_NAMES.has(item_id):
+		return
+	var slots: Array = state.get("slots", []).duplicate(true)
+	if slots.is_empty():
+		for i in range(get_total_slot_count()):
+			slots.append(_empty_slot())
+	var remaining := amount
+	if TOOL_ITEMS.has(item_id):
+		remaining = _state_fill_existing_stacks(slots, item_id, remaining, 0, slots.size())
+		remaining = _state_fill_empty_slots(slots, item_id, remaining, 0, slots.size())
+	else:
+		remaining = _state_fill_existing_stacks(slots, item_id, remaining, HOTBAR_SIZE, slots.size())
+		remaining = _state_fill_empty_slots(slots, item_id, remaining, HOTBAR_SIZE, slots.size())
+		if remaining > 0:
+			remaining = _state_fill_existing_stacks(slots, item_id, remaining, 0, HOTBAR_SIZE)
+			remaining = _state_fill_empty_slots(slots, item_id, remaining, 0, HOTBAR_SIZE)
+	state["slots"] = slots
+
+
+func _state_remove_item(state: Dictionary, item_id: String, amount: int) -> bool:
+	if amount <= 0:
+		return true
+	if _state_get_item_amount(state, item_id) < amount:
+		return false
+	var slots: Array = state.get("slots", []).duplicate(true)
+	var remaining := amount
+	for i in range(slots.size() - 1, -1, -1):
+		var slot := (slots[i] as Dictionary).duplicate(true)
+		if String(slot.get("item_id", "")) != item_id:
+			continue
+		var take := mini(int(slot.get("amount", 0)), remaining)
+		slot["amount"] = int(slot.get("amount", 0)) - take
+		remaining -= take
+		if int(slot.get("amount", 0)) <= 0:
+			slots[i] = _empty_slot()
+		else:
+			slots[i] = slot
+		if remaining <= 0:
+			break
+	state["slots"] = slots
+	return true
+
+
+func _state_move_slot(state: Dictionary, source_index: int, target_index: int) -> bool:
+	if not _is_valid_slot_index(source_index) or not _is_valid_slot_index(target_index):
+		return false
+	if source_index == target_index:
+		return false
+	var slots: Array = state.get("slots", []).duplicate(true)
+	var src := (slots[source_index] as Dictionary).duplicate(true)
+	if _is_slot_empty(src):
+		return false
+	var dst := (slots[target_index] as Dictionary).duplicate(true)
+	if _is_slot_empty(dst):
+		slots[target_index] = src
+		slots[source_index] = _empty_slot()
+	elif String(dst.get("item_id", "")) == String(src.get("item_id", "")):
+		var stack_max := get_stack_size(String(dst.get("item_id", "")))
+		var room := maxi(0, stack_max - int(dst.get("amount", 0)))
+		if room > 0:
+			var transfer := mini(room, int(src.get("amount", 0)))
+			dst["amount"] = int(dst.get("amount", 0)) + transfer
+			src["amount"] = int(src.get("amount", 0)) - transfer
+			slots[target_index] = dst
+			slots[source_index] = _empty_slot() if int(src.get("amount", 0)) <= 0 else src
+		else:
+			slots[source_index] = dst
+			slots[target_index] = src
+	else:
+		slots[source_index] = dst
+		slots[target_index] = src
+	state["slots"] = slots
+	return true
+
+
+func _state_fill_existing_stacks(slots: Array, item_id: String, amount: int, start_idx: int, end_idx: int) -> int:
+	var remaining := amount
+	var max_stack := get_stack_size(item_id)
+	for i in range(start_idx, min(end_idx, slots.size())):
+		var slot := (slots[i] as Dictionary).duplicate(true)
+		if String(slot.get("item_id", "")) != item_id:
+			continue
+		var current_amount := int(slot.get("amount", 0))
+		if current_amount >= max_stack:
+			continue
+		var to_add := mini(max_stack - current_amount, remaining)
+		slot["amount"] = current_amount + to_add
+		slots[i] = slot
+		remaining -= to_add
+		if remaining <= 0:
+			break
+	return remaining
+
+
+func _state_fill_empty_slots(slots: Array, item_id: String, amount: int, start_idx: int, end_idx: int) -> int:
+	var remaining := amount
+	var stack_max := get_stack_size(item_id)
+	for i in range(start_idx, min(end_idx, slots.size())):
+		var slot := slots[i] as Dictionary
+		if not _is_slot_empty(slot):
+			continue
+		var to_add := mini(stack_max, remaining)
+		slots[i] = {"item_id": item_id, "amount": to_add}
+		remaining -= to_add
+		if remaining <= 0:
+			break
+	return remaining
 
 func get_hotbar_slots() -> Array[String]:
 	var out: Array[String] = []
@@ -1186,6 +1438,10 @@ func _notify_inventory_changed() -> void:
 	hotbar_updated.emit()
 	selected_hotbar_changed.emit(selected_hotbar_index, get_selected_item())
 	inventory_updated.emit()
+
+func force_refresh() -> void:
+	_notify_inventory_changed()
+	survival_changed.emit(health, hunger, thirst)
 
 func _max_addable_amount(item_id: String) -> int:
 	var stack_max: int = get_stack_size(item_id)

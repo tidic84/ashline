@@ -3,12 +3,12 @@
 importer="wav"
 type="AudioStreamWAV"
 uid="uid://bxwjoiobqp5yj"
-path="res://.godot/imported/levier_activation.wav-e68e95bcc600e9ac9dd376fa689956ab.sample"
+path="res://.godot/imported/levier_activation.wav-43b2ac114ef4d2f8ab84c0172e6f8113.sample"
 
 [deps]
 
-source_file="res://audio/sfx/levier_activation.wav"
-dest_files=["res://.godot/imported/levier_activation.wav-e68e95bcc600e9ac9dd376fa689956ab.sample"]
+source_file="res://assets/audio/sfx/levier_activation.wav"
+dest_files=["res://.godot/imported/levier_activation.wav-43b2ac114ef4d2f8ab84c0172e6f8113.sample"]
 
 [params]
 

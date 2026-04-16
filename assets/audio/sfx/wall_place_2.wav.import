@@ -3,12 +3,12 @@
 importer="wav"
 type="AudioStreamWAV"
 uid="uid://ntbf218167oj"
-path="res://.godot/imported/wall_place_2.wav-bac3daa11d949a9bdbb25b69106239a2.sample"
+path="res://.godot/imported/wall_place_2.wav-812af0195b98b3b8dbbfe3995adbda50.sample"
 
 [deps]
 
-source_file="res://audio/sfx/wall_place_2.wav"
-dest_files=["res://.godot/imported/wall_place_2.wav-bac3daa11d949a9bdbb25b69106239a2.sample"]
+source_file="res://assets/audio/sfx/wall_place_2.wav"
+dest_files=["res://.godot/imported/wall_place_2.wav-812af0195b98b3b8dbbfe3995adbda50.sample"]
 
 [params]
 

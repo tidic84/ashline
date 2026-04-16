@@ -29,7 +29,11 @@ func interact(_player: CharacterBody3D) -> void:
 func server_harvest(peer_id: int) -> void:
 	if is_depleted:
 		return
-	var selected_item := Inventory.server_get_selected_item(peer_id) if multiplayer.has_multiplayer_peer() and multiplayer.is_server() else Inventory.get_selected_item()
+	var selected_item: String
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server() and peer_id != Inventory.get_local_peer_id():
+		selected_item = Inventory.server_get_selected_item(peer_id)
+	else:
+		selected_item = Inventory.get_selected_item()
 	if required_tool_id != "" and selected_item != required_tool_id:
 		AudioManager.play_sfx("metal_hit", 0.0, 0.85)
 		return
@@ -48,8 +52,13 @@ func get_interact_text() -> String:
 func _play_hit_sfx() -> void:
 	var kind: String = resource_id if drop_item_id == "" else drop_item_id
 	match kind:
-		"wood", "branch", "log": AudioManager.play_sfx("chop", 0.0, randf_range(0.95, 1.05))
-		"metal", "metal_scrap", "stone": AudioManager.play_sfx("metal_hit", 0.0, randf_range(0.9, 1.1))
+		"wood", "branch", "log":
+			var idx: int = randi_range(1, 9)
+			AudioManager.play_sfx("cutting_wood0%d" % idx, 0.0, randf_range(0.95, 1.05))
+		"stone":
+			var idx: int = randi_range(1, 4)
+			AudioManager.play_sfx("mining_stone0%d" % idx, 0.0, randf_range(0.9, 1.1))
+		"metal", "metal_scrap": AudioManager.play_sfx("metal_hit", 0.0, randf_range(0.9, 1.1))
 		_: AudioManager.play_sfx("harvest", 0.0, randf_range(0.9, 1.1))
 
 func _on_hit() -> void:

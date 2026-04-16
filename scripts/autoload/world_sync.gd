@@ -1,6 +1,7 @@
 extends Node
 
 const NET_ID_META: StringName = &"net_id"
+const TRAIN_TRANSFORM_INTERVAL: float = 0.1
 
 var _next_net_id: int = 1000
 var _entities: Dictionary = {}
@@ -318,6 +319,282 @@ func _apply_spawn_scene(net_id: int, scene_path: String, transform: Transform3D)
 	get_tree().current_scene.add_child(node)
 	register_entity(node, net_id)
 	node.global_transform = transform
+
+
+func request_world_snapshot_from_host() -> void:
+	if should_request_host():
+		_request_world_snapshot.rpc_id(1)
+
+
+@rpc("any_peer", "reliable")
+func _request_world_snapshot() -> void:
+	if not multiplayer.is_server():
+		return
+	var sender_id := multiplayer.get_remote_sender_id()
+	if sender_id <= 0:
+		return
+	_send_world_snapshot_to_peer(sender_id)
+
+
+func _send_world_snapshot_to_peer(peer_id: int) -> void:
+	if not multiplayer.is_server():
+		return
+	# Ensure the late-joiner has an inventory (restores preserved if matching name)
+	Inventory.ensure_peer_inventory(peer_id)
+	var main_scene: Node = get_tree().current_scene
+	if main_scene != null and main_scene.has_method("spawn_player_for_late_join"):
+		main_scene.spawn_player_for_late_join(peer_id)
+	_stream_entities_to_peer(peer_id)
+	TrainManager.sync_state_to_peer(peer_id)
+	send_train_entity_snapshots_to_peer(peer_id)
+	_snapshot_complete.rpc_id(peer_id)
+
+
+func _stream_entities_to_peer(peer_id: int) -> void:
+	# Stream all registered entities in a stable order: chassis first (so floors/items
+	# can attach to them), then wagons, then placeables, then dropped items.
+	var chassis_list: Array = []
+	var wagon_list: Array = []
+	var placeables: Array = []
+	var drops: Array = []
+	var players: Array = []
+	for net_id in _entities:
+		var node: Node = _entities[net_id]
+		if node == null or not is_instance_valid(node):
+			continue
+		if node is WagonFrame:
+			wagon_list.append(node)
+		elif node is TrainChassis:
+			chassis_list.append(node)
+		elif node.is_in_group("dropped_item"):
+			drops.append(node)
+		elif node.is_in_group("player"):
+			players.append(node)
+		elif node.has_method("get_build_surface_local_y"):
+			# Chassis-like stationary builds are covered above; treat as placeable.
+			placeables.append(node)
+		else:
+			placeables.append(node)
+	for chassis in chassis_list:
+		_stream_chassis_spawn(peer_id, chassis)
+	for wagon in wagon_list:
+		_stream_wagon_frame_spawn(peer_id, wagon)
+	for placed in placeables:
+		_stream_placeable_spawn(peer_id, placed)
+	for drop in drops:
+		_stream_drop_spawn(peer_id, drop)
+
+
+func _stream_chassis_spawn(peer_id: int, chassis: Node) -> void:
+	var net_id := int(chassis.get_meta(NET_ID_META, 0))
+	if net_id <= 0:
+		return
+	var chassis_node := chassis as TrainChassis
+	if chassis_node == null:
+		return
+	# Skip bogies already parented under a WagonFrame — wagon stream handles them.
+	var parent := chassis_node.get_parent()
+	if parent is WagonFrame:
+		return
+	var rail_path_ref: NodePath = NodePath()
+	if chassis_node.current_rail_path != null:
+		rail_path_ref = chassis_node.current_rail_path.get_path()
+	_apply_spawn_chassis.rpc_id(peer_id, net_id, chassis_node.global_transform, rail_path_ref, chassis_node.rail_progress)
+
+
+func _stream_wagon_frame_spawn(peer_id: int, wagon: Node) -> void:
+	var frame := wagon as WagonFrame
+	if frame == null:
+		return
+	var frame_net_id := int(frame.get_meta(NET_ID_META, 0))
+	if frame_net_id <= 0 or frame.front_bogie == null or frame.rear_bogie == null:
+		return
+	var front_net_id := int(frame.front_bogie.get_meta(NET_ID_META, 0))
+	var rear_net_id := int(frame.rear_bogie.get_meta(NET_ID_META, 0))
+	if front_net_id <= 0 or rear_net_id <= 0:
+		return
+	var rail_path_ref: NodePath = NodePath()
+	if frame.front_bogie.current_rail_path != null:
+		rail_path_ref = frame.front_bogie.current_rail_path.get_path()
+	_apply_spawn_wagon_frame.rpc_id(
+		peer_id,
+		frame_net_id,
+		front_net_id,
+		rear_net_id,
+		0,
+		frame.global_transform,
+		frame.front_bogie.global_transform,
+		frame.rear_bogie.global_transform,
+		frame.wagon_length,
+		rail_path_ref,
+		frame.front_bogie.rail_progress,
+		frame.rear_bogie.rail_progress
+	)
+	# After frame spawn, stream its attached floors/items (children of its bogies or the frame itself)
+	_stream_children_placeables_to_peer(peer_id, frame)
+
+
+func _stream_children_placeables_to_peer(peer_id: int, root: Node) -> void:
+	for child in root.get_children():
+		if child is Node3D and child.has_meta(NET_ID_META):
+			var build_id := ""
+			if child.has_meta("buildable_id"):
+				build_id = String(child.get_meta("buildable_id"))
+			var parent_net_id := int(root.get_meta(NET_ID_META, 0))
+			var child_net_id := int(child.get_meta(NET_ID_META))
+			if parent_net_id <= 0 or child_net_id <= 0:
+				continue
+			if build_id.is_empty():
+				# Assume floor piece
+				var grid_pos := _infer_grid_pos_from_child(root, child)
+				_apply_place_floor.rpc_id(peer_id, parent_net_id, child_net_id, grid_pos)
+			else:
+				var grid_pos2 := _infer_grid_pos_from_child(root, child)
+				var edge := int(child.get_meta("edge_side", -1))
+				_apply_place_item.rpc_id(peer_id, parent_net_id, child_net_id, build_id, grid_pos2, child.rotation.y, edge)
+		_stream_children_placeables_to_peer(peer_id, child)
+
+
+func _infer_grid_pos_from_child(parent: Node, child: Node) -> Vector2i:
+	if child.has_meta("grid_pos_x") and child.has_meta("grid_pos_y"):
+		return Vector2i(int(child.get_meta("grid_pos_x")), int(child.get_meta("grid_pos_y")))
+	if parent.has_method("get_grid_position") and child is Node3D:
+		return parent.get_grid_position((child as Node3D).global_position)
+	return Vector2i.ZERO
+
+
+func _stream_placeable_spawn(_peer_id: int, _node: Node) -> void:
+	# Standalone placeables covered via parent-stream. Hook for future scene-based entities.
+	pass
+
+
+func _stream_drop_spawn(peer_id: int, drop: Node) -> void:
+	var drop_node := drop as Node3D
+	if drop_node == null:
+		return
+	var net_id := int(drop_node.get_meta(NET_ID_META, 0))
+	if net_id <= 0:
+		return
+	var item_id := String(drop_node.get_meta("item_id", ""))
+	var amount := int(drop_node.get_meta("amount", 0))
+	if item_id.is_empty() or amount <= 0:
+		return
+	_apply_spawn_drop.rpc_id(peer_id, net_id, item_id, amount, drop_node.global_transform)
+
+
+func broadcast_train_entity_snapshots() -> void:
+	if not multiplayer.is_server():
+		return
+	for net_id in _entities.keys():
+		var node := get_entity(int(net_id))
+		if node == null or not is_instance_valid(node):
+			continue
+		if not _is_train_snapshot_entity(node):
+			continue
+		_apply_entity_transform.rpc(int(net_id), (node as Node3D).global_transform)
+
+
+func send_train_entity_snapshots_to_peer(peer_id: int) -> void:
+	if not multiplayer.is_server():
+		return
+	for net_id in _entities.keys():
+		var node := get_entity(int(net_id))
+		if node == null or not is_instance_valid(node):
+			continue
+		if not _is_train_snapshot_entity(node):
+			continue
+		_apply_entity_transform.rpc_id(peer_id, int(net_id), (node as Node3D).global_transform)
+
+
+func _is_train_snapshot_entity(node: Node) -> bool:
+	if not (node is Node3D):
+		return false
+	if node is WagonFrame:
+		return true
+	if node is TrainChassis:
+		return true
+	return false
+
+
+@rpc("authority", "reliable")
+func _snapshot_complete() -> void:
+	var main_scene := get_tree().current_scene
+	if main_scene != null and main_scene.has_method("hide_loading_overlay"):
+		main_scene.hide_loading_overlay()
+
+
+@rpc("authority", "unreliable")
+func _apply_entity_transform(net_id: int, transform: Transform3D) -> void:
+	var node := get_entity(net_id)
+	if node == null or not is_instance_valid(node):
+		return
+	if not (node is Node3D):
+		return
+	var node_3d := node as Node3D
+	var previous_transform := node_3d.global_transform
+	node_3d.global_transform = transform
+	var platform_velocity := (transform.origin - previous_transform.origin) / TRAIN_TRANSFORM_INTERVAL
+	if node_3d is StaticBody3D:
+		(node_3d as StaticBody3D).constant_linear_velocity = platform_velocity
+	if node_3d.has_method("_set_platform_velocity"):
+		node_3d.call("_set_platform_velocity", platform_velocity)
+
+
+# --- Dropped items ---
+
+func replicate_spawn_drop(net_id: int, item_id: String, amount: int, transform: Transform3D) -> void:
+	if is_networked() and multiplayer.is_server():
+		_apply_spawn_drop.rpc(net_id, item_id, amount, transform)
+
+
+@rpc("authority", "reliable")
+func _apply_spawn_drop(net_id: int, item_id: String, amount: int, transform: Transform3D) -> void:
+	if get_entity(net_id) != null:
+		return
+	var scene := load("res://scenes/world/dropped_item.tscn") as PackedScene
+	if scene == null or get_tree().current_scene == null:
+		return
+	var drop := scene.instantiate() as Node3D
+	if drop == null:
+		return
+	get_tree().current_scene.add_child(drop)
+	register_entity(drop, net_id)
+	drop.global_transform = transform
+	if drop.has_method("setup"):
+		drop.setup(item_id, amount)
+
+
+func request_drop_slot(slot_index: int, amount: int, drop_transform: Transform3D) -> void:
+	if should_request_host():
+		_request_drop_slot.rpc_id(1, slot_index, amount, drop_transform)
+
+
+func request_pickup_drop(net_id: int) -> void:
+	if should_request_host():
+		_request_pickup_drop.rpc_id(1, net_id)
+
+
+@rpc("any_peer", "reliable")
+func _request_drop_slot(slot_index: int, amount: int, drop_transform: Transform3D) -> void:
+	if not multiplayer.is_server():
+		return
+	var sender_id := multiplayer.get_remote_sender_id()
+	if sender_id == 0:
+		sender_id = 1
+	Inventory.server_drop_slot(sender_id, slot_index, amount, drop_transform)
+
+
+@rpc("any_peer", "reliable")
+func _request_pickup_drop(net_id: int) -> void:
+	if not multiplayer.is_server():
+		return
+	var sender_id := multiplayer.get_remote_sender_id()
+	if sender_id == 0:
+		sender_id = 1
+	var drop_node := get_entity(net_id)
+	if drop_node == null or not drop_node.has_method("server_pickup"):
+		return
+	drop_node.server_pickup(sender_id)
 
 
 @rpc("authority", "reliable")

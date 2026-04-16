@@ -91,6 +91,33 @@ func _ready() -> void:
 	_on_survival_changed(Inventory.health, Inventory.hunger, Inventory.thirst)
 	_on_game_state_changed(GameManager.current_state)
 
+var _active_drag_source_index: int = -1
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_DRAG_END:
+		if _active_drag_source_index >= 0 and not get_viewport().gui_is_drag_successful():
+			_drop_item_to_world(_active_drag_source_index)
+		_active_drag_source_index = -1
+
+func _drop_item_to_world(slot_index: int) -> void:
+	if not inventory_panel.visible:
+		return
+	var slot := Inventory.get_slot_data(slot_index)
+	if String(slot.get("item_id", "")).is_empty() or int(slot.get("amount", 0)) <= 0:
+		return
+	var player_node: Node3D = null
+	for p in get_tree().get_nodes_in_group("player"):
+		if p is CharacterBody3D:
+			var pc := p as CharacterBody3D
+			if pc.has_node("Head"):
+				player_node = pc
+				break
+	if player_node == null:
+		return
+	var head: Node3D = player_node.get_node("Head")
+	var drop_pos := player_node.global_position + head.global_basis * Vector3(0, 0, -1.5)
+	Inventory.drop_slot(slot_index, -1, drop_pos)
+
 func _input(event: InputEvent) -> void:
 	if not visible:
 		return
@@ -413,6 +440,7 @@ func _build_hotbar_ui() -> void:
 		slot.setup(i, HOTBAR_KEY_LABELS[i])
 		slot.slot_pressed.connect(_on_slot_pressed)
 		slot.slot_dropped.connect(_on_slot_dropped)
+		slot.slot_drag_started.connect(_on_slot_drag_started)
 		slot.slot_hovered.connect(_on_slot_hovered)
 		slot.slot_unhovered.connect(_on_slot_unhovered)
 		hotbar_slots.add_child(slot)
@@ -429,6 +457,7 @@ func _build_inventory_slots_ui() -> void:
 		slot.setup(global_index, "")
 		slot.slot_pressed.connect(_on_slot_pressed)
 		slot.slot_dropped.connect(_on_slot_dropped)
+		slot.slot_drag_started.connect(_on_slot_drag_started)
 		slot.slot_hovered.connect(_on_slot_hovered)
 		slot.slot_unhovered.connect(_on_slot_unhovered)
 		inventory_items_grid.add_child(slot)
@@ -670,7 +699,11 @@ func _on_slot_pressed(slot_index: int, button_index: int) -> void:
 	if slot_index < Inventory.HOTBAR_SIZE:
 		Inventory.select_hotbar_slot(slot_index)
 
+func _on_slot_drag_started(slot_index: int) -> void:
+	_active_drag_source_index = slot_index
+
 func _on_slot_dropped(source_index: int, target_index: int) -> void:
+	_active_drag_source_index = -1
 	Inventory.move_slot(source_index, target_index)
 	_hide_item_tooltip()
 

@@ -101,8 +101,12 @@ func _format_interact_text() -> String:
 func _play_hit_sfx() -> void:
 	match drop_item_id:
 		"wood", "branch", "log":
-			AudioManager.play_sfx("chop", 0.0, randf_range(0.95, 1.05))
-		"metal", "metal_scrap", "stone":
+			var idx: int = randi_range(1, 9)
+			AudioManager.play_sfx("cutting_wood0%d" % idx, 0.0, randf_range(0.95, 1.05))
+		"stone":
+			var idx: int = randi_range(1, 4)
+			AudioManager.play_sfx("mining_stone0%d" % idx, 0.0, randf_range(0.9, 1.1))
+		"metal", "metal_scrap":
 			AudioManager.play_sfx("metal_hit", 0.0, randf_range(0.9, 1.1))
 		_:
 			AudioManager.play_sfx("harvest", 0.0, randf_range(0.9, 1.1))

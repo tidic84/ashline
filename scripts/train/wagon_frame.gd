@@ -69,6 +69,8 @@ func _setup_bogies() -> void:
 func _physics_process(delta: float) -> void:
 	if get_meta("is_preview", false):
 		return
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		return
 	if front_bogie == null or rear_bogie == null:
 		return
 	if not is_on_rails:

@@ -56,6 +56,8 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
 	if get_meta("is_preview", false):
 		return
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		return
 	if not is_on_rails:
 		return
 	# Realism: a lone bogie (no WagonFrame linking the two chassis) cannot move on its own.

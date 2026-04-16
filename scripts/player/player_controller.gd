@@ -2,18 +2,34 @@ extends CharacterBody3D
 
 const WALK_SPEED: float = 5.0
 const SPRINT_SPEED: float = 8.0
+const CROUCH_SPEED: float = 2.5
 const JUMP_VELOCITY: float = 5.0
+const JUMP_VELOCITY_SPRINT: float = 5.5
 const MOUSE_SENSITIVITY: float = 0.002
+const ACCEL: float = 0.8
+const FRICTION: float = 0.2
+const CROUCH_HEIGHT_FACTOR: float = 0.6
+const CROUCH_CAMERA_LERP_SPEED: float = 10.0
 const GAME_AMBIENT_NAME: String = "train_ambience"
+const BOB_WALK_STRENGTH: float = 0.03
+const BOB_SPRINT_STRENGTH: float = 0.05
+const BOB_CROUCH_STRENGTH: float = 0.015
+const BOB_WALK_FREQ: float = 10.0
+const BOB_SPRINT_FREQ: float = 14.0
+const BOB_CROUCH_FREQ: float = 6.0
+const BOB_IDLE_STRENGTH: float = 0.003
+const BOB_IDLE_FREQ: float = 1.5
 
 @onready var camera: Camera3D = $Head/Camera3D
 @onready var head: Node3D = $Head
+@onready var collision_shape: CollisionShape3D = $CollisionShape3D
 @onready var interact_ray: RayCast3D = $Head/Camera3D/InteractRay
 @onready var build_ray: RayCast3D = $Head/Camera3D/BuildRay
 @onready var weapon_holder: Node3D = $Head/Camera3D/WeaponHolder
 @onready var hud: Control = $HUD
 @onready var name_label: Label3D = $NameLabel
 @onready var visual_root: Node3D = $VisualRoot
+@onready var multiplayer_sync: MultiplayerSynchronizer = $MultiplayerSynchronizer
 
 var current_speed: float = WALK_SPEED
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
@@ -21,16 +37,30 @@ var current_weapon: Node3D = null
 var is_local: bool = false
 var display_name: String = ""
 var _ambient_timer: float = 0.0
+var _is_crouching: bool = false
+var _is_sprinting: bool = false
+var _default_head_y: float = 0.0
+var _target_head_y: float = 0.0
+var _default_collision_height: float = 0.0
+var _bob_time: float = 0.0
+var _camera_default_y: float = 0.0
+var _camera_default_x: float = 0.0
+var _camera_default_roll: float = 0.0
+var _camera_default_fov: float = 0.0
+var _wagon_platform: Node3D = null
+var _last_wagon_basis: Basis = Basis.IDENTITY
+var _remote_target_position: Vector3 = Vector3.ZERO
+var _remote_target_head_yaw: float = 0.0
+var _remote_target_camera_pitch: float = 0.0
+var _remote_state_initialized: bool = false
 
 func _enter_tree() -> void:
-	if not multiplayer.has_multiplayer_peer():
-		is_local = true
-	else:
-		var my_id := multiplayer.get_unique_id()
-		is_local = name == str(my_id) or name == "Player_%d" % my_id
+	is_local = not multiplayer.has_multiplayer_peer() or get_multiplayer_authority() == multiplayer.get_unique_id()
 
 func _ready() -> void:
 	add_to_group("player")
+	if multiplayer_sync != null:
+		multiplayer_sync.set_multiplayer_authority(get_multiplayer_authority())
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_apply_display_name()
 	_update_visual_visibility()
@@ -48,6 +78,16 @@ func _ready() -> void:
 	name_label.visible = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	GraphicsSettings.set_fov_on_camera(camera)
+	AudioManager.play_ambient(GAME_AMBIENT_NAME)
+	_default_head_y = head.position.y
+	_target_head_y = _default_head_y
+	_camera_default_x = camera.position.x
+	_camera_default_y = camera.position.y
+	_camera_default_roll = camera.rotation.z
+	_camera_default_fov = camera.fov
+	floor_snap_length = 0.3
+	if collision_shape and collision_shape.shape is CapsuleShape3D:
+		_default_collision_height = collision_shape.shape.height
 	hud.settings_menu.closed.connect(func():
 		if GameManager.current_state == GameManager.GameState.PLAYING:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -60,8 +100,13 @@ func _ready() -> void:
 	hud.build_menu.mode_selected.connect(_on_build_mode_selected)
 	hud.build_menu.exit_build_requested.connect(_on_build_exit_requested)
 	hud.build_menu.close_requested.connect(_close_build_menu)
+	_broadcast_network_state()
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	if not is_local and _remote_state_initialized:
+		global_position = global_position.lerp(_remote_target_position, clampf(delta * 12.0, 0.0, 1.0))
+		head.rotation.y = lerp_angle(head.rotation.y, _remote_target_head_yaw, clampf(delta * 14.0, 0.0, 1.0))
+		camera.rotation.x = lerp_angle(camera.rotation.x, _remote_target_camera_pitch, clampf(delta * 14.0, 0.0, 1.0))
 	_update_visual_rotation()
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -133,6 +178,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("interact"):
 		_try_interact()
 
+	if event.is_action_pressed("drop_item"):
+		_try_drop_item()
+
 	if event.is_action_pressed("shoot"):
 		if _is_inventory_open():
 			return
@@ -155,20 +203,41 @@ func _physics_process(delta: float) -> void:
 	if not is_on_floor():
 		velocity.y -= gravity * delta
 
-	if Input.is_action_just_pressed("jump") and is_on_floor():
-		velocity.y = JUMP_VELOCITY
+	_is_sprinting = Input.is_action_pressed("sprint") and not _is_crouching
+	if Input.is_action_just_pressed("crouch"):
+		_is_crouching = not _is_crouching
+		_update_crouch_state()
+
+	if _is_crouching:
+		current_speed = CROUCH_SPEED
+	elif _is_sprinting:
+		current_speed = SPRINT_SPEED
+	else:
+		current_speed = WALK_SPEED
+
+	if Input.is_action_just_pressed("jump") and is_on_floor() and not _is_crouching:
+		velocity.y = JUMP_VELOCITY_SPRINT if _is_sprinting else JUMP_VELOCITY
 
 	var input_dir := Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
 	var direction := (head.global_basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
 
-	if direction:
-		velocity.x = direction.x * current_speed
-		velocity.z = direction.z * current_speed
+	if is_on_floor():
+		if direction:
+			velocity.x = lerpf(velocity.x, direction.x * current_speed, 10.0 * ACCEL * delta)
+			velocity.z = lerpf(velocity.z, direction.z * current_speed, 10.0 * ACCEL * delta)
+		else:
+			velocity.x = lerpf(velocity.x, 0.0, FRICTION) if absf(velocity.x) > 0.05 else 0.0
+			velocity.z = lerpf(velocity.z, 0.0, FRICTION) if absf(velocity.z) > 0.05 else 0.0
 	else:
-		velocity.x = move_toward(velocity.x, 0, current_speed)
-		velocity.z = move_toward(velocity.z, 0, current_speed)
+		if direction:
+			velocity.x = lerpf(velocity.x, direction.x * current_speed, 2.0 * delta)
+			velocity.z = lerpf(velocity.z, direction.z * current_speed, 2.0 * delta)
 
+	head.position.y = lerpf(head.position.y, _target_head_y, CROUCH_CAMERA_LERP_SPEED * delta)
 	move_and_slide()
+	_update_wagon_platform(delta)
+	_update_head_bob(delta, direction.length() > 0.1)
+	_broadcast_network_state()
 
 	if BuildSystem.is_building:
 		_update_build_preview()
@@ -176,12 +245,98 @@ func _physics_process(delta: float) -> void:
 	_update_interact_hint()
 	_update_ambient()
 
+func _update_crouch_state() -> void:
+	if _is_crouching:
+		_target_head_y = _default_head_y * CROUCH_HEIGHT_FACTOR
+		if collision_shape and collision_shape.shape is CapsuleShape3D and _default_collision_height > 0.0:
+			collision_shape.shape.height = _default_collision_height * 0.5
+			collision_shape.position.y = collision_shape.shape.height * 0.5
+	else:
+		_target_head_y = _default_head_y
+		if collision_shape and collision_shape.shape is CapsuleShape3D and _default_collision_height > 0.0:
+			collision_shape.shape.height = _default_collision_height
+			collision_shape.position.y = collision_shape.shape.height * 0.5
+
+func _update_head_bob(delta: float, is_moving: bool) -> void:
+	var bob_strength: float
+	var bob_freq: float
+	if is_moving and is_on_floor():
+		if _is_sprinting:
+			bob_strength = BOB_SPRINT_STRENGTH
+			bob_freq = BOB_SPRINT_FREQ
+		elif _is_crouching:
+			bob_strength = BOB_CROUCH_STRENGTH
+			bob_freq = BOB_CROUCH_FREQ
+		else:
+			bob_strength = BOB_WALK_STRENGTH
+			bob_freq = BOB_WALK_FREQ
+		_bob_time += delta * bob_freq
+	else:
+		bob_strength = BOB_IDLE_STRENGTH
+		bob_freq = BOB_IDLE_FREQ
+		_bob_time += delta * bob_freq
+	var bob_y := sin(_bob_time) * bob_strength
+	var bob_x := cos(_bob_time * 0.5) * bob_strength * 0.5
+	var bob_roll := sin(_bob_time * 0.5) * bob_strength * 0.25
+	var target_fov := _camera_default_fov + (3.0 if _is_sprinting and is_moving and is_on_floor() else 0.0)
+	camera.position.y = lerpf(camera.position.y, _camera_default_y + bob_y, 10.0 * delta)
+	camera.position.x = lerpf(camera.position.x, _camera_default_x + bob_x, 10.0 * delta)
+	camera.rotation.z = lerpf(camera.rotation.z, _camera_default_roll + bob_roll, 10.0 * delta)
+	camera.fov = lerpf(camera.fov, target_fov, 8.0 * delta)
+
+func _update_wagon_platform(delta: float) -> void:
+	var current_wagon: Node3D = null
+	if is_on_floor():
+		for i in range(get_slide_collision_count()):
+			var col := get_slide_collision(i)
+			var collider := col.get_collider()
+			if collider:
+				var wagon := _find_wagon_parent(collider as Node)
+				if wagon:
+					current_wagon = wagon
+					break
+	if current_wagon != _wagon_platform:
+		_wagon_platform = current_wagon
+		if _wagon_platform:
+			_last_wagon_basis = _wagon_platform.global_basis
+	if _wagon_platform and is_instance_valid(_wagon_platform):
+		var current_basis := _wagon_platform.global_basis
+		var old_fwd := _last_wagon_basis.z
+		var new_fwd := current_basis.z
+		old_fwd.y = 0.0
+		new_fwd.y = 0.0
+		if old_fwd.length_squared() > 0.0001 and new_fwd.length_squared() > 0.0001:
+			var angle := old_fwd.signed_angle_to(new_fwd, Vector3.UP)
+			if absf(angle) > 0.0001:
+				head.rotate_y(angle)
+		_last_wagon_basis = current_basis
+
 func _update_ambient() -> void:
 	_ambient_timer += get_physics_process_delta_time()
 	if _ambient_timer < 1.0:
 		return
 	_ambient_timer = 0.0
 	AudioManager.play_ambient(GAME_AMBIENT_NAME)
+
+
+func _broadcast_network_state() -> void:
+	if not is_local or not multiplayer.has_multiplayer_peer():
+		return
+	_receive_network_state.rpc(global_position, head.rotation.y, camera.rotation.x)
+
+
+@rpc("any_peer", "unreliable")
+func _receive_network_state(pos: Vector3, head_yaw: float, camera_pitch: float) -> void:
+	if is_local:
+		return
+	_remote_target_position = pos
+	_remote_target_head_yaw = head_yaw
+	_remote_target_camera_pitch = camera_pitch
+	if not _remote_state_initialized:
+		_remote_state_initialized = true
+		global_position = pos
+		head.rotation.y = head_yaw
+		camera.rotation.x = camera_pitch
 
 func _try_interact() -> void:
 	if not interact_ray.is_colliding():
@@ -435,10 +590,20 @@ func _update_interact_hint() -> void:
 				hud.show_interact_hint("[E] Pump")
 			elif collider is Harvestable:
 				hud.show_interact_hint("[E] Harvest")
+			elif collider.is_in_group("dropped_item"):
+				hud.show_interact_hint("[E] Ramasser")
 			else:
 				hud.show_interact_hint("[E] Interact")
 			return
 	hud.hide_interact_hint()
+
+func _try_drop_item() -> void:
+	var slot_index := Inventory.selected_hotbar_index
+	var slot := Inventory.get_slot_data(slot_index)
+	if slot.item_id == "" or int(slot.amount) <= 0:
+		return
+	var drop_pos := global_position + head.global_basis * Vector3(0, 0, -1.5)
+	Inventory.drop_slot(slot_index, -1, drop_pos)
 
 func _find_wagon_parent(node: Node) -> Node3D:
 	var current: Node = node

@@ -9,6 +9,7 @@ signal train_stopped
 const WAGON_LENGTH: float = 12.0
 const WAGON_SPACING: float = 1.5
 const MAX_WAGONS: int = 10
+const SNAPSHOT_INTERVAL: float = 0.1
 
 var train_speed: float = 0.0
 var max_speed: float = 30.0
@@ -21,15 +22,32 @@ var train_container: Node3D = null
 # 1 = forward (toward end), -1 = backward (toward start)
 var _direction: int = 1
 
+# Network sync
+var _snapshot_timer: float = 0.0
+var _target_progress: float = 0.0
+var _target_speed: float = 0.0
+var _target_is_moving: bool = false
+var _target_direction: int = 1
+var _target_rail_path: Path3D = null
+var _has_received_snapshot: bool = false
+
 func _ready() -> void:
 	pass
 
 func _physics_process(delta: float) -> void:
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		_interpolate_to_target(delta)
+		return
+	# Host: simulate normally
 	if not is_moving or rail_path == null:
 		return
 	path_progress += train_speed * delta
 	_check_junction()
 	_update_train_positions()
+	_snapshot_timer += delta
+	if _snapshot_timer >= SNAPSHOT_INTERVAL and multiplayer.has_multiplayer_peer():
+		_snapshot_timer = 0.0
+		_broadcast_snapshot()
 
 func _check_junction() -> void:
 	if rail_path == null or rail_path.curve == null:
@@ -39,7 +57,6 @@ func _check_junction() -> void:
 		return
 
 	if path_progress >= length:
-		# Reached end (endpoint 1)
 		var route := RailNetwork.get_active_route(rail_path, 1)
 		if route.is_empty():
 			path_progress = length
@@ -50,18 +67,15 @@ func _check_junction() -> void:
 		var overflow := path_progress - length
 		rail_path = next_path
 		if route.end == 1:
-			# Enter next path from its end — reverse
 			path_progress = next_length - overflow
 			train_speed = -abs(train_speed)
 			_direction = -1
 		else:
-			# Enter next path from its start — continue forward
 			path_progress = overflow
 			train_speed = abs(train_speed)
 			_direction = 1
 
 	elif path_progress < 0.0:
-		# Reached start (endpoint 0)
 		var route := RailNetwork.get_active_route(rail_path, 0)
 		if route.is_empty():
 			path_progress = 0.0
@@ -72,12 +86,10 @@ func _check_junction() -> void:
 		var overflow := -path_progress
 		rail_path = next_path
 		if route.end == 0:
-			# Enter next path from its start — reverse (now going forward)
 			path_progress = overflow
 			train_speed = abs(train_speed)
 			_direction = 1
 		else:
-			# Enter next path from its end — continue backward
 			path_progress = next_length - overflow
 			train_speed = -abs(train_speed)
 			_direction = -1
@@ -94,12 +106,16 @@ func start_train() -> void:
 	train_speed = max_speed * _direction
 	train_speed_changed.emit(train_speed)
 	train_started.emit()
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		_broadcast_snapshot()
 
 func stop_train() -> void:
 	is_moving = false
 	train_speed = 0.0
 	train_speed_changed.emit(train_speed)
 	train_stopped.emit()
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		_broadcast_snapshot()
 
 func add_wagon_scene(wagon_scene: PackedScene) -> Wagon:
 	if wagons.size() >= MAX_WAGONS or train_container == null:
@@ -113,7 +129,6 @@ func add_wagon_scene(wagon_scene: PackedScene) -> Wagon:
 	_update_train_positions()
 	wagon_added.emit(wagon)
 
-	# Spawn connector between wagons
 	if wagons.size() > 1:
 		_spawn_connector(wagons.size() - 2)
 	return wagon
@@ -124,7 +139,6 @@ func remove_wagon(index: int) -> void:
 	var wagon := wagons[index]
 	wagons.remove_at(index)
 	wagon.queue_free()
-	# Re-index remaining wagons
 	for i in wagons.size():
 		wagons[i].wagon_index = i
 	_update_train_positions()
@@ -139,7 +153,6 @@ func get_wagon_count() -> int:
 	return wagons.size()
 
 func get_total_offset(index: int) -> float:
-	# Locomotive length + gap + wagon offsets
 	var loco_length := 15.0
 	return loco_length + WAGON_SPACING + index * (WAGON_LENGTH + WAGON_SPACING) + WAGON_LENGTH / 2.0
 
@@ -150,7 +163,6 @@ func _update_train_positions() -> void:
 	if curve == null or curve.get_baked_length() == 0:
 		return
 
-	# Update locomotive
 	if locomotive:
 		var loco_offset := clampf(path_progress, 0.0, curve.get_baked_length())
 		var loco_pos := curve.sample_baked(loco_offset)
@@ -159,7 +171,6 @@ func _update_train_positions() -> void:
 		if loco_pos.distance_to(loco_fwd) > 0.01:
 			locomotive.look_at(rail_path.to_global(loco_fwd), Vector3.UP)
 
-	# Update each wagon
 	for i in wagons.size():
 		var total_offset := get_total_offset(i)
 		var wagon_progress := path_progress - total_offset
@@ -177,3 +188,45 @@ func _spawn_connector(between_index: int) -> void:
 	var connector := load(connector_scene_path).instantiate() as Node3D
 	train_container.add_child(connector)
 	connector.set_meta("connector_index", between_index)
+
+
+# --- Network sync ---
+
+func _broadcast_snapshot() -> void:
+	if not multiplayer.is_server():
+		return
+	var rail_ref: NodePath = rail_path.get_path() if rail_path != null else NodePath()
+	_apply_train_snapshot.rpc(rail_ref, path_progress, train_speed, is_moving, _direction)
+	WorldSync.broadcast_train_entity_snapshots()
+
+@rpc("authority", "unreliable")
+func _apply_train_snapshot(rail_ref: NodePath, progress: float, speed: float, moving: bool, direction: int) -> void:
+	_target_rail_path = get_node_or_null(rail_ref) as Path3D
+	_target_progress = progress
+	_target_speed = speed
+	_target_is_moving = moving
+	_target_direction = direction
+	_has_received_snapshot = true
+
+func _interpolate_to_target(delta: float) -> void:
+	if not _has_received_snapshot:
+		return
+	if _target_rail_path != null:
+		rail_path = _target_rail_path
+	is_moving = _target_is_moving
+	_direction = _target_direction
+	train_speed = _target_speed
+	var diff := _target_progress - path_progress
+	if absf(diff) > 50.0:
+		path_progress = _target_progress
+	else:
+		path_progress = lerpf(path_progress, _target_progress, minf(delta * 10.0, 1.0))
+	if is_moving:
+		path_progress += train_speed * delta
+	_update_train_positions()
+
+func sync_state_to_peer(peer_id: int) -> void:
+	if not multiplayer.is_server():
+		return
+	var rail_ref: NodePath = rail_path.get_path() if rail_path != null else NodePath()
+	_apply_train_snapshot.rpc_id(peer_id, rail_ref, path_progress, train_speed, is_moving, _direction)

@@ -12,6 +12,8 @@ func _ready() -> void:
 	add_to_group("wagon")
 
 func _physics_process(delta: float) -> void:
+	if not WorldSync.is_host():
+		return
 	if fuel <= 0:
 		current_speed = move_toward(current_speed, 0, brake_force * delta)
 		TrainManager.train_speed = current_speed
@@ -30,6 +32,12 @@ func get_fuel_percent() -> float:
 	return fuel / max_fuel * 100.0
 
 func interact(_player: CharacterBody3D) -> void:
+	if WorldSync.should_request_host():
+		WorldSync.request_interact(WorldSync.get_net_id(self))
+		return
+	server_interact(0)
+
+func server_interact(_peer_id: int) -> void:
 	if TrainManager.is_moving:
 		TrainManager.stop_train()
 	else:

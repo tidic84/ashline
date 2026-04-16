@@ -1047,6 +1047,7 @@ func _ensure_static_body() -> StaticBody3D:
 	body = StaticBody3D.new()
 	body.name = BODY_NODE_NAME
 	body.set_meta(GENERATED_META_KEY, true)
+	body.add_to_group("ground")
 	add_child(body)
 	return body
 

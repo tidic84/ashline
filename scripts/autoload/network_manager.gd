@@ -23,6 +23,7 @@ func _ready() -> void:
 	multiplayer.server_disconnected.connect(_on_server_disconnected)
 
 func host_game(port: int = DEFAULT_PORT) -> Error:
+	Inventory.reset_network_state(true)
 	peer = ENetMultiplayerPeer.new()
 	var error := peer.create_server(port, MAX_PLAYERS)
 	if error != OK:
@@ -36,6 +37,7 @@ func host_game(port: int = DEFAULT_PORT) -> Error:
 	return OK
 
 func join_game(address: String, port: int = DEFAULT_PORT) -> Error:
+	Inventory.reset_network_state(false)
 	peer = ENetMultiplayerPeer.new()
 	var error := peer.create_client(address, port)
 	if error != OK:
@@ -49,6 +51,7 @@ func disconnect_game() -> void:
 		peer = null
 	multiplayer.multiplayer_peer = null
 	players_info.clear()
+	Inventory.reset_network_state(false)
 	lobby_updated.emit()
 
 func is_host() -> bool:
@@ -69,6 +72,8 @@ func request_register_player(player_name: String) -> void:
 	lobby_updated.emit()
 	_sync_lobby_state.rpc(players_info)
 	_broadcast_system_chat("%s joined." % player_name)
+	if GameManager.current_state == GameManager.GameState.PLAYING:
+		start_game.rpc_id(sender_id)
 
 @rpc("authority", "reliable")
 func _sync_lobby_state(snapshot: Dictionary) -> void:
@@ -116,6 +121,8 @@ func _on_peer_connected(id: int) -> void:
 
 func _on_peer_disconnected(id: int) -> void:
 	var player_name := _get_player_name(id)
+	if multiplayer.is_server() and GameManager.current_state == GameManager.GameState.PLAYING:
+		Inventory.preserve_disconnected_peer(id)
 	players_info.erase(id)
 	player_disconnected.emit(id)
 	lobby_updated.emit()

@@ -1,17 +1,20 @@
 extends Node
 
-# Central audio manager. Files can be dropped into res://audio/sfx and res://audio/ambient
+# Central audio manager. Files can be dropped into res://assets/audio/sfx and res://assets/audio/ambient
 # and they will be auto-loaded by filename (minus extension).
 #
 # play_sfx("pump") — plays audio/sfx/pump.ogg if present, silent fallback otherwise.
 # play_ambient("forest") — loops an ambient loop.
 
-const SFX_DIR: String = "res://audio/sfx/"
-const AMBIENT_DIR: String = "res://audio/ambient/"
-const MUSIC_DIR: String = "res://audio/music/"
+const SFX_DIR: String = "res://assets/audio/sfx/"
+const AMBIENT_DIR: String = "res://assets/audio/ambient/"
+const MUSIC_DIR: String = "res://assets/audio/music/"
 const CONFIG_PATH: String = "user://settings.cfg"
 const DEFAULT_MASTER_VOLUME_DB: float = -15.0
 const MIN_VOLUME_LINEAR: float = 0.0001
+const AMBIENT_FALLBACK_PATHS: Dictionary = {
+	"train_ambience": "res://assets/audio/ambient/train_ambience.wav",
+}
 
 var _sfx_cache: Dictionary = {}   # name -> AudioStream
 var _ambient_cache: Dictionary = {}
@@ -117,8 +120,8 @@ func play_ambient(name: String) -> void:
 	if _current_ambient == name and _ambient_player.playing:
 		return
 	if not _ambient_cache.has(name):
-		_ambient_player.stop()
-		_current_ambient = ""
+		_try_load_ambient(name)
+	if not _ambient_cache.has(name):
 		return
 	var stream: AudioStream = _ambient_cache[name]
 	_configure_ambient_loop(stream)
@@ -137,6 +140,22 @@ func _configure_ambient_loop(stream: AudioStream) -> void:
 		(stream as AudioStreamOggVorbis).loop = true
 	elif stream is AudioStreamMP3:
 		(stream as AudioStreamMP3).loop = true
+
+func _try_load_ambient(name: String) -> void:
+	if AMBIENT_FALLBACK_PATHS.has(name):
+		var fallback_path: String = String(AMBIENT_FALLBACK_PATHS[name])
+		if ResourceLoader.exists(fallback_path):
+			var fallback_stream: AudioStream = load(fallback_path) as AudioStream
+			if fallback_stream != null:
+				_ambient_cache[name] = fallback_stream
+				return
+	for ext in [".wav", ".ogg", ".mp3"]:
+		var path: String = AMBIENT_DIR + name + ext
+		if ResourceLoader.exists(path):
+			var stream: AudioStream = load(path) as AudioStream
+			if stream:
+				_ambient_cache[name] = stream
+				return
 
 func _on_ambient_finished() -> void:
 	if _current_ambient.is_empty():
