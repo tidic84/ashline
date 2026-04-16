@@ -27,7 +27,7 @@ const INTERACT_COLLISION_MASK: int = 48
 const LOOK_COLLISION_MASK: int = 57  # World (1) + Train (8) + Placeables (16) + Interactable (32)
 const BUILD_PREVIEW_INTERVAL: float = 0.033
 const INTERACT_CHECK_INTERVAL: float = 0.05
-const GAME_AMBIENT_NAME: String = "train_ambience"
+const GAME_AMBIENT_NAME: String = ""
 
 
 func _ready() -> void:
@@ -71,6 +71,7 @@ func _ready() -> void:
 				_set_player_look_enabled(true)
 		)
 	GameManager.game_state_changed.connect(_on_game_state_changed)
+	AudioManager.stop_ambient()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -469,6 +470,8 @@ func _prettify_node_name(raw_name: String) -> String:
 
 
 func _update_ambient(delta: float) -> void:
+	if GAME_AMBIENT_NAME.is_empty():
+		return
 	_ambient_timer += delta
 	if _ambient_timer < 1.0:
 		return

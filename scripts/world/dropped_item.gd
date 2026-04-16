@@ -4,6 +4,8 @@ var item_id: String = ""
 var amount: int = 0
 var net_id: int = 0
 
+const PICKUP_SFX: String = "pickup_item"
+
 @onready var label: Label3D = $NameLabel
 @onready var mesh_holder: Node3D = $MeshHolder
 
@@ -55,6 +57,7 @@ func interact(_player: CharacterBody3D) -> void:
 		var nid := int(get_meta(WorldSync.NET_ID_META, 0))
 		if nid > 0:
 			WorldSync.request_pickup_drop(nid)
+			_play_pickup_sfx()
 		return
 	server_pickup(0)
 
@@ -67,7 +70,12 @@ func server_pickup(peer_id: int) -> void:
 		Inventory.server_add_item(peer_id, item_id, amount)
 	else:
 		Inventory.add_item(item_id, amount)
+	if peer_id <= 0 or peer_id == Inventory.get_local_peer_id():
+		_play_pickup_sfx()
 	var nid := int(get_meta(WorldSync.NET_ID_META, 0))
 	if nid > 0:
 		WorldSync.replicate_despawn(nid)
 	queue_free()
+
+func _play_pickup_sfx() -> void:
+	AudioManager.play_sfx(PICKUP_SFX, 0.0, randf_range(0.96, 1.04))
