@@ -676,7 +676,7 @@ func try_place_floor(hit_point: Vector3, chassis: Node, actor_peer_id: int = -1,
 	chassis.place_floor(grid_pos, instance)
 	item_placed.emit(instance)
 	if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
-		WorldSync.replicate_place_floor(WorldSync.get_net_id(chassis), grid_pos)
+		WorldSync.replicate_place_floor(WorldSync.get_net_id(chassis), WorldSync.get_net_id(instance), grid_pos)
 	return instance
 
 func try_place_item(hit_point: Vector3, chassis: Node, actor_peer_id: int = -1, replicate: bool = true) -> Node3D:
@@ -750,7 +750,7 @@ func server_try_place_chassis(peer_id: int, hit_point: Vector3) -> Node3D:
 
 func server_try_place_floor(peer_id: int, target_net_id: int, grid_pos: Vector2i) -> Node3D:
 	var target := WorldSync.get_entity(target_net_id)
-	if target == null or not target.has_method("grid_to_world"):
+	if target == null or not target.has_method("grid_to_world") or not target.has_method("can_place_floor"):
 		return null
 	var hit_point: Vector3 = target.grid_to_world(grid_pos)
 	return try_place_floor(hit_point, target, peer_id, true)
@@ -758,6 +758,8 @@ func server_try_place_floor(peer_id: int, target_net_id: int, grid_pos: Vector2i
 func server_try_place_item(peer_id: int, target_net_id: int, buildable_id: String, grid_pos: Vector2i, rotation_y: float, edge: int) -> Node3D:
 	var target := WorldSync.get_entity(target_net_id)
 	if target == null or not target.has_method("is_grid_in_bounds"):
+		return null
+	if not target.has_method("can_place_item") or not target.has_method("can_place_edge"):
 		return null
 	if not _has_build_tool_for_peer(peer_id):
 		return null
@@ -783,7 +785,7 @@ func server_try_place_item(peer_id: int, target_net_id: int, buildable_id: Strin
 		WorldSync.replicate_place_item(target_net_id, WorldSync.get_net_id(placed), buildable_id, grid_pos, rotation_y, edge)
 	return placed
 
-func apply_network_floor(target_net_id: int, grid_pos: Vector2i) -> Node3D:
+func apply_network_floor(target_net_id: int, floor_net_id: int, grid_pos: Vector2i) -> Node3D:
 	var target := WorldSync.get_entity(target_net_id)
 	if target == null or not target.has_method("can_place_floor"):
 		return null
@@ -791,7 +793,7 @@ func apply_network_floor(target_net_id: int, grid_pos: Vector2i) -> Node3D:
 		return null
 	var instance := floor_scene.instantiate() as Node3D
 	target.add_child(instance)
-	WorldSync.register_entity(instance)
+	WorldSync.register_entity(instance, floor_net_id)
 	var local_pos: Vector3 = target.grid_to_local(grid_pos)
 	local_pos.y = target.get_build_surface_local_y()
 	instance.position = local_pos
@@ -802,6 +804,8 @@ func apply_network_floor(target_net_id: int, grid_pos: Vector2i) -> Node3D:
 func apply_network_item(target_net_id: int, item_net_id: int, buildable_id: String, grid_pos: Vector2i, rotation_y: float, edge: int) -> Node3D:
 	var target := WorldSync.get_entity(target_net_id)
 	if target == null or not buildable_catalog.has(buildable_id):
+		return null
+	if not target.has_method("can_place_item") or not target.has_method("can_place_edge"):
 		return null
 	var data: BuildableData = buildable_catalog[buildable_id]
 	var is_edge_item: bool = data.category in [
@@ -818,6 +822,8 @@ func apply_network_item(target_net_id: int, item_net_id: int, buildable_id: Stri
 
 func _instantiate_buildable_on_target(target: Node, data: BuildableData, grid_pos: Vector2i, rotation_y: float, edge: int, net_id: int = 0) -> Node3D:
 	if data == null or data.scene == null:
+		return null
+	if not target.has_method("grid_to_local") or not target.has_method("get_build_surface_local_y"):
 		return null
 	var instance := data.scene.instantiate() as Node3D
 	instance.set_meta("buildable_id", data.id)

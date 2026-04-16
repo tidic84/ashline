@@ -116,6 +116,7 @@ const STARTER_ITEMS: Dictionary = {
 	"pickaxe": 1,
 	"hammer": 1,
 }
+const STARTER_HOTBAR_ITEMS: Array[String] = ["axe", "pickaxe", "hammer"]
 
 var _slots: Array[Dictionary] = []
 var _item_icons: Dictionary = {}
@@ -175,9 +176,24 @@ func reset_local_inventory() -> void:
 
 func grant_starter_inventory() -> void:
 	reset_local_inventory()
-	for item_id in STARTER_ITEMS:
-		add_item(item_id, int(STARTER_ITEMS[item_id]))
-	select_hotbar_item("hammer")
+	var was_suppressed := _suppress_notifications
+	_suppress_notifications = true
+	for i in range(STARTER_HOTBAR_ITEMS.size()):
+		var tool_id := STARTER_HOTBAR_ITEMS[i]
+		if STARTER_ITEMS.has(tool_id):
+			_slots[i] = {"item_id": tool_id, "amount": int(STARTER_ITEMS[tool_id])}
+	for item_id_key in STARTER_ITEMS:
+		var item_id := String(item_id_key)
+		if STARTER_HOTBAR_ITEMS.has(item_id):
+			continue
+		var remaining := _fill_existing_stacks_in_range(item_id, int(STARTER_ITEMS[item_id]), HOTBAR_SIZE, _slots.size())
+		remaining = _fill_empty_slots_in_range(item_id, remaining, HOTBAR_SIZE, _slots.size())
+		if remaining > 0:
+			remaining = _fill_existing_stacks_in_range(item_id, remaining, 0, HOTBAR_SIZE)
+			_fill_empty_slots_in_range(item_id, remaining, 0, HOTBAR_SIZE)
+	selected_hotbar_index = maxi(0, find_hotbar_slot("hammer"))
+	_suppress_notifications = was_suppressed
+	_notify_inventory_changed()
 
 func get_local_peer_id() -> int:
 	if multiplayer.has_multiplayer_peer():
@@ -366,8 +382,15 @@ func add_item(item_id: String, amount: int) -> void:
 		return
 
 	var remaining: int = amount
-	remaining = _fill_existing_stacks(item_id, remaining)
-	remaining = _fill_empty_slots(item_id, remaining)
+	if TOOL_ITEMS.has(item_id):
+		remaining = _fill_existing_stacks(item_id, remaining)
+		remaining = _fill_empty_slots(item_id, remaining)
+	else:
+		remaining = _fill_existing_stacks_in_range(item_id, remaining, HOTBAR_SIZE, _slots.size())
+		remaining = _fill_empty_slots_in_range(item_id, remaining, HOTBAR_SIZE, _slots.size())
+		if remaining > 0:
+			remaining = _fill_existing_stacks_in_range(item_id, remaining, 0, HOTBAR_SIZE)
+			remaining = _fill_empty_slots_in_range(item_id, remaining, 0, HOTBAR_SIZE)
 
 	var added: int = amount - remaining
 	if added <= 0:
@@ -1113,8 +1136,13 @@ func _icon_pickaxe(img: Image) -> void:
 	img.fill_rect(Rect2i(15, 13, 2, 18), Color(h.r+0.12, h.g+0.07, h.b+0.02))
 
 func _fill_existing_stacks(item_id: String, remaining: int) -> int:
+	return _fill_existing_stacks_in_range(item_id, remaining, 0, _slots.size())
+
+func _fill_existing_stacks_in_range(item_id: String, remaining: int, start_index: int, end_index: int) -> int:
 	var stack_max: int = get_stack_size(item_id)
-	for i in range(_slots.size()):
+	var start := clampi(start_index, 0, _slots.size())
+	var end := clampi(end_index, start, _slots.size())
+	for i in range(start, end):
 		if remaining <= 0:
 			return 0
 		var slot := _slots[i]
@@ -1130,8 +1158,13 @@ func _fill_existing_stacks(item_id: String, remaining: int) -> int:
 	return remaining
 
 func _fill_empty_slots(item_id: String, remaining: int) -> int:
+	return _fill_empty_slots_in_range(item_id, remaining, 0, _slots.size())
+
+func _fill_empty_slots_in_range(item_id: String, remaining: int, start_index: int, end_index: int) -> int:
 	var stack_max: int = get_stack_size(item_id)
-	for i in range(_slots.size()):
+	var start := clampi(start_index, 0, _slots.size())
+	var end := clampi(end_index, start, _slots.size())
+	for i in range(start, end):
 		if remaining <= 0:
 			return 0
 		if not _is_slot_empty(_slots[i]):

@@ -26,6 +26,8 @@ func register_entity(node: Node, net_id: int = 0) -> int:
 	if assigned_id <= 0:
 		assigned_id = _next_net_id
 		_next_net_id += 1
+	elif assigned_id >= _next_net_id:
+		_next_net_id = assigned_id + 1
 	node.set_meta(NET_ID_META, assigned_id)
 	node.add_to_group("net_entity")
 	_entities[assigned_id] = node
@@ -116,9 +118,9 @@ func request_damage(target_net_id: int, amount: float) -> void:
 		_request_damage.rpc_id(1, target_net_id, amount)
 
 
-func replicate_place_floor(target_net_id: int, grid_pos: Vector2i) -> void:
+func replicate_place_floor(target_net_id: int, floor_net_id: int, grid_pos: Vector2i) -> void:
 	if is_networked() and multiplayer.is_server():
-		_apply_place_floor.rpc(target_net_id, grid_pos)
+		_apply_place_floor.rpc(target_net_id, floor_net_id, grid_pos)
 
 
 func replicate_place_item(target_net_id: int, item_net_id: int, buildable_id: String, grid_pos: Vector2i, rotation_y: float, edge: int) -> void:
@@ -257,8 +259,8 @@ func _request_damage(target_net_id: int, amount: float) -> void:
 
 
 @rpc("authority", "reliable")
-func _apply_place_floor(target_net_id: int, grid_pos: Vector2i) -> void:
-	run_remote_apply(func(): return BuildSystem.apply_network_floor(target_net_id, grid_pos))
+func _apply_place_floor(target_net_id: int, floor_net_id: int, grid_pos: Vector2i) -> void:
+	run_remote_apply(func(): return BuildSystem.apply_network_floor(target_net_id, floor_net_id, grid_pos))
 
 
 @rpc("authority", "reliable")
