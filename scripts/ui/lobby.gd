@@ -43,6 +43,7 @@ func _ready() -> void:
 		port_input.text = str(NetworkManager.DEFAULT_PORT)
 	if name_input:
 		name_input.text = "Player"
+	_refresh_lobby_controls()
 
 func _connect_network_signal(sig: Signal, callback: Callable) -> void:
 	if not sig.is_connected(callback):
@@ -52,7 +53,9 @@ func _on_solo_pressed() -> void:
 	NetworkManager.local_player_name = name_input.text if name_input else "Player"
 	var port := int(port_input.text) if port_input else NetworkManager.DEFAULT_PORT
 	if multiplayer.has_multiplayer_peer() and not NetworkManager.is_host():
-		_set_status("Only the host can launch the game.")
+		NetworkManager.set_player_ready.rpc_id(1, true)
+		_set_status("Pret. En attente du lancement par l'hote.")
+		_refresh_lobby_controls()
 		return
 	if not multiplayer.has_multiplayer_peer():
 		var error := NetworkManager.host_game(port)
@@ -76,6 +79,7 @@ func _on_host_pressed() -> void:
 		join_button.disabled = true
 	if start_button:
 		start_button.visible = true
+	_refresh_lobby_controls()
 	_refresh_player_list()
 
 func _on_join_pressed() -> void:
@@ -91,6 +95,7 @@ func _on_join_pressed() -> void:
 		host_button.disabled = true
 	if join_button:
 		join_button.disabled = true
+	_refresh_lobby_controls()
 
 func _on_start_pressed() -> void:
 	if not NetworkManager.is_host():
@@ -105,6 +110,7 @@ func _on_connection_succeeded() -> void:
 	_set_status("Connected!")
 	if start_button:
 		start_button.visible = false
+	_refresh_lobby_controls()
 	_refresh_player_list()
 
 func _on_connection_failed() -> void:
@@ -113,6 +119,7 @@ func _on_connection_failed() -> void:
 		host_button.disabled = false
 	if join_button:
 		join_button.disabled = false
+	_refresh_lobby_controls()
 
 func _on_player_connected(_id: int) -> void:
 	_refresh_player_list()
@@ -128,6 +135,20 @@ func _refresh_player_list() -> void:
 		var info: Dictionary = NetworkManager.players_info[id]
 		var host_tag: String = " (Host)" if id == 1 else ""
 		player_list.add_item("%s%s" % [info.name, host_tag])
+	_refresh_lobby_controls()
+
+func _refresh_lobby_controls() -> void:
+	if solo_button == null:
+		return
+	if not multiplayer.has_multiplayer_peer():
+		solo_button.text = "Creer et jouer"
+		solo_button.disabled = false
+	elif NetworkManager.is_host():
+		solo_button.text = "Lancer la partie"
+		solo_button.disabled = false
+	else:
+		solo_button.text = "Pret"
+		solo_button.disabled = false
 
 func _set_status(text: String) -> void:
 	if status_label:

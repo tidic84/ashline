@@ -21,8 +21,6 @@ var current_weapon: Node3D = null
 var is_local: bool = false
 var display_name: String = ""
 var _ambient_timer: float = 0.0
-var _controls_locked_position: Vector3 = Vector3.ZERO
-var _controls_were_locked: bool = false
 
 func _enter_tree() -> void:
 	if not multiplayer.has_multiplayer_peer():
@@ -151,7 +149,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if not is_local:
 		return
-	if _lock_position_while_blocked():
+	if _apply_blocked_movement(delta):
 		return
 
 	if not is_on_floor():
@@ -363,15 +361,16 @@ func _is_chat_open() -> bool:
 func _controls_blocked() -> bool:
 	return GameManager.current_state == GameManager.GameState.PAUSED or _is_chat_open()
 
-func _lock_position_while_blocked() -> bool:
+func _apply_blocked_movement(delta: float) -> bool:
 	if not _controls_blocked():
-		_controls_were_locked = false
 		return false
-	if not _controls_were_locked:
-		_controls_locked_position = global_position
-		_controls_were_locked = true
-	global_position = _controls_locked_position
-	velocity = Vector3.ZERO
+	velocity.x = move_toward(velocity.x, 0.0, current_speed)
+	velocity.z = move_toward(velocity.z, 0.0, current_speed)
+	if not is_on_floor():
+		velocity.y -= gravity * delta
+	else:
+		velocity.y = minf(velocity.y, 0.0)
+	move_and_slide()
 	BuildSystem.hide_preview()
 	return true
 

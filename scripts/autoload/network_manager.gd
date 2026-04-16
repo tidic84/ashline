@@ -83,6 +83,8 @@ func set_player_ready(ready: bool) -> void:
 	if players_info.has(sender_id):
 		players_info[sender_id].ready = ready
 	if multiplayer.is_server():
+		lobby_updated.emit()
+		_sync_lobby_state.rpc(players_info)
 		_check_all_ready()
 
 func _check_all_ready() -> void:

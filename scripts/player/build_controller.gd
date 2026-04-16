@@ -19,8 +19,7 @@ var _ambient_timer: float = 0.0
 var _ray_exclude: Array[RID] = []
 var _build_preview_accum: float = 0.0
 var _interact_check_accum: float = 0.0
-var _controls_locked_position: Vector3 = Vector3.ZERO
-var _controls_were_locked: bool = false
+var _controls_were_blocked: bool = false
 const BUILD_RAY_LENGTH: float = 8.0
 const INTERACT_RAY_LENGTH: float = 4.0
 const BUILD_COLLISION_MASK: int = 137  # World (1) + Train (8) + BuildDetect (128)
@@ -163,7 +162,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _physics_process(delta: float) -> void:
 	if _camera == null:
 		return
-	if _lock_position_while_blocked():
+	if _apply_blocked_controls():
 		BuildSystem.hide_preview()
 		return
 	if BuildSystem.is_building:
@@ -488,17 +487,27 @@ func _set_player_look_enabled(enabled: bool) -> void:
 		head_rot.set_process_unhandled_input(enabled)
 
 
+func _set_player_controllable(enabled: bool) -> void:
+	if _fps == null:
+		return
+	if _fps is UP_PlayerBase:
+		(_fps as UP_PlayerBase).controllable = enabled
+
+
 func _on_game_state_changed(new_state: int) -> void:
 	if new_state == GameManager.GameState.PAUSED:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		_set_player_look_enabled(false)
+		_set_player_controllable(false)
 	elif new_state == GameManager.GameState.PLAYING:
 		if _is_inventory_open() or _is_build_menu_open():
 			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 			_set_player_look_enabled(false)
+			_set_player_controllable(false)
 		else:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 			_set_player_look_enabled(true)
+			_set_player_controllable(true)
 
 
 func _open_build_menu() -> void:
@@ -549,17 +558,18 @@ func _controls_blocked() -> bool:
 	return GameManager.current_state == GameManager.GameState.PAUSED or _is_chat_open()
 
 
-func _lock_position_while_blocked() -> bool:
+func _apply_blocked_controls() -> bool:
 	if not _controls_blocked():
-		if _controls_were_locked and not _is_inventory_open() and not _is_build_menu_open():
+		if _controls_were_blocked and not _is_inventory_open() and not _is_build_menu_open():
 			_set_player_look_enabled(true)
-		_controls_were_locked = false
+			_set_player_controllable(true)
+		_controls_were_blocked = false
 		return false
-	if not _controls_were_locked:
-		_controls_locked_position = _fps.global_position
-		_controls_were_locked = true
-	_fps.global_position = _controls_locked_position
-	_fps.velocity = Vector3.ZERO
+	if not _controls_were_blocked:
+		_set_player_controllable(false)
+		_controls_were_blocked = true
+	_fps.velocity.x = 0.0
+	_fps.velocity.z = 0.0
 	_set_player_look_enabled(false)
 	return true
 
