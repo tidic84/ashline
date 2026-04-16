@@ -141,7 +141,8 @@ func _process(delta: float) -> void:
 		else:
 			crosshair.color = Color(1.0, 0.3, 0.3, 0.9)
 
-	if tracked_chassis == null or not is_instance_valid(tracked_chassis):
+sdq	tracked_chassis = _resolve_tracked_train(tracked_chassis)
+	if tracked_chassis == null or not is_instance_valid(tracked_chassis) or not _train_can_show_telemetry(tracked_chassis):
 		tracked_chassis = _find_nearest_chassis()
 	if tracked_chassis and is_instance_valid(tracked_chassis):
 		var on_rails: bool = false
@@ -195,7 +196,28 @@ func _find_nearest_chassis() -> Node:
 	if not frames.is_empty():
 		return frames[0]
 	var nodes := get_tree().get_nodes_in_group("chassis")
-	return nodes[0] as TrainChassis if not nodes.is_empty() else null
+	if nodes.is_empty():
+		return null
+	return _resolve_tracked_train(nodes[0] as Node)
+
+func _resolve_tracked_train(node: Node) -> Node:
+	if node == null or not is_instance_valid(node):
+		return null
+	if node is TrainChassis:
+		var parent := node.get_parent()
+		if parent is WagonFrame:
+			return parent
+	return node
+
+func _train_can_show_telemetry(node: Node) -> bool:
+	if node == null or not is_instance_valid(node):
+		return false
+	if node is WagonFrame:
+		var wf := node as WagonFrame
+		return wf.is_on_rails and wf.front_bogie != null
+	if node is TrainChassis:
+		return (node as TrainChassis).is_on_rails
+	return false
 
 func _get_signed_slope_degrees(node: Node3D) -> float:
 	var forward: Vector3 = node.global_basis.z.normalized()
