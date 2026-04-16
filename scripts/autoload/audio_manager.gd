@@ -20,6 +20,8 @@ const TRAIN_MOVE_SOUND_MAX_PITCH: float = 1.45
 const TRAIN_MOVE_SOUND_PITCH_SMOOTH: float = 0.35
 const TRAIN_MOVE_SOUND_UNIT_SIZE: float = 12.0
 const TRAIN_MOVE_SOUND_MAX_DISTANCE: float = 95.0
+const TRAIN_FADE_OUT_DURATION: float = 0.9
+const WOODLAND_AMBIENT_PATH: String = "C:/Users/Thomas/Desktop/JEU TRAIN/SFX/Ambiance/Quiet_woodland_copse_#3-1776360977539.wav"
 const AMBIENT_FALLBACK_PATHS: Dictionary = {
 	"train_ambience": "res://assets/audio/ambient/train_ambience.wav",
 }
@@ -32,6 +34,10 @@ var _sfx_pool: Array[AudioStreamPlayer] = []
 var _train_move_player: AudioStreamPlayer3D = null
 var _train_move_should_loop: bool = false
 var _train_move_pitch: float = 1.0
+var _train_fading_out: bool = false
+var _train_fade_elapsed: float = 0.0
+var _train_fade_start_db: float = 0.0
+var _woodland_player: AudioStreamPlayer = null
 var master_volume: float = 0.18
 const POOL_SIZE: int = 8
 
@@ -47,6 +53,47 @@ func _ready() -> void:
 	add_child(_ambient_player)
 	_scan_folder(SFX_DIR, _sfx_cache)
 	_scan_folder(AMBIENT_DIR, _ambient_cache)
+	_start_woodland_ambient()
+
+func _process(delta: float) -> void:
+	if not _train_fading_out:
+		return
+	_train_fade_elapsed += delta
+	var t := clampf(_train_fade_elapsed / TRAIN_FADE_OUT_DURATION, 0.0, 1.0)
+	var db := lerpf(_train_fade_start_db, -80.0, t)
+	if _train_move_player != null:
+		_train_move_player.volume_db = db
+	if t >= 1.0:
+		_train_fading_out = false
+		if _train_move_player != null and _train_move_player.playing:
+			_train_move_player.stop()
+			_train_move_player.volume_db = 0.0
+
+func _start_woodland_ambient() -> void:
+	print("[AUDIO] Chargement woodland: ", WOODLAND_AMBIENT_PATH)
+	if not FileAccess.file_exists(WOODLAND_AMBIENT_PATH):
+		print("[AUDIO] ERREUR: fichier woodland introuvable sur disque")
+		return
+	var stream := AudioStreamWAV.load_from_file(WOODLAND_AMBIENT_PATH)
+	if stream == null:
+		print("[AUDIO] ERREUR: load_from_file a retourne null")
+		return
+	print("[AUDIO] Stream woodland OK | format=%d | stereo=%s | data_size=%d" % [stream.format, str(stream.stereo), stream.data.size()])
+	stream.loop_mode = AudioStreamWAV.LOOP_DISABLED
+	_woodland_player = AudioStreamPlayer.new()
+	_woodland_player.name = "WoodlandAmbient"
+	_woodland_player.bus = "Ambient"
+	_woodland_player.volume_db = 10.0
+	_woodland_player.stream = stream
+	_woodland_player.process_mode = Node.PROCESS_MODE_ALWAYS
+	_woodland_player.finished.connect(_on_woodland_finished)
+	add_child(_woodland_player)
+	_woodland_player.play()
+	print("[AUDIO] Woodland ambient demarre | volume_db=%.1f | bus=%s" % [_woodland_player.volume_db, _woodland_player.bus])
+
+func _on_woodland_finished() -> void:
+	if _woodland_player != null:
+		_woodland_player.play()
 
 func set_global_volume_db(volume_db: float) -> void:
 	var master_idx: int = AudioServer.get_bus_index("Master")
@@ -132,6 +179,8 @@ func play_train_move_sound(speed: float = 0.0, world_position: Vector3 = Vector3
 		print("[TRAIN AUDIO] Impossible de lancer le son du train: stream introuvable")
 		return
 	_train_move_should_loop = true
+	_train_fading_out = false
+	_train_move_player.volume_db = 0.0
 	_train_move_player.global_position = world_position
 	_update_train_move_pitch(speed)
 	if not _train_move_player.playing:
@@ -146,9 +195,11 @@ func play_train_move_sound(speed: float = 0.0, world_position: Vector3 = Vector3
 
 func stop_train_move_sound() -> void:
 	_train_move_should_loop = false
-	if _train_move_player != null and _train_move_player.playing:
-		print("[TRAIN AUDIO] Stop son train")
-		_train_move_player.stop()
+	if _train_move_player != null and _train_move_player.playing and not _train_fading_out:
+		print("[TRAIN AUDIO] Fondu sortie son train")
+		_train_fading_out = true
+		_train_fade_elapsed = 0.0
+		_train_fade_start_db = _train_move_player.volume_db
 
 func _ensure_train_move_player() -> bool:
 	if _train_move_player != null:

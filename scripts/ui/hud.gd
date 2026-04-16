@@ -141,7 +141,7 @@ func _process(delta: float) -> void:
 		else:
 			crosshair.color = Color(1.0, 0.3, 0.3, 0.9)
 
-sdq	tracked_chassis = _resolve_tracked_train(tracked_chassis)
+	tracked_chassis = _resolve_tracked_train(tracked_chassis)
 	if tracked_chassis == null or not is_instance_valid(tracked_chassis) or not _train_can_show_telemetry(tracked_chassis):
 		tracked_chassis = _find_nearest_chassis()
 	if tracked_chassis and is_instance_valid(tracked_chassis):
@@ -168,7 +168,7 @@ sdq	tracked_chassis = _resolve_tracked_train(tracked_chassis)
 			speed_label.visible = true
 			distance_label.visible = true
 			slope_label.visible = true
-			speed_label.text = "%.1f m/s" % spd
+			speed_label.text = "%.1f km/h" % (spd * 3.6)
 			distance_label.text = "%d m" % int(dist)
 			slope_label.text = "Pente: %.1f°" % slope_deg
 		else:
