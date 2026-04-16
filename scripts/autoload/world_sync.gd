@@ -2,6 +2,7 @@ extends Node
 
 const NET_ID_META: StringName = &"net_id"
 const TRAIN_TRANSFORM_INTERVAL: float = 0.1
+const TRAIN_AUDIO_TRIGGER_SPEED: float = 0.1
 
 var _next_net_id: int = 1000
 var _entities: Dictionary = {}
@@ -542,6 +543,30 @@ func _apply_entity_transform(net_id: int, transform: Transform3D) -> void:
 		(node_3d as StaticBody3D).constant_linear_velocity = platform_velocity
 	if node_3d.has_method("_set_platform_velocity"):
 		node_3d.call("_set_platform_velocity", platform_velocity)
+	_update_local_train_audio_from_snapshot(node, transform.origin, platform_velocity)
+
+
+func _update_local_train_audio_from_snapshot(node: Node, train_position: Vector3, platform_velocity: Vector3) -> void:
+	if multiplayer.is_server():
+		return
+	if not _should_drive_local_train_audio(node):
+		return
+	var speed := platform_velocity.length()
+	if speed > TRAIN_AUDIO_TRIGGER_SPEED:
+		if AudioManager != null and AudioManager.has_method("play_train_move_sound"):
+			AudioManager.play_train_move_sound(speed, train_position)
+		return
+	if AudioManager != null and AudioManager.has_method("stop_train_move_sound"):
+		AudioManager.stop_train_move_sound()
+
+
+func _should_drive_local_train_audio(node: Node) -> bool:
+	if node is WagonFrame:
+		return true
+	if node is TrainChassis:
+		var parent := node.get_parent()
+		return not (parent is WagonFrame)
+	return node.is_in_group("wagon_frame")
 
 
 # --- Dropped items ---

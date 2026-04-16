@@ -3,7 +3,7 @@ class_name SettingsMenu
 
 signal closed
 
-const FPS_LIMITS: Array[int] = [60, 90, 120, 240]
+const FPS_LIMITS: Array[int] = [30, 60, 90, 120, 240]
 
 @onready var _shadow_option: OptionButton = $Margin/VBox/Grid/ShadowOption
 @onready var _msaa_option: OptionButton = $Margin/VBox/Grid/MsaaOption

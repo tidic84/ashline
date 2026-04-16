@@ -4,7 +4,7 @@ class_name PauseMenu
 signal resume_requested
 signal respawn_requested
 
-const FPS_LIMITS: Array[int] = [60, 90, 120, 240]
+const FPS_LIMITS: Array[int] = [30, 60, 90, 120, 240]
 
 @onready var _resume_button: Button = $Margin/VBox/Tabs/Resume/ResumeButton
 @onready var _respawn_button: Button = $Margin/VBox/Tabs/Resume/RespawnButton
