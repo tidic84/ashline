@@ -10,6 +10,19 @@ const EDGE_SOUTH: int = 2
 const EDGE_EAST: int = 3
 const EDGE_WEST: int = 4
 const NETWORK_SNAPSHOT_INTERVAL: float = 0.1
+const TRAIN_ROLL_LOOP_PATH: String = "res://assets/audio/sfx/train_roll_loop.wav"
+const TRAIN_ROLL_LOOP_FALLBACK_PATH: String = "C:/Users/Thomas/Desktop/JEU TRAIN/SFX/TRAIN/BruitsTrain.wav"
+const TRAIN_AUDIO_TRIGGER_SPEED: float = 0.1
+const TRAIN_AUDIO_FULL_SPEED: float = 6.0
+const TRAIN_AUDIO_SMOOTH_RATE: float = 4.5
+const TRAIN_AUDIO_VOLUME_SMOOTH_RATE: float = 7.0
+const TRAIN_AUDIO_SILENT_DB: float = -80.0
+const TRAIN_AUDIO_MIN_DB: float = -3.0
+const TRAIN_AUDIO_MAX_DB: float = 8.0
+const TRAIN_AUDIO_MIN_PITCH: float = 0.85
+const TRAIN_AUDIO_MAX_PITCH: float = 1.22
+const TRAIN_AUDIO_FULL_DISTANCE: float = 10.0
+const TRAIN_AUDIO_MAX_DISTANCE: float = 75.0
 
 ## Distance in grid tiles between the two bogies (even only, min 2, max 6).
 @export_range(2, 6, 2) var wagon_length: int = 4
@@ -28,6 +41,12 @@ var _frame_visuals: Array[Node3D] = []
 var _build_surface: StaticBody3D = null
 var _floor_bodies: Array[StaticBody3D] = []
 var _network_snapshot_accum: float = 0.0
+var _train_loop_player: AudioStreamPlayer = null
+var _train_loop_smoothed_speed: float = 0.0
+var _train_loop_last_position: Vector3 = Vector3.ZERO
+var _train_loop_has_last_position: bool = false
+var _train_loop_volume_db: float = TRAIN_AUDIO_SILENT_DB
+var _train_expected_motion_logged: bool = false
 
 # Split-path transition: rear bogie stays on old curve while front is on new curve
 var _split_mode: bool = false
@@ -59,7 +78,6 @@ func _ready() -> void:
 		_build_frame_visuals()
 		_build_collision_surface()
 
-
 func _setup_bogies() -> void:
 	# WagonFrame owns all movement — disable both bogies' independent physics.
 	front_bogie.is_on_rails = false
@@ -86,7 +104,9 @@ func _physics_process(delta: float) -> void:
 			front_bogie.speed = 0.0
 			front_bogie.speed_changed.emit(0.0)
 			_set_platform_velocity(Vector3.ZERO)
+		_stop_train_move_sound()
 		return
+	_play_train_move_sound(absf(front_bogie.speed))
 
 	front_bogie.speed = move_toward(front_bogie.speed, 0.0, front_bogie.friction * delta)
 	var ds: float = front_bogie.speed * delta
@@ -123,6 +143,7 @@ func _physics_process(delta: float) -> void:
 			front_bogie.speed = 0.0
 			front_bogie.speed_changed.emit(0.0)
 			_set_platform_velocity(Vector3.ZERO)
+			_stop_train_move_sound()
 			return
 		# Compute overflow past the exited endpoint, and the endpoint index
 		# (0=curve start, 1=curve end) for the transition call.
@@ -151,6 +172,7 @@ func _physics_process(delta: float) -> void:
 			front_bogie.speed = 0.0
 			front_bogie.speed_changed.emit(0.0)
 			_set_platform_velocity(Vector3.ZERO)
+			_stop_train_move_sound()
 			return
 	else:
 		front_bogie.rail_progress = raw_progress
@@ -307,6 +329,90 @@ func _set_platform_velocity(vel: Vector3) -> void:
 			body.constant_linear_velocity = vel
 
 
+func _setup_train_loop_audio() -> void:
+	pass
+
+
+func _load_train_loop_stream() -> AudioStream:
+	var stream := ResourceLoader.load(TRAIN_ROLL_LOOP_PATH, "AudioStream") as AudioStream
+	if stream != null:
+		return stream
+	var raw_stream := AudioStreamWAV.load_from_file(TRAIN_ROLL_LOOP_PATH)
+	if raw_stream != null:
+		return raw_stream
+	raw_stream = AudioStreamWAV.load_from_file(TRAIN_ROLL_LOOP_FALLBACK_PATH)
+	if raw_stream != null:
+		return raw_stream
+	return null
+
+
+func _configure_train_loop_stream(stream: AudioStream) -> void:
+	if stream is AudioStreamWAV:
+		var wav := stream as AudioStreamWAV
+		wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
+		wav.loop_begin = 0
+		wav.loop_end = -1
+	elif stream is AudioStreamOggVorbis:
+		(stream as AudioStreamOggVorbis).loop = true
+	elif stream is AudioStreamMP3:
+		(stream as AudioStreamMP3).loop = true
+
+
+func _update_train_loop_audio(delta: float) -> void:
+	pass
+
+
+func _apply_train_loop_volume(delta: float, target_volume_db: float) -> void:
+	var volume_weight := 1.0 - exp(-delta * TRAIN_AUDIO_VOLUME_SMOOTH_RATE)
+	_train_loop_volume_db = lerpf(_train_loop_volume_db, target_volume_db, volume_weight)
+	_train_loop_player.volume_db = _train_loop_volume_db
+
+
+func _play_train_move_sound(speed: float = 0.0) -> void:
+	if AudioManager != null and AudioManager.has_method("play_train_move_sound"):
+		AudioManager.play_train_move_sound(speed, global_position)
+
+
+func _stop_train_move_sound() -> void:
+	if AudioManager != null and AudioManager.has_method("stop_train_move_sound"):
+		AudioManager.stop_train_move_sound()
+
+
+func _get_train_loop_target_speed(delta: float) -> float:
+	if not is_on_rails:
+		_train_loop_last_position = global_position
+		_train_loop_has_last_position = true
+		return 0.0
+	var speed_from_bogie: float = absf(front_bogie.speed) if front_bogie != null else 0.0
+	var speed_from_position: float = 0.0
+	if _train_loop_has_last_position:
+		speed_from_position = global_position.distance_to(_train_loop_last_position) / delta
+	_train_loop_last_position = global_position
+	_train_loop_has_last_position = true
+	return maxf(speed_from_bogie, speed_from_position)
+
+
+func _get_train_loop_distance_gain() -> float:
+	var listener_pos := _get_audio_listener_position()
+	var distance := global_position.distance_to(listener_pos)
+	if distance <= TRAIN_AUDIO_FULL_DISTANCE:
+		return 1.0
+	if distance >= TRAIN_AUDIO_MAX_DISTANCE:
+		return 0.0
+	var t := (distance - TRAIN_AUDIO_FULL_DISTANCE) / (TRAIN_AUDIO_MAX_DISTANCE - TRAIN_AUDIO_FULL_DISTANCE)
+	return pow(1.0 - clampf(t, 0.0, 1.0), 2.0)
+
+
+func _get_audio_listener_position() -> Vector3:
+	var camera := get_viewport().get_camera_3d()
+	if camera != null:
+		return camera.global_position
+	var player := get_tree().get_first_node_in_group("player") as Node3D
+	if player != null:
+		return player.global_position
+	return global_position
+
+
 func snap_to_rails() -> void:
 	if front_bogie == null:
 		return
@@ -345,6 +451,8 @@ func snap_to_rails() -> void:
 		rear_bogie.rail_curve = curve
 		rear_bogie.rail_progress = rear_progress
 		rear_bogie.current_rail_path = front_bogie.current_rail_path
+		_train_loop_last_position = global_position
+		_train_loop_has_last_position = true
 
 
 func pump() -> void:
@@ -353,11 +461,32 @@ func pump() -> void:
 			front_bogie.speed + front_bogie.pump_impulse * front_bogie.travel_direction,
 			-front_bogie.max_speed, front_bogie.max_speed)
 		front_bogie.speed_changed.emit(front_bogie.speed)
+		_log_train_expected_motion("pump", absf(front_bogie.speed))
+		if absf(front_bogie.speed) > TRAIN_AUDIO_TRIGGER_SPEED:
+			_play_train_move_sound(absf(front_bogie.speed))
 
 
 func set_direction(dir: float) -> void:
 	if front_bogie:
 		front_bogie.set_direction(dir)
+
+
+func _kick_train_loop_audio() -> void:
+	pass
+
+
+func _update_train_expected_motion_debug(speed_value: float) -> void:
+	if speed_value > TRAIN_AUDIO_TRIGGER_SPEED:
+		_log_train_expected_motion("movement", speed_value)
+	else:
+		_train_expected_motion_logged = false
+
+
+func _log_train_expected_motion(source: String, speed_value: float) -> void:
+	if _train_expected_motion_logged:
+		return
+	_train_expected_motion_logged = true
+	print("[TRAIN DEBUG] Le train est cense avancer (%s) | speed=%.3f | frame=%s" % [source, speed_value, get_path()])
 
 
 # --- Grid system ---

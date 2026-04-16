@@ -9,6 +9,8 @@ class_name Harvestable
 @export var required_tool_id: String = ""
 @export var interact_label: String = "Harvest"
 
+const PICKUP_SFX: String = "pickup_item"
+
 var hits_remaining: int
 var is_depleted: bool = false
 
@@ -23,6 +25,8 @@ func _ready() -> void:
 func interact(_player: CharacterBody3D) -> void:
 	if WorldSync.should_request_host():
 		WorldSync.request_harvest(WorldSync.get_net_id(self))
+		if _is_pickup_collectible():
+			_play_pickup_sfx()
 		return
 	server_harvest(Inventory.get_local_peer_id())
 
@@ -38,7 +42,10 @@ func server_harvest(peer_id: int) -> void:
 		AudioManager.play_sfx("metal_hit", 0.0, 0.85)
 		return
 	hits_remaining -= 1
-	_play_hit_sfx()
+	if _is_pickup_collectible():
+		_play_pickup_sfx()
+	else:
+		_play_hit_sfx()
 	_on_hit()
 	if hits_remaining <= 0:
 		_harvest(peer_id)
@@ -60,6 +67,12 @@ func _play_hit_sfx() -> void:
 			AudioManager.play_sfx("mining_stone0%d" % idx, 0.0, randf_range(0.9, 1.1))
 		"metal", "metal_scrap": AudioManager.play_sfx("metal_hit", 0.0, randf_range(0.9, 1.1))
 		_: AudioManager.play_sfx("harvest", 0.0, randf_range(0.9, 1.1))
+
+func _is_pickup_collectible() -> bool:
+	return required_tool_id.is_empty() and hits_to_harvest <= 1
+
+func _play_pickup_sfx() -> void:
+	AudioManager.play_sfx(PICKUP_SFX, 0.0, randf_range(0.96, 1.04))
 
 func _on_hit() -> void:
 	# Shake effect

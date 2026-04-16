@@ -11,6 +11,8 @@ var required_tool_id: String = ""
 var interact_label: String = "Harvest"
 var target_name: String = "Resource"
 
+const PICKUP_SFX: String = "pickup_item"
+
 var _rng := RandomNumberGenerator.new()
 var _instances: Array[Dictionary] = []
 var _render_nodes: Array[MultiMeshInstance3D] = []
@@ -73,7 +75,10 @@ func interact_at(_player: CharacterBody3D, hit: Dictionary) -> void:
 
 	instance_data["hits_remaining"] = int(instance_data.get("hits_remaining", hits_to_harvest)) - 1
 	_instances[instance_index] = instance_data
-	_play_hit_sfx()
+	if _is_pickup_collectible():
+		_play_pickup_sfx()
+	else:
+		_play_hit_sfx()
 
 	if int(instance_data["hits_remaining"]) <= 0:
 		_harvest_instance(instance_index)
@@ -110,6 +115,12 @@ func _play_hit_sfx() -> void:
 			AudioManager.play_sfx("metal_hit", 0.0, randf_range(0.9, 1.1))
 		_:
 			AudioManager.play_sfx("harvest", 0.0, randf_range(0.9, 1.1))
+
+func _is_pickup_collectible() -> bool:
+	return required_tool_id.is_empty() and hits_to_harvest <= 1
+
+func _play_pickup_sfx() -> void:
+	AudioManager.play_sfx(PICKUP_SFX, 0.0, randf_range(0.96, 1.04))
 
 
 func _harvest_instance(instance_index: int) -> void:

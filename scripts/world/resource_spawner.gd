@@ -1,16 +1,19 @@
 extends Node3D
 class_name ResourceSpawner
 
+const PICKUP_TEST_ITEM_IDS: Array[String] = ["branch", "log", "stone", "metal_scrap"]
+
 @export var world_radius: float = 85.0
 @export var min_distance_to_rails: float = 5.0
 @export var world_seed: int = 1701
 
-@export var branch_nodes: int = 28
-@export var log_nodes: int = 22
-@export var stone_nodes: int = 24
-@export var scrap_nodes: int = 16
+@export var branch_nodes: int = 80
+@export var log_nodes: int = 60
+@export var stone_nodes: int = 70
+@export var scrap_nodes: int = 50
 @export var tree_nodes: int = 18
 @export var big_rock_nodes: int = 14
+@export var pickup_test_cluster_nodes: int = 18
 
 var _rng := RandomNumberGenerator.new()
 var _next_resource_net_id: int = 200000
@@ -24,6 +27,7 @@ func _ready() -> void:
 
 func _spawn_all() -> void:
 	_next_resource_net_id = 200000
+	_spawn_pickup_test_cluster()
 	_spawn_batch(branch_nodes, "branch", 2, 4, 1, "", "Collect Branches")
 	_spawn_batch(log_nodes, "log", 2, 4, 1, "", "Collect Logs")
 	_spawn_batch(stone_nodes, "stone", 2, 4, 1, "", "Pick Stones")
@@ -45,6 +49,41 @@ func _spawn_batch(count: int, item_id: String, amount_min: int, amount_max: int,
 		_next_resource_net_id += 1
 		node.position = _pick_position()
 		_match_visual(node, item_id, required_tool_id)
+
+func _spawn_pickup_test_cluster() -> void:
+	if pickup_test_cluster_nodes <= 0:
+		return
+	var center: Vector3 = _get_pickup_test_center()
+	for i in range(pickup_test_cluster_nodes):
+		var item_id: String = PICKUP_TEST_ITEM_IDS[i % PICKUP_TEST_ITEM_IDS.size()]
+		var node := Harvestable.new()
+		node.drop_item_id = item_id
+		node.amount = _rng.randi_range(2, 4)
+		node.hits_to_harvest = 1
+		node.required_tool_id = ""
+		node.interact_label = "Collect"
+		add_child(node)
+		WorldSync.register_entity(node, _next_resource_net_id)
+		_next_resource_net_id += 1
+		var angle := float(i) / float(pickup_test_cluster_nodes) * TAU
+		var radius := 2.5 + float(i % 3) * 1.3
+		var pos := center + Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
+		var terrain: TerrainGenerator = _get_terrain()
+		if terrain != null:
+			pos.y = terrain.get_height_at(pos.x, pos.z)
+		node.global_position = pos
+		_match_visual(node, item_id, "")
+
+func _get_pickup_test_center() -> Vector3:
+	var player := get_tree().get_first_node_in_group("player") as Node3D
+	if player != null:
+		return player.global_position
+	var scene := get_tree().current_scene
+	if scene != null:
+		var fps := scene.get_node_or_null("UP_FPSController_Prefab") as Node3D
+		if fps != null:
+			return fps.global_position
+	return Vector3.ZERO
 
 func _pick_position() -> Vector3:
 	var terrain: TerrainGenerator = _get_terrain()

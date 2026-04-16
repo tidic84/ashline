@@ -10,7 +10,7 @@ const ACCEL: float = 0.8
 const FRICTION: float = 0.2
 const CROUCH_HEIGHT_FACTOR: float = 0.6
 const CROUCH_CAMERA_LERP_SPEED: float = 10.0
-const GAME_AMBIENT_NAME: String = "train_ambience"
+const GAME_AMBIENT_NAME: String = ""
 const BOB_WALK_STRENGTH: float = 0.03
 const BOB_SPRINT_STRENGTH: float = 0.05
 const BOB_CROUCH_STRENGTH: float = 0.015
@@ -79,7 +79,7 @@ func _ready() -> void:
 	name_label.visible = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	GraphicsSettings.set_fov_on_camera(camera)
-	AudioManager.force_play_ambient(GAME_AMBIENT_NAME)
+	AudioManager.stop_ambient()
 	_default_head_y = head.position.y
 	_target_head_y = _default_head_y
 	_camera_default_x = camera.position.x
@@ -317,6 +317,8 @@ func _update_wagon_platform(delta: float) -> void:
 		_last_wagon_transform = current_transform
 
 func _update_ambient() -> void:
+	if GAME_AMBIENT_NAME.is_empty():
+		return
 	_ambient_timer += get_physics_process_delta_time()
 	if _ambient_timer < 1.0:
 		return
