@@ -129,6 +129,12 @@ func play_ambient(name: String) -> void:
 	_ambient_player.play()
 	_current_ambient = name
 
+func force_play_ambient(name: String) -> void:
+	_current_ambient = ""
+	if _ambient_player != null:
+		_ambient_player.stop()
+	play_ambient(name)
+
 func stop_ambient() -> void:
 	_ambient_player.stop()
 	_current_ambient = ""

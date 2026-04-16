@@ -2,10 +2,12 @@ extends PanelContainer
 class_name PauseMenu
 
 signal resume_requested
+signal respawn_requested
 
 const FPS_LIMITS: Array[int] = [60, 90, 120, 240]
 
 @onready var _resume_button: Button = $Margin/VBox/Tabs/Resume/ResumeButton
+@onready var _respawn_button: Button = $Margin/VBox/Tabs/Resume/RespawnButton
 @onready var _volume_label: Label = $Margin/VBox/Tabs/Parametres/SettingsGrid/MasterVolumeLabel
 @onready var _volume_slider: HSlider = $Margin/VBox/Tabs/Parametres/SettingsGrid/MasterVolumeSlider
 @onready var _fps_limit_option: OptionButton = $Margin/VBox/Tabs/Parametres/SettingsGrid/FpsLimitOption
@@ -20,6 +22,7 @@ func _ready() -> void:
 		_fps_limit_option.add_item("%d FPS" % fps, fps)
 
 	_resume_button.pressed.connect(func(): resume_requested.emit())
+	_respawn_button.pressed.connect(func(): respawn_requested.emit())
 	_volume_slider.value_changed.connect(_on_master_volume_changed)
 	_fps_limit_option.item_selected.connect(_on_fps_limit_selected)
 	_sync_controls()

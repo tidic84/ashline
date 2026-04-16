@@ -33,7 +33,7 @@ func _ready() -> void:
 		Inventory.grant_starter_inventory()
 
 	GraphicsSettings.apply_all()
-	AudioManager.play_ambient("train_ambience")
+	AudioManager.force_play_ambient("train_ambience")
 	GameManager.start_game()
 	await get_tree().process_frame
 	Inventory.force_refresh()
@@ -73,6 +73,16 @@ func _spawn_player_for_peer(peer_id: int, base: Vector3, slot_index: int) -> Nod
 func spawn_player_for_late_join(peer_id: int) -> void:
 	var slot_index: int = players_container.get_child_count()
 	_spawn_player_for_peer(peer_id, _spawn_origin, slot_index)
+
+
+func get_spawn_position_for_peer(peer_id: int) -> Vector3:
+	var slot_index: int = 0
+	for peer_id_value in NetworkManager.players_info.keys():
+		if int(peer_id_value) == peer_id:
+			break
+		slot_index += 1
+	var offset_idx: int = clampi(slot_index, 0, _spawn_offsets.size() - 1)
+	return _spawn_origin + _spawn_offsets[offset_idx]
 
 
 func hide_loading_overlay() -> void:

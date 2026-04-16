@@ -84,6 +84,7 @@ func _ready() -> void:
 	_build_preview_tuner_ui()
 	_build_chat_ui()
 	pause_menu.resume_requested.connect(_on_pause_resume_requested)
+	pause_menu.respawn_requested.connect(_on_pause_respawn_requested)
 	pause_menu.move_to_front()
 
 	_recipe_ids = _crafting_get_recipe_ids()
@@ -105,13 +106,7 @@ func _drop_item_to_world(slot_index: int) -> void:
 	var slot := Inventory.get_slot_data(slot_index)
 	if String(slot.get("item_id", "")).is_empty() or int(slot.get("amount", 0)) <= 0:
 		return
-	var player_node: Node3D = null
-	for p in get_tree().get_nodes_in_group("player"):
-		if p is CharacterBody3D:
-			var pc := p as CharacterBody3D
-			if pc.has_node("Head"):
-				player_node = pc
-				break
+	var player_node := _get_local_player_controller()
 	if player_node == null:
 		return
 	var head: Node3D = player_node.get_node("Head")
@@ -258,6 +253,14 @@ func _on_game_state_changed(new_state: int) -> void:
 func _on_pause_resume_requested() -> void:
 	GameManager.change_state(GameManager.GameState.PLAYING)
 
+func _on_pause_respawn_requested() -> void:
+	var player_node := _get_local_player_controller()
+	if player_node == null:
+		return
+	if player_node.has_method("respawn_to_spawn"):
+		player_node.call("respawn_to_spawn")
+	GameManager.change_state(GameManager.GameState.PLAYING)
+
 func _hide_transient_menus_for_pause() -> void:
 	if build_menu:
 		build_menu.hide_menu()
@@ -266,6 +269,14 @@ func _hide_transient_menus_for_pause() -> void:
 	if inventory_panel.visible:
 		toggle_inventory_panel(false)
 	BuildSystem.hide_preview()
+
+func _get_local_player_controller() -> CharacterBody3D:
+	for node in get_tree().get_nodes_in_group("player"):
+		if not (node is CharacterBody3D):
+			continue
+		if bool(node.get("is_local")):
+			return node as CharacterBody3D
+	return null
 
 
 func _current_build_cost_text() -> String:

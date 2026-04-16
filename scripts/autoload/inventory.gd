@@ -173,7 +173,7 @@ func _process(delta: float) -> void:
 
 	if not is_equal_approx(old_health, health) or not is_equal_approx(old_hunger, hunger) or not is_equal_approx(old_thirst, thirst):
 		survival_changed.emit(health, hunger, thirst)
-		if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		if multiplayer.has_multiplayer_peer() and multiplayer.is_server() and GameManager.current_state == GameManager.GameState.PLAYING and player_inventories.has(get_local_peer_id()):
 			player_inventories[get_local_peer_id()] = export_state()
 
 func reset_local_inventory() -> void:
@@ -244,12 +244,12 @@ func setup_server_inventories(peer_ids: Array) -> void:
 	var local_id := get_local_peer_id()
 	for peer_id_value in peer_ids:
 		var peer_id := int(peer_id_value)
-		if not player_inventories.has(peer_id):
-			if peer_id == local_id:
-				grant_starter_inventory()
-				player_inventories[peer_id] = export_state()
-			else:
-				player_inventories[peer_id] = _build_inventory_state_for_peer(peer_id)
+		if peer_id == local_id:
+			var local_state: Dictionary = _build_inventory_state_for_peer(peer_id)
+			player_inventories[peer_id] = local_state.duplicate(true)
+			apply_state(local_state)
+		elif not player_inventories.has(peer_id):
+			player_inventories[peer_id] = _build_inventory_state_for_peer(peer_id)
 	sync_all_peer_inventories()
 
 

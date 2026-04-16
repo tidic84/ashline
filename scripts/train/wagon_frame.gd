@@ -9,6 +9,7 @@ const EDGE_NORTH: int = 1
 const EDGE_SOUTH: int = 2
 const EDGE_EAST: int = 3
 const EDGE_WEST: int = 4
+const NETWORK_SNAPSHOT_INTERVAL: float = 0.1
 
 ## Distance in grid tiles between the two bogies (even only, min 2, max 6).
 @export_range(2, 6, 2) var wagon_length: int = 4
@@ -26,6 +27,7 @@ var floor_count: int = 0
 var _frame_visuals: Array[Node3D] = []
 var _build_surface: StaticBody3D = null
 var _floor_bodies: Array[StaticBody3D] = []
+var _network_snapshot_accum: float = 0.0
 
 # Split-path transition: rear bogie stays on old curve while front is on new curve
 var _split_mode: bool = false
@@ -247,6 +249,12 @@ func _physics_process(delta: float) -> void:
 	else:
 		var actual_vel: Vector3 = (global_position - old_pos) / delta
 		_set_platform_velocity(actual_vel)
+
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		_network_snapshot_accum += delta
+		if _network_snapshot_accum >= NETWORK_SNAPSHOT_INTERVAL:
+			_network_snapshot_accum = 0.0
+			WorldSync.broadcast_train_entity_snapshots()
 
 
 func _orient_bogie(bogie: TrainChassis, progress: float, curve: Curve3D, total: float, delta: float, ref_fwd: Vector3 = Vector3.ZERO) -> void:

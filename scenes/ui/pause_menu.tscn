@@ -57,6 +57,11 @@ layout_mode = 2
 size_flags_horizontal = 4
 text = "Retour au jeu"
 
+[node name="RespawnButton" type="Button" parent="Margin/VBox/Tabs/Resume"]
+layout_mode = 2
+size_flags_horizontal = 4
+text = "Respawn au point de base"
+
 [node name="SpacerBottom" type="Control" parent="Margin/VBox/Tabs/Resume"]
 layout_mode = 2
 size_flags_vertical = 3

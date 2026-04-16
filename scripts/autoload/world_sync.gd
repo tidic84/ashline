@@ -48,9 +48,11 @@ func get_net_id(node: Node) -> int:
 func get_entity(net_id: int) -> Node:
 	if net_id <= 0:
 		return null
-	var cached: Node = _entities.get(net_id)
-	if cached != null and is_instance_valid(cached):
-		return cached
+	var cached: Variant = _entities.get(net_id, null)
+	if cached != null:
+		if is_instance_valid(cached):
+			return cached as Node
+		_entities.erase(net_id)
 	for node in get_tree().get_nodes_in_group("net_entity"):
 		if node.has_meta(NET_ID_META) and int(node.get_meta(NET_ID_META)) == net_id:
 			_entities[net_id] = node
@@ -513,6 +515,8 @@ func _is_train_snapshot_entity(node: Node) -> bool:
 		return true
 	if node is TrainChassis:
 		return true
+	if node.is_in_group("wagon") or node.is_in_group("wagon_frame") or node.is_in_group("chassis"):
+		return true
 	return false
 
 
@@ -523,7 +527,7 @@ func _snapshot_complete() -> void:
 		main_scene.hide_loading_overlay()
 
 
-@rpc("authority", "unreliable")
+@rpc("authority", "reliable")
 func _apply_entity_transform(net_id: int, transform: Transform3D) -> void:
 	var node := get_entity(net_id)
 	if node == null or not is_instance_valid(node):

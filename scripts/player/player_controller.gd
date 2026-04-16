@@ -48,7 +48,8 @@ var _camera_default_x: float = 0.0
 var _camera_default_roll: float = 0.0
 var _camera_default_fov: float = 0.0
 var _wagon_platform: Node3D = null
-var _last_wagon_basis: Basis = Basis.IDENTITY
+var _last_wagon_transform: Transform3D = Transform3D.IDENTITY
+var _pitch: float = 0.0
 var _remote_target_position: Vector3 = Vector3.ZERO
 var _remote_target_head_yaw: float = 0.0
 var _remote_target_camera_pitch: float = 0.0
@@ -78,13 +79,14 @@ func _ready() -> void:
 	name_label.visible = false
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	GraphicsSettings.set_fov_on_camera(camera)
-	AudioManager.play_ambient(GAME_AMBIENT_NAME)
+	AudioManager.force_play_ambient(GAME_AMBIENT_NAME)
 	_default_head_y = head.position.y
 	_target_head_y = _default_head_y
 	_camera_default_x = camera.position.x
 	_camera_default_y = camera.position.y
 	_camera_default_roll = camera.rotation.z
 	_camera_default_fov = camera.fov
+	_pitch = camera.rotation.x
 	floor_snap_length = 0.3
 	if collision_shape and collision_shape.shape is CapsuleShape3D:
 		_default_collision_height = collision_shape.shape.height
@@ -146,8 +148,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		head.rotate_y(-event.relative.x * MOUSE_SENSITIVITY)
-		camera.rotate_x(-event.relative.y * MOUSE_SENSITIVITY)
-		camera.rotation.x = clampf(camera.rotation.x, deg_to_rad(-89), deg_to_rad(89))
+		_pitch = clampf(_pitch - event.relative.y * MOUSE_SENSITIVITY, deg_to_rad(-89), deg_to_rad(89))
+		camera.rotation.x = _pitch
 
 	if event.is_action_pressed("build_mode"):
 		if BuildSystem.is_building:
@@ -298,18 +300,21 @@ func _update_wagon_platform(delta: float) -> void:
 	if current_wagon != _wagon_platform:
 		_wagon_platform = current_wagon
 		if _wagon_platform:
-			_last_wagon_basis = _wagon_platform.global_basis
+			_last_wagon_transform = _wagon_platform.global_transform
 	if _wagon_platform and is_instance_valid(_wagon_platform):
-		var current_basis := _wagon_platform.global_basis
-		var old_fwd := _last_wagon_basis.z
-		var new_fwd := current_basis.z
+		var current_transform := _wagon_platform.global_transform
+		var previous_transform := _last_wagon_transform
+		var relative_position := previous_transform.affine_inverse() * global_position
+		global_position = current_transform * relative_position
+		var old_fwd := previous_transform.basis.z
+		var new_fwd := current_transform.basis.z
 		old_fwd.y = 0.0
 		new_fwd.y = 0.0
 		if old_fwd.length_squared() > 0.0001 and new_fwd.length_squared() > 0.0001:
 			var angle := old_fwd.signed_angle_to(new_fwd, Vector3.UP)
 			if absf(angle) > 0.0001:
-				head.rotate_y(angle)
-		_last_wagon_basis = current_basis
+				rotate_y(angle)
+		_last_wagon_transform = current_transform
 
 func _update_ambient() -> void:
 	_ambient_timer += get_physics_process_delta_time()
@@ -322,7 +327,27 @@ func _update_ambient() -> void:
 func _broadcast_network_state() -> void:
 	if not is_local or not multiplayer.has_multiplayer_peer():
 		return
-	_receive_network_state.rpc(global_position, head.rotation.y, camera.rotation.x)
+	_receive_network_state.rpc(global_position, head.rotation.y, _pitch)
+
+
+func respawn_to_spawn() -> void:
+	var main_scene := get_tree().current_scene
+	if main_scene == null or not main_scene.has_method("get_spawn_position_for_peer"):
+		return
+	var spawn_position: Vector3 = main_scene.get_spawn_position_for_peer(get_multiplayer_authority())
+	velocity = Vector3.ZERO
+	global_position = spawn_position
+	_wagon_platform = null
+	_last_wagon_transform = Transform3D.IDENTITY
+	_is_crouching = false
+	_update_crouch_state()
+	head.rotation = Vector3.ZERO
+	_pitch = 0.0
+	camera.rotation.x = _pitch
+	camera.rotation.z = _camera_default_roll
+	camera.position.x = _camera_default_x
+	camera.position.y = _camera_default_y
+	_broadcast_network_state()
 
 
 @rpc("any_peer", "unreliable")
