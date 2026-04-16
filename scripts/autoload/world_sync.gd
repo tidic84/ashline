@@ -1,11 +1,36 @@
 extends Node
 
 const NET_ID_META: StringName = &"net_id"
-const TRAIN_TRANSFORM_INTERVAL: float = 0.1
+const TRAIN_ENTITY_EXTRAPOLATION: float = 0.20
+const TRAIN_ENTITY_SMOOTH_RATE: float = 14.0
+const TRAIN_SNAPSHOT_POS_EPSILON: float = 0.25
+const TRAIN_SNAPSHOT_ROT_EPSILON: float = 0.035
+const TRAIN_SNAPSHOT_VEL_EPSILON: float = 0.35
+const TRAIN_SNAPSHOT_MAX_SILENCE: float = 0.18
+const TRAIN_CLIENT_IGNORE_DISTANCE: float = 0.18
+const TRAIN_CLIENT_IGNORE_ROTATION: float = 0.05
+const TRAIN_CLIENT_IGNORE_VELOCITY: float = 0.35
+const TRAIN_CLIENT_SNAP_DISTANCE: float = 2.5
+const TRAIN_CLIENT_SNAP_ROTATION: float = 0.60
+const TRAIN_LOW_SPEED_THRESHOLD: float = 4.0
+const TRAIN_SNAPSHOT_POS_EPSILON_SLOW: float = 0.04
+const TRAIN_SNAPSHOT_ROT_EPSILON_SLOW: float = 0.010
+const TRAIN_SNAPSHOT_VEL_EPSILON_SLOW: float = 0.08
+const TRAIN_SNAPSHOT_MAX_SILENCE_SLOW: float = 0.06
+const TRAIN_CLIENT_IGNORE_DISTANCE_SLOW: float = 0.04
+const TRAIN_CLIENT_IGNORE_ROTATION_SLOW: float = 0.015
+const TRAIN_CLIENT_IGNORE_VELOCITY_SLOW: float = 0.10
 
 var _next_net_id: int = 1000
 var _entities: Dictionary = {}
 var _is_applying_remote: bool = false
+var _train_entity_targets: Dictionary = {}
+var _train_entity_snapshot_state: Dictionary = {}
+var _train_entity_sent_state: Dictionary = {}
+
+
+func _ready() -> void:
+	process_physics_priority = -20
 
 
 func is_networked() -> bool:
@@ -18,6 +43,38 @@ func is_host() -> bool:
 
 func should_request_host() -> bool:
 	return is_networked() and not multiplayer.is_server() and not _is_applying_remote
+
+
+func _physics_process(delta: float) -> void:
+	if not multiplayer.has_multiplayer_peer() or multiplayer.is_server():
+		return
+	var stale_ids: Array[int] = []
+	for net_id_variant in _train_entity_targets.keys():
+		var net_id := int(net_id_variant)
+		var node := get_entity(net_id)
+		if node == null or not is_instance_valid(node) or not (node is Node3D):
+			stale_ids.append(net_id)
+			continue
+		var state: Dictionary = _train_entity_targets[net_id]
+		state["age"] = float(state.get("age", 0.0)) + delta
+		_train_entity_targets[net_id] = state
+		var node_3d := node as Node3D
+		var target_transform: Transform3D = state.get("transform", node_3d.global_transform)
+		var velocity: Vector3 = state.get("velocity", Vector3.ZERO)
+		var extrapolation := minf(float(state.get("age", 0.0)), TRAIN_ENTITY_EXTRAPOLATION)
+		var target_origin := target_transform.origin + velocity * extrapolation
+		var factor := clampf(delta * TRAIN_ENTITY_SMOOTH_RATE, 0.0, 1.0)
+		node_3d.global_position = node_3d.global_position.lerp(target_origin, factor)
+		var target_scale: Vector3 = target_transform.basis.get_scale()
+		var current_basis: Basis = node_3d.global_basis.orthonormalized()
+		var target_basis: Basis = target_transform.basis.orthonormalized()
+		node_3d.global_basis = current_basis.slerp(target_basis, factor).scaled(target_scale)
+		if node_3d is StaticBody3D:
+			(node_3d as StaticBody3D).constant_linear_velocity = velocity
+		if node_3d.has_method("_set_platform_velocity"):
+			node_3d.call("_set_platform_velocity", velocity)
+	for net_id in stale_ids:
+		_train_entity_targets.erase(net_id)
 
 
 func register_entity(node: Node, net_id: int = 0) -> int:
@@ -62,6 +119,9 @@ func get_entity(net_id: int) -> Node:
 
 func unregister_entity(net_id: int) -> void:
 	_entities.erase(net_id)
+	_train_entity_targets.erase(net_id)
+	_train_entity_snapshot_state.erase(net_id)
+	_train_entity_sent_state.erase(net_id)
 
 
 func run_remote_apply(action: Callable) -> Variant:
@@ -484,7 +544,7 @@ func _stream_drop_spawn(peer_id: int, drop: Node) -> void:
 	_apply_spawn_drop.rpc_id(peer_id, net_id, item_id, amount, drop_node.global_transform)
 
 
-func broadcast_train_entity_snapshots() -> void:
+func broadcast_train_entity_snapshots(force: bool = false) -> void:
 	if not multiplayer.is_server():
 		return
 	for net_id in _entities.keys():
@@ -493,7 +553,12 @@ func broadcast_train_entity_snapshots() -> void:
 			continue
 		if not _is_train_snapshot_entity(node):
 			continue
-		_apply_entity_transform.rpc(int(net_id), (node as Node3D).global_transform)
+		var node_3d := node as Node3D
+		var velocity := _get_train_snapshot_velocity(int(net_id), node_3d)
+		if not force and not _should_send_train_snapshot(int(net_id), node_3d.global_transform, velocity):
+			continue
+		_record_train_snapshot_sent(int(net_id), node_3d.global_transform, velocity)
+		_apply_entity_transform.rpc(int(net_id), node_3d.global_transform, velocity)
 
 
 func send_train_entity_snapshots_to_peer(peer_id: int) -> void:
@@ -505,11 +570,81 @@ func send_train_entity_snapshots_to_peer(peer_id: int) -> void:
 			continue
 		if not _is_train_snapshot_entity(node):
 			continue
-		_apply_entity_transform.rpc_id(peer_id, int(net_id), (node as Node3D).global_transform)
+		var node_3d := node as Node3D
+		var velocity := _get_train_snapshot_velocity(int(net_id), node_3d)
+		_record_train_snapshot_sent(int(net_id), node_3d.global_transform, velocity)
+		_apply_entity_transform.rpc_id(peer_id, int(net_id), node_3d.global_transform, velocity)
+
+
+func _get_train_snapshot_velocity(net_id: int, node: Node3D) -> Vector3:
+	if node.has_method("get_platform_velocity"):
+		var value: Variant = node.call("get_platform_velocity")
+		if value is Vector3:
+			return value
+	if node is StaticBody3D:
+		return (node as StaticBody3D).constant_linear_velocity
+	var now := Time.get_ticks_usec() / 1000000.0
+	var velocity := Vector3.ZERO
+	var previous: Variant = _train_entity_snapshot_state.get(net_id, null)
+	if previous is Dictionary:
+		var previous_state := previous as Dictionary
+		var previous_origin: Variant = previous_state.get("origin", node.global_position)
+		var previous_time := float(previous_state.get("time", now))
+		if previous_origin is Vector3:
+			var elapsed := maxf(now - previous_time, 0.0001)
+			velocity = (node.global_position - previous_origin) / elapsed
+	_train_entity_snapshot_state[net_id] = {
+		"origin": node.global_position,
+		"time": now,
+	}
+	return velocity
+
+
+func _get_train_slow_factor(speed: float) -> float:
+	return 1.0 - clampf(speed / TRAIN_LOW_SPEED_THRESHOLD, 0.0, 1.0)
+
+
+func _should_send_train_snapshot(net_id: int, transform: Transform3D, velocity: Vector3) -> bool:
+	var now := Time.get_ticks_usec() / 1000000.0
+	var previous: Variant = _train_entity_sent_state.get(net_id, null)
+	if not (previous is Dictionary):
+		return true
+	var sent_state := previous as Dictionary
+	var previous_transform: Transform3D = sent_state.get("transform", transform)
+	var previous_velocity: Vector3 = sent_state.get("velocity", velocity)
+	var elapsed := now - float(sent_state.get("time", now))
+	var slow_factor := _get_train_slow_factor(velocity.length())
+	var pos_epsilon := lerpf(TRAIN_SNAPSHOT_POS_EPSILON, TRAIN_SNAPSHOT_POS_EPSILON_SLOW, slow_factor)
+	var rot_epsilon := lerpf(TRAIN_SNAPSHOT_ROT_EPSILON, TRAIN_SNAPSHOT_ROT_EPSILON_SLOW, slow_factor)
+	var vel_epsilon := lerpf(TRAIN_SNAPSHOT_VEL_EPSILON, TRAIN_SNAPSHOT_VEL_EPSILON_SLOW, slow_factor)
+	var max_silence := lerpf(TRAIN_SNAPSHOT_MAX_SILENCE, TRAIN_SNAPSHOT_MAX_SILENCE_SLOW, slow_factor)
+	if elapsed >= max_silence:
+		return true
+	var moved := previous_transform.origin.distance_to(transform.origin)
+	if moved >= pos_epsilon:
+		return true
+	var rotated := previous_transform.basis.orthonormalized().get_rotation_quaternion().angle_to(
+		transform.basis.orthonormalized().get_rotation_quaternion()
+	)
+	if rotated >= rot_epsilon:
+		return true
+	if previous_velocity.distance_to(velocity) >= vel_epsilon:
+		return true
+	return false
+
+
+func _record_train_snapshot_sent(net_id: int, transform: Transform3D, velocity: Vector3) -> void:
+	_train_entity_sent_state[net_id] = {
+		"transform": transform,
+		"velocity": velocity,
+		"time": Time.get_ticks_usec() / 1000000.0,
+	}
 
 
 func _is_train_snapshot_entity(node: Node) -> bool:
 	if not (node is Node3D):
+		return false
+	if node is TrainChassis and node.get_parent() is WagonFrame:
 		return false
 	if node is WagonFrame:
 		return true
@@ -527,8 +662,8 @@ func _snapshot_complete() -> void:
 		main_scene.hide_loading_overlay()
 
 
-@rpc("authority", "reliable")
-func _apply_entity_transform(net_id: int, transform: Transform3D) -> void:
+@rpc("authority", "unreliable")
+func _apply_entity_transform(net_id: int, transform: Transform3D, platform_velocity: Vector3) -> void:
 	var node := get_entity(net_id)
 	if node == null or not is_instance_valid(node):
 		return
@@ -536,8 +671,51 @@ func _apply_entity_transform(net_id: int, transform: Transform3D) -> void:
 		return
 	var node_3d := node as Node3D
 	var previous_transform := node_3d.global_transform
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		var predicted_transform: Transform3D = transform
+		var predicted_velocity := platform_velocity
+		var last_target: Variant = _train_entity_targets.get(net_id, null)
+		if last_target is Dictionary:
+			var target_state := last_target as Dictionary
+			predicted_transform = target_state.get("transform", previous_transform)
+			predicted_velocity = target_state.get("velocity", platform_velocity)
+			predicted_transform.origin += predicted_velocity * float(target_state.get("age", 0.0))
+		var position_error := predicted_transform.origin.distance_to(transform.origin)
+		var rotation_error := predicted_transform.basis.orthonormalized().get_rotation_quaternion().angle_to(
+			transform.basis.orthonormalized().get_rotation_quaternion()
+		)
+		var velocity_error := predicted_velocity.distance_to(platform_velocity)
+		var motion_speed := maxf(predicted_velocity.length(), platform_velocity.length())
+		var slow_factor := _get_train_slow_factor(motion_speed)
+		var ignore_distance := lerpf(TRAIN_CLIENT_IGNORE_DISTANCE, TRAIN_CLIENT_IGNORE_DISTANCE_SLOW, slow_factor)
+		var ignore_rotation := lerpf(TRAIN_CLIENT_IGNORE_ROTATION, TRAIN_CLIENT_IGNORE_ROTATION_SLOW, slow_factor)
+		var ignore_velocity := lerpf(TRAIN_CLIENT_IGNORE_VELOCITY, TRAIN_CLIENT_IGNORE_VELOCITY_SLOW, slow_factor)
+		var should_ignore := (
+			_train_entity_targets.has(net_id)
+			and position_error < ignore_distance
+			and rotation_error < ignore_rotation
+			and velocity_error < ignore_velocity
+		)
+		if should_ignore:
+			return
+		var should_snap := (
+			not _train_entity_targets.has(net_id)
+			or position_error > TRAIN_CLIENT_SNAP_DISTANCE
+			or rotation_error > TRAIN_CLIENT_SNAP_ROTATION
+		)
+		_train_entity_targets[net_id] = {
+			"transform": transform,
+			"velocity": platform_velocity,
+			"age": 0.0,
+		}
+		if should_snap:
+			node_3d.global_transform = transform
+			if node_3d is StaticBody3D:
+				(node_3d as StaticBody3D).constant_linear_velocity = platform_velocity
+			if node_3d.has_method("_set_platform_velocity"):
+				node_3d.call("_set_platform_velocity", platform_velocity)
+		return
 	node_3d.global_transform = transform
-	var platform_velocity := (transform.origin - previous_transform.origin) / TRAIN_TRANSFORM_INTERVAL
 	if node_3d is StaticBody3D:
 		(node_3d as StaticBody3D).constant_linear_velocity = platform_velocity
 	if node_3d.has_method("_set_platform_velocity"):

@@ -32,16 +32,19 @@ func interact(_player: CharacterBody3D) -> void:
 	server_interact(Inventory.get_local_peer_id())
 
 func server_interact(_peer_id: int) -> void:
-	_perform_pump(true)
+	_perform_pump(true, true)
 
 func apply_network_interact() -> void:
-	_perform_pump(false)
+	_perform_pump(false, false)
 
-func _perform_pump(replicate: bool) -> void:
+func _perform_pump(replicate: bool, affect_train: bool) -> void:
 	if not can_pump or _pump_target == null:
 		return
 	can_pump = false
-	_pump_target.pump()
+	if affect_train:
+		_pump_target.pump()
+	if affect_train and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		WorldSync.broadcast_train_entity_snapshots(true)
 	AudioManager.play_sfx("pump", 0.0, randf_range(0.95, 1.05))
 	_animate_pump()
 	if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():

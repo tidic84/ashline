@@ -46,6 +46,8 @@ func _perform_switch(replicate: bool) -> void:
 		current_dir = _target.travel_direction
 	var new_dir: float = -current_dir
 	_target.set_direction(new_dir)
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		WorldSync.broadcast_train_entity_snapshots(true)
 	AudioManager.play_sfx("levier_activation", 0.0, randf_range(0.95, 1.05))
 	AudioManager.play_sfx("lever", 0.0, randf_range(0.95, 1.05))
 	_animate_switch(new_dir)

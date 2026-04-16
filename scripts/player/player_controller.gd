@@ -19,6 +19,8 @@ const BOB_SPRINT_FREQ: float = 14.0
 const BOB_CROUCH_FREQ: float = 6.0
 const BOB_IDLE_STRENGTH: float = 0.003
 const BOB_IDLE_FREQ: float = 1.5
+const PLAYER_SYNC_INTERVAL: float = 0.033
+const PLAYER_REMOTE_EXTRAPOLATION: float = 0.12
 
 @onready var camera: Camera3D = $Head/Camera3D
 @onready var head: Node3D = $Head
@@ -29,7 +31,7 @@ const BOB_IDLE_FREQ: float = 1.5
 @onready var hud: Control = $HUD
 @onready var name_label: Label3D = $NameLabel
 @onready var visual_root: Node3D = $VisualRoot
-@onready var multiplayer_sync: MultiplayerSynchronizer = $MultiplayerSynchronizer
+@onready var multiplayer_sync: MultiplayerSynchronizer = get_node_or_null("MultiplayerSynchronizer") as MultiplayerSynchronizer
 
 var current_speed: float = WALK_SPEED
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
@@ -53,6 +55,8 @@ var _pitch: float = 0.0
 var _remote_target_position: Vector3 = Vector3.ZERO
 var _remote_target_head_yaw: float = 0.0
 var _remote_target_camera_pitch: float = 0.0
+var _remote_velocity: Vector3 = Vector3.ZERO
+var _network_sync_accum: float = 0.0
 var _remote_state_initialized: bool = false
 
 func _enter_tree() -> void:
@@ -68,7 +72,6 @@ func _ready() -> void:
 
 	if not is_local:
 		camera.current = false
-		set_physics_process(false)
 		set_process_unhandled_input(false)
 		hud.visible = false
 		name_label.visible = true
@@ -105,10 +108,6 @@ func _ready() -> void:
 	_broadcast_network_state()
 
 func _process(delta: float) -> void:
-	if not is_local and _remote_state_initialized:
-		global_position = global_position.lerp(_remote_target_position, clampf(delta * 12.0, 0.0, 1.0))
-		head.rotation.y = lerp_angle(head.rotation.y, _remote_target_head_yaw, clampf(delta * 14.0, 0.0, 1.0))
-		camera.rotation.x = lerp_angle(camera.rotation.x, _remote_target_camera_pitch, clampf(delta * 14.0, 0.0, 1.0))
 	_update_visual_rotation()
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -198,6 +197,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _physics_process(delta: float) -> void:
 	if not is_local:
+		if _remote_state_initialized:
+			var predicted_position := _remote_target_position + _remote_velocity * PLAYER_REMOTE_EXTRAPOLATION
+			global_position = global_position.lerp(predicted_position, clampf(delta * 18.0, 0.0, 1.0))
+			head.rotation.y = lerp_angle(head.rotation.y, _remote_target_head_yaw, clampf(delta * 18.0, 0.0, 1.0))
+			camera.rotation.x = lerp_angle(camera.rotation.x, _remote_target_camera_pitch, clampf(delta * 18.0, 0.0, 1.0))
 		return
 	if _apply_blocked_movement(delta):
 		return
@@ -235,11 +239,15 @@ func _physics_process(delta: float) -> void:
 			velocity.x = lerpf(velocity.x, direction.x * current_speed, 2.0 * delta)
 			velocity.z = lerpf(velocity.z, direction.z * current_speed, 2.0 * delta)
 
+	_update_wagon_platform(delta)
+
 	head.position.y = lerpf(head.position.y, _target_head_y, CROUCH_CAMERA_LERP_SPEED * delta)
 	move_and_slide()
-	_update_wagon_platform(delta)
 	_update_head_bob(delta, direction.length() > 0.1)
-	_broadcast_network_state()
+	_network_sync_accum += delta
+	if _network_sync_accum >= PLAYER_SYNC_INTERVAL:
+		_network_sync_accum = 0.0
+		_broadcast_network_state()
 
 	if BuildSystem.is_building:
 		_update_build_preview()
@@ -287,16 +295,7 @@ func _update_head_bob(delta: float, is_moving: bool) -> void:
 	camera.fov = lerpf(camera.fov, target_fov, 8.0 * delta)
 
 func _update_wagon_platform(delta: float) -> void:
-	var current_wagon: Node3D = null
-	if is_on_floor():
-		for i in range(get_slide_collision_count()):
-			var col := get_slide_collision(i)
-			var collider := col.get_collider()
-			if collider:
-				var wagon := _find_wagon_parent(collider as Node)
-				if wagon:
-					current_wagon = wagon
-					break
+	var current_wagon := _find_wagon_underfoot()
 	if current_wagon != _wagon_platform:
 		_wagon_platform = current_wagon
 		if _wagon_platform:
@@ -304,10 +303,8 @@ func _update_wagon_platform(delta: float) -> void:
 	if _wagon_platform and is_instance_valid(_wagon_platform):
 		var current_transform := _wagon_platform.global_transform
 		var previous_transform := _last_wagon_transform
-		var relative_position := previous_transform.affine_inverse() * global_position
-		global_position = current_transform * relative_position
-		var old_fwd := previous_transform.basis.z
-		var new_fwd := current_transform.basis.z
+		var old_fwd := previous_transform.basis.orthonormalized().z
+		var new_fwd := current_transform.basis.orthonormalized().z
 		old_fwd.y = 0.0
 		new_fwd.y = 0.0
 		if old_fwd.length_squared() > 0.0001 and new_fwd.length_squared() > 0.0001:
@@ -315,6 +312,24 @@ func _update_wagon_platform(delta: float) -> void:
 			if absf(angle) > 0.0001:
 				rotate_y(angle)
 		_last_wagon_transform = current_transform
+	else:
+		_last_wagon_transform = Transform3D.IDENTITY
+
+func _find_wagon_underfoot() -> Node3D:
+	if not is_on_floor() and _wagon_platform == null:
+		return null
+	var from := global_position + Vector3.UP * 0.3
+	var to := global_position + Vector3.DOWN * 1.8
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.exclude = [self]
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return null
+	var collider: Variant = hit.get("collider", null)
+	if collider == null or not (collider is Node):
+		return _wagon_platform if _wagon_platform != null and is_instance_valid(_wagon_platform) else null
+	return _find_wagon_parent(collider as Node)
+
 
 func _update_ambient() -> void:
 	_ambient_timer += get_physics_process_delta_time()
@@ -327,7 +342,7 @@ func _update_ambient() -> void:
 func _broadcast_network_state() -> void:
 	if not is_local or not multiplayer.has_multiplayer_peer():
 		return
-	_receive_network_state.rpc(global_position, head.rotation.y, _pitch)
+	_receive_network_state.rpc(global_position, head.rotation.y, _pitch, velocity)
 
 
 func respawn_to_spawn() -> void:
@@ -351,12 +366,13 @@ func respawn_to_spawn() -> void:
 
 
 @rpc("any_peer", "unreliable")
-func _receive_network_state(pos: Vector3, head_yaw: float, camera_pitch: float) -> void:
+func _receive_network_state(pos: Vector3, head_yaw: float, camera_pitch: float, linear_velocity: Vector3) -> void:
 	if is_local:
 		return
 	_remote_target_position = pos
 	_remote_target_head_yaw = head_yaw
 	_remote_target_camera_pitch = camera_pitch
+	_remote_velocity = linear_velocity
 	if not _remote_state_initialized:
 		_remote_state_initialized = true
 		global_position = pos
@@ -632,8 +648,11 @@ func _try_drop_item() -> void:
 
 func _find_wagon_parent(node: Node) -> Node3D:
 	var current: Node = node
+	var fallback: Node3D = null
 	while current:
-		if current.is_in_group("wagon"):
+		if current.is_in_group("wagon_frame"):
 			return current as Node3D
+		if fallback == null and (current.is_in_group("chassis") or current.is_in_group("wagon")):
+			fallback = current as Node3D
 		current = current.get_parent()
-	return null
+	return fallback

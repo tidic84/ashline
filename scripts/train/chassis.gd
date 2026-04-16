@@ -275,6 +275,10 @@ func _set_platform_velocity(vel: Vector3) -> void:
 			child.constant_linear_velocity = vel
 
 
+func get_platform_velocity() -> Vector3:
+	return constant_linear_velocity
+
+
 func _map_active_end_to_path_end(active_end: int) -> int:
 	return 1 - active_end if _curve_reversed else active_end
 

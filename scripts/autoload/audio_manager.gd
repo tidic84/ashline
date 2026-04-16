@@ -12,6 +12,7 @@ const MUSIC_DIR: String = "res://assets/audio/music/"
 const CONFIG_PATH: String = "user://settings.cfg"
 const DEFAULT_MASTER_VOLUME_DB: float = -15.0
 const MIN_VOLUME_LINEAR: float = 0.0001
+const TRAIN_AMBIENT_STREAM: AudioStream = preload("res://assets/audio/ambient/train_ambience.wav")
 const AMBIENT_FALLBACK_PATHS: Dictionary = {
 	"train_ambience": "res://assets/audio/ambient/train_ambience.wav",
 }
@@ -20,22 +21,37 @@ var _sfx_cache: Dictionary = {}   # name -> AudioStream
 var _ambient_cache: Dictionary = {}
 var _ambient_player: AudioStreamPlayer = null
 var _current_ambient: String = ""
+var _requested_ambient: String = ""
 var _sfx_pool: Array[AudioStreamPlayer] = []
 var master_volume: float = 0.18
 const POOL_SIZE: int = 8
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	_ensure_buses()
 	load_settings()
 	set_master_volume(master_volume)
 	_build_sfx_pool()
 	_ambient_player = AudioStreamPlayer.new()
-	_ambient_player.bus = "Ambient"
-	_ambient_player.volume_db = 6.0
+	_ambient_player.process_mode = Node.PROCESS_MODE_ALWAYS
+	_ambient_player.bus = "Master"
+	_ambient_player.volume_db = 0.0
 	_ambient_player.finished.connect(_on_ambient_finished)
 	add_child(_ambient_player)
 	_scan_folder(SFX_DIR, _sfx_cache)
 	_scan_folder(AMBIENT_DIR, _ambient_cache)
+	if TRAIN_AMBIENT_STREAM != null:
+		_ambient_cache["train_ambience"] = TRAIN_AMBIENT_STREAM
+	_requested_ambient = "train_ambience"
+	_play_ambient_now(_requested_ambient)
+
+func _process(_delta: float) -> void:
+	if _requested_ambient.is_empty():
+		return
+	if _ambient_player == null:
+		return
+	if not _ambient_player.playing or _current_ambient != _requested_ambient:
+		_play_ambient_now(_requested_ambient)
 
 func set_global_volume_db(volume_db: float) -> void:
 	var master_idx: int = AudioServer.get_bus_index("Master")
@@ -117,7 +133,15 @@ func play_sfx(name: String, volume_db: float = 0.0, pitch: float = 1.0) -> void:
 	first.play()
 
 func play_ambient(name: String) -> void:
+	_requested_ambient = name
+	if _ambient_player == null:
+		return
 	if _current_ambient == name and _ambient_player.playing:
+		return
+	_play_ambient_now(name)
+
+func _play_ambient_now(name: String) -> void:
+	if _ambient_player == null:
 		return
 	if not _ambient_cache.has(name):
 		_try_load_ambient(name)
@@ -130,12 +154,16 @@ func play_ambient(name: String) -> void:
 	_current_ambient = name
 
 func force_play_ambient(name: String) -> void:
+	_requested_ambient = name
 	_current_ambient = ""
 	if _ambient_player != null:
 		_ambient_player.stop()
-	play_ambient(name)
+	_play_ambient_now(name)
 
 func stop_ambient() -> void:
+	_requested_ambient = ""
+	if _ambient_player == null:
+		return
 	_ambient_player.stop()
 	_current_ambient = ""
 

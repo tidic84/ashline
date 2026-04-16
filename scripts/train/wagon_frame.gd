@@ -9,7 +9,7 @@ const EDGE_NORTH: int = 1
 const EDGE_SOUTH: int = 2
 const EDGE_EAST: int = 3
 const EDGE_WEST: int = 4
-const NETWORK_SNAPSHOT_INTERVAL: float = 0.1
+const NETWORK_SNAPSHOT_INTERVAL: float = 0.016
 
 ## Distance in grid tiles between the two bogies (even only, min 2, max 6).
 @export_range(2, 6, 2) var wagon_length: int = 4
@@ -28,6 +28,7 @@ var _frame_visuals: Array[Node3D] = []
 var _build_surface: StaticBody3D = null
 var _floor_bodies: Array[StaticBody3D] = []
 var _network_snapshot_accum: float = 0.0
+var _platform_velocity: Vector3 = Vector3.ZERO
 
 # Split-path transition: rear bogie stays on old curve while front is on new curve
 var _split_mode: bool = false
@@ -293,6 +294,7 @@ func _stabilize_frame_forward(candidate: Vector3, reference: Vector3 = Vector3.Z
 
 
 func _set_platform_velocity(vel: Vector3) -> void:
+	_platform_velocity = vel
 	if front_bogie:
 		front_bogie.constant_linear_velocity = vel
 	if rear_bogie:
@@ -305,6 +307,10 @@ func _set_platform_velocity(vel: Vector3) -> void:
 	for body in _floor_bodies:
 		if is_instance_valid(body):
 			body.constant_linear_velocity = vel
+
+
+func get_platform_velocity() -> Vector3:
+	return _platform_velocity
 
 
 func snap_to_rails() -> void:
