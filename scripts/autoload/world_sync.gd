@@ -569,6 +569,9 @@ func send_train_entity_snapshots_to_peer(peer_id: int) -> void:
 		var node := get_entity(int(net_id))
 		if node == null or not is_instance_valid(node):
 			continue
+		if node is WagonFrame:
+			_send_wagon_rail_snapshot_to_peer(peer_id, int(net_id), node as WagonFrame)
+			continue
 		if not _is_train_snapshot_entity(node):
 			continue
 		var node_3d := node as Node3D
@@ -648,12 +651,81 @@ func _is_train_snapshot_entity(node: Node) -> bool:
 	if node is TrainChassis and node.get_parent() is WagonFrame:
 		return false
 	if node is WagonFrame:
-		return true
+		# WagonFrames sync via rail snapshot (see broadcast_wagon_rail_snapshot).
+		return false
 	if node is TrainChassis:
 		return true
-	if node.is_in_group("wagon") or node.is_in_group("wagon_frame") or node.is_in_group("chassis"):
+	if node.is_in_group("wagon_frame"):
+		return false
+	if node.is_in_group("wagon") or node.is_in_group("chassis"):
 		return true
 	return false
+
+
+func broadcast_wagon_rail_snapshot(
+	net_id: int,
+	rail_ref: NodePath,
+	rail_progress: float,
+	speed: float,
+	travel_direction: float,
+	curve_reversed: bool,
+	split_mode: bool,
+	old_rail_ref: NodePath,
+	junction_at_old_end: bool,
+	front_entered_at_start: bool
+) -> void:
+	if not (is_networked() and multiplayer.is_server()):
+		return
+	_apply_wagon_rail_snapshot.rpc(
+		net_id, rail_ref, rail_progress, speed, travel_direction, curve_reversed,
+		split_mode, old_rail_ref, junction_at_old_end, front_entered_at_start
+	)
+
+
+func _send_wagon_rail_snapshot_to_peer(peer_id: int, net_id: int, frame: WagonFrame) -> void:
+	if frame == null or frame.front_bogie == null:
+		return
+	var rail_ref: NodePath = NodePath()
+	if frame.front_bogie.current_rail_path != null:
+		rail_ref = frame.front_bogie.current_rail_path.get_path()
+	var old_ref: NodePath = NodePath()
+	if frame._rear_old_rail_path != null and is_instance_valid(frame._rear_old_rail_path):
+		old_ref = (frame._rear_old_rail_path as Node).get_path()
+	_apply_wagon_rail_snapshot.rpc_id(
+		peer_id,
+		net_id,
+		rail_ref,
+		frame.front_bogie.rail_progress,
+		frame.front_bogie.speed,
+		frame.front_bogie.travel_direction,
+		frame.front_bogie._curve_reversed,
+		frame._split_mode,
+		old_ref,
+		frame._junction_at_old_end,
+		frame._front_entered_at_start
+	)
+
+
+@rpc("authority", "unreliable")
+func _apply_wagon_rail_snapshot(
+	net_id: int,
+	rail_ref: NodePath,
+	rail_progress: float,
+	speed: float,
+	travel_direction: float,
+	curve_reversed: bool,
+	split_mode: bool,
+	old_rail_ref: NodePath,
+	junction_at_old_end: bool,
+	front_entered_at_start: bool
+) -> void:
+	var node := get_entity(net_id)
+	if node == null or not (node is WagonFrame):
+		return
+	(node as WagonFrame).apply_rail_snapshot(
+		rail_ref, rail_progress, speed, travel_direction, curve_reversed,
+		split_mode, old_rail_ref, junction_at_old_end, front_entered_at_start
+	)
 
 
 @rpc("authority", "reliable")

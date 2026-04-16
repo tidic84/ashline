@@ -49,6 +49,14 @@ var _train_loop_has_last_position: bool = false
 var _train_loop_volume_db: float = TRAIN_AUDIO_SILENT_DB
 var _train_expected_motion_logged: bool = false
 
+# Client-side reconciliation targets (driven by rail snapshots from host)
+var _net_has_target: bool = false
+var _net_target_progress: float = 0.0
+var _net_target_speed: float = 0.0
+const NET_RECONCILE_PROGRESS_RATE: float = 6.0
+const NET_RECONCILE_SPEED_RATE: float = 12.0
+const NET_RECONCILE_PROGRESS_SNAP: float = 3.0
+
 # Split-path transition: rear bogie stays on old curve while front is on new curve
 var _split_mode: bool = false
 var _rear_old_curve: Curve3D = null
@@ -90,8 +98,7 @@ func _setup_bogies() -> void:
 func _physics_process(delta: float) -> void:
 	if get_meta("is_preview", false):
 		return
-	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
-		return
+	var is_net_client := multiplayer.has_multiplayer_peer() and not multiplayer.is_server()
 	if front_bogie == null or rear_bogie == null:
 		return
 	if not is_on_rails:
@@ -99,17 +106,34 @@ func _physics_process(delta: float) -> void:
 	if front_bogie.rail_curve == null or front_bogie.rail_curve.get_baked_length() < 0.1:
 		return
 
+	# Client-side reconciliation: gently pull local state toward latest host snapshot.
+	if is_net_client and _net_has_target:
+		var progress_err := _net_target_progress - front_bogie.rail_progress
+		if absf(progress_err) > NET_RECONCILE_PROGRESS_SNAP:
+			front_bogie.rail_progress = _net_target_progress
+		else:
+			var p_blend := clampf(delta * NET_RECONCILE_PROGRESS_RATE, 0.0, 1.0)
+			front_bogie.rail_progress += progress_err * p_blend
+		var speed_err := _net_target_speed - front_bogie.speed
+		var s_blend := clampf(delta * NET_RECONCILE_SPEED_RATE, 0.0, 1.0)
+		front_bogie.speed += speed_err * s_blend
+
 	# Movement (uses front bogie's speed/direction/friction)
 	if absf(front_bogie.speed) < 0.01:
 		if front_bogie.speed != 0.0:
 			front_bogie.speed = 0.0
 			front_bogie.speed_changed.emit(0.0)
+		if not is_net_client:
 			_set_platform_velocity(Vector3.ZERO)
+			_stop_train_move_sound()
+			return
+		# Client: still sample current position in case reconciliation nudged rail_progress.
 		_stop_train_move_sound()
-		return
-	_play_train_move_sound(absf(front_bogie.speed))
+	else:
+		_play_train_move_sound(absf(front_bogie.speed))
 
-	front_bogie.speed = move_toward(front_bogie.speed, 0.0, front_bogie.friction * delta)
+	if not is_net_client:
+		front_bogie.speed = move_toward(front_bogie.speed, 0.0, front_bogie.friction * delta)
 	var ds: float = front_bogie.speed * delta
 	front_bogie.distance_traveled += absf(ds)
 
@@ -138,7 +162,10 @@ func _physics_process(delta: float) -> void:
 		upper_bound = total - spacing
 	if raw_progress < lower_bound or raw_progress > upper_bound:
 		var at_end: int = 0 if raw_progress < lower_bound else 1
-		if _split_mode:
+		if is_net_client:
+			# Client never decides junctions — just clamp and wait for host snapshot.
+			front_bogie.rail_progress = clampf(raw_progress, lower_bound, upper_bound)
+		elif _split_mode:
 			# Already straddling a junction — stop rather than chain transitions
 			front_bogie.rail_progress = 0.0 if at_end == 0 else total
 			front_bogie.speed = 0.0
@@ -146,35 +173,36 @@ func _physics_process(delta: float) -> void:
 			_set_platform_velocity(Vector3.ZERO)
 			_stop_train_move_sound()
 			return
-		# Compute overflow past the exited endpoint, and the endpoint index
-		# (0=curve start, 1=curve end) for the transition call.
-		var exit_end: int
-		var overflow: float
-		if at_end == 1:
-			exit_end = 1
-			overflow = raw_progress - upper_bound
 		else:
-			exit_end = 0
-			overflow = lower_bound - raw_progress
-		var old_curve_save: Curve3D = curve
-		var old_total_save: float = total
-		var old_path_save: Node = front_bogie.current_rail_path
-		if front_bogie._try_path_transition(exit_end, overflow):
-			_split_mode = true
-			_rear_old_curve = old_curve_save
-			_rear_old_total = old_total_save
-			_rear_old_rail_path = old_path_save
-			_junction_at_old_end = (exit_end == 1)
-			_front_entered_at_start = front_bogie._last_transition_target_end == 0
-			curve = front_bogie.rail_curve
-			total = curve.get_baked_length()
-		else:
-			front_bogie.rail_progress = upper_bound if at_end == 1 else lower_bound
-			front_bogie.speed = 0.0
-			front_bogie.speed_changed.emit(0.0)
-			_set_platform_velocity(Vector3.ZERO)
-			_stop_train_move_sound()
-			return
+			# Compute overflow past the exited endpoint, and the endpoint index
+			# (0=curve start, 1=curve end) for the transition call.
+			var exit_end: int
+			var overflow: float
+			if at_end == 1:
+				exit_end = 1
+				overflow = raw_progress - upper_bound
+			else:
+				exit_end = 0
+				overflow = lower_bound - raw_progress
+			var old_curve_save: Curve3D = curve
+			var old_total_save: float = total
+			var old_path_save: Node = front_bogie.current_rail_path
+			if front_bogie._try_path_transition(exit_end, overflow):
+				_split_mode = true
+				_rear_old_curve = old_curve_save
+				_rear_old_total = old_total_save
+				_rear_old_rail_path = old_path_save
+				_junction_at_old_end = (exit_end == 1)
+				_front_entered_at_start = front_bogie._last_transition_target_end == 0
+				curve = front_bogie.rail_curve
+				total = curve.get_baked_length()
+			else:
+				front_bogie.rail_progress = upper_bound if at_end == 1 else lower_bound
+				front_bogie.speed = 0.0
+				front_bogie.speed_changed.emit(0.0)
+				_set_platform_velocity(Vector3.ZERO)
+				_stop_train_move_sound()
+				return
 	else:
 		front_bogie.rail_progress = raw_progress
 
@@ -277,7 +305,67 @@ func _physics_process(delta: float) -> void:
 		_network_snapshot_accum += delta
 		if _network_snapshot_accum >= NETWORK_SNAPSHOT_INTERVAL:
 			_network_snapshot_accum = 0.0
-			WorldSync.broadcast_train_entity_snapshots()
+			_broadcast_rail_snapshot()
+
+
+func _broadcast_rail_snapshot() -> void:
+	if front_bogie == null:
+		return
+	var net_id := int(get_meta(WorldSync.NET_ID_META, 0))
+	if net_id <= 0:
+		return
+	var rail_ref: NodePath = NodePath()
+	if front_bogie.current_rail_path != null:
+		rail_ref = front_bogie.current_rail_path.get_path()
+	var old_ref: NodePath = NodePath()
+	if _rear_old_rail_path != null and is_instance_valid(_rear_old_rail_path):
+		old_ref = (_rear_old_rail_path as Node).get_path()
+	WorldSync.broadcast_wagon_rail_snapshot(
+		net_id, rail_ref, front_bogie.rail_progress, front_bogie.speed,
+		front_bogie.travel_direction, front_bogie._curve_reversed,
+		_split_mode, old_ref, _junction_at_old_end, _front_entered_at_start
+	)
+
+
+func apply_rail_snapshot(rail_ref: NodePath, rail_progress: float, speed: float, travel_direction: float, curve_reversed: bool, split_mode: bool, old_rail_ref: NodePath, junction_at_old_end: bool, front_entered_at_start: bool) -> void:
+	if front_bogie == null or rear_bogie == null:
+		return
+	var rail_node: Node = get_tree().root.get_node_or_null(rail_ref) if rail_ref != NodePath() else null
+	var path_changed := rail_node != front_bogie.current_rail_path
+	var reverse_changed := curve_reversed != front_bogie._curve_reversed
+	if rail_node != null and (path_changed or reverse_changed or front_bogie.rail_curve == null):
+		var built: Curve3D = front_bogie._build_world_curve(rail_node, curve_reversed)
+		if built != null:
+			front_bogie.current_rail_path = rail_node
+			front_bogie.rail_curve = built
+			front_bogie._curve_reversed = curve_reversed
+			rear_bogie.current_rail_path = rail_node
+			rear_bogie.rail_curve = built
+			front_bogie.rail_progress = rail_progress
+	# Split mode edges
+	if split_mode and not _split_mode:
+		var old_node: Node = get_tree().root.get_node_or_null(old_rail_ref) if old_rail_ref != NodePath() else null
+		if old_node != null:
+			var old_built: Curve3D = front_bogie._build_world_curve(old_node, false)
+			if old_built != null:
+				_split_mode = true
+				_rear_old_rail_path = old_node
+				_rear_old_curve = old_built
+				_rear_old_total = old_built.get_baked_length()
+				_junction_at_old_end = junction_at_old_end
+	elif not split_mode and _split_mode:
+		_split_mode = false
+		_rear_old_rail_path = null
+		_rear_old_curve = null
+		_rear_old_total = 0.0
+	_front_entered_at_start = front_entered_at_start
+	_junction_at_old_end = junction_at_old_end
+	front_bogie.travel_direction = travel_direction
+	front_bogie._curve_reversed = curve_reversed
+	_net_target_progress = rail_progress
+	_net_target_speed = speed
+	_net_has_target = true
+	is_on_rails = true
 
 
 func _orient_bogie(bogie: TrainChassis, progress: float, curve: Curve3D, total: float, delta: float, ref_fwd: Vector3 = Vector3.ZERO) -> void:
