@@ -3,9 +3,12 @@ class_name InventorySlotUI
 
 signal slot_pressed(slot_index: int, button_index: int)
 signal slot_dropped(source_index: int, target_index: int)
+signal slot_hovered(slot_index: int, item_id: String)
+signal slot_unhovered(slot_index: int)
 
 var slot_index: int = -1
 var _has_item: bool = false
+var _item_id: String = ""
 var _content: Control
 var _icon: TextureRect
 var _amount_label: Label
@@ -22,10 +25,11 @@ func setup(index: int, key_text: String = "") -> void:
 		_build_ui()
 	_key_label.text = key_text
 
-func set_slot_visual(icon: Texture2D, amount: int, selected: bool, has_item: bool, key_text: String = "") -> void:
+func set_slot_visual(icon: Texture2D, amount: int, selected: bool, has_item: bool, key_text: String = "", item_id: String = "") -> void:
 	if _icon == null:
 		_build_ui()
 	_has_item = has_item
+	_item_id = item_id if has_item else ""
 	_key_label.text = key_text
 	_icon.texture = icon
 	_icon.modulate = Color(1, 1, 1, 1.0 if has_item else 0.0)
@@ -35,6 +39,13 @@ func set_slot_visual(icon: Texture2D, amount: int, selected: bool, has_item: boo
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
 		slot_pressed.emit(slot_index, event.button_index)
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_MOUSE_ENTER:
+		if _has_item and not _item_id.is_empty():
+			slot_hovered.emit(slot_index, _item_id)
+	elif what == NOTIFICATION_MOUSE_EXIT:
+		slot_unhovered.emit(slot_index)
 
 func _get_drag_data(_at_position: Vector2) -> Variant:
 	if not _has_item or _icon == null or _icon.texture == null:

@@ -23,10 +23,13 @@ const HOTBAR_KEY_LABELS: Array[String] = ["1", "2", "3", "4", "5", "6", "7", "8"
 @onready var inventory_items_grid: GridContainer = $InventoryPanel/Margin/VBox/InventoryItemsGrid
 @onready var inventory_recipes_label: Label = $InventoryPanel/Margin/VBox/Right/RecipeList
 @onready var craft_preview_label: Label = $InventoryPanel/Margin/VBox/Right/CraftInfo
+@onready var item_tooltip_panel: PanelContainer = $ItemTooltip
+@onready var item_tooltip_label: Label = $ItemTooltip/Name
 
 var tracked_chassis: Node = null  # TrainChassis or WagonFrame
 var _hud_refresh_accum: float = 0.0
 const HUD_REFRESH_INTERVAL: float = 0.1
+const TOOLTIP_OFFSET: Vector2 = Vector2(18.0, 18.0)
 
 var _recipe_ids: Array[String] = []
 var _selected_recipe_index: int = 0
@@ -74,6 +77,7 @@ func _ready() -> void:
 	speed_label.visible = false
 	slope_label.visible = false
 	inventory_panel.visible = false
+	item_tooltip_panel.visible = false
 
 	_build_hotbar_ui()
 	_build_inventory_slots_ui()
@@ -158,6 +162,9 @@ func _process(delta: float) -> void:
 		var night: bool = main.get("is_night")
 		time_label.text = "Nuit" if night else "Jour"
 		time_label.modulate = Color(0.6, 0.7, 1.0) if night else Color(1, 0.95, 0.7)
+
+	if item_tooltip_panel.visible:
+		_update_item_tooltip_position()
 
 
 func _find_nearest_chassis() -> Node:
@@ -267,6 +274,8 @@ func toggle_inventory_panel(force_state: Variant = null) -> bool:
 		_ensure_preview_tuner_selection(Inventory.get_selected_item())
 		_update_inventory_panel()
 		_refresh_preview_tuner_preview()
+	else:
+		_hide_item_tooltip()
 	return inventory_panel.visible
 
 func is_chat_open() -> bool:
@@ -404,6 +413,8 @@ func _build_hotbar_ui() -> void:
 		slot.setup(i, HOTBAR_KEY_LABELS[i])
 		slot.slot_pressed.connect(_on_slot_pressed)
 		slot.slot_dropped.connect(_on_slot_dropped)
+		slot.slot_hovered.connect(_on_slot_hovered)
+		slot.slot_unhovered.connect(_on_slot_unhovered)
 		hotbar_slots.add_child(slot)
 		_hotbar_ui.append(slot)
 
@@ -418,6 +429,8 @@ func _build_inventory_slots_ui() -> void:
 		slot.setup(global_index, "")
 		slot.slot_pressed.connect(_on_slot_pressed)
 		slot.slot_dropped.connect(_on_slot_dropped)
+		slot.slot_hovered.connect(_on_slot_hovered)
+		slot.slot_unhovered.connect(_on_slot_unhovered)
 		inventory_items_grid.add_child(slot)
 		_inventory_ui.append(slot)
 
@@ -639,7 +652,7 @@ func _refresh_hotbar_slots() -> void:
 		var has_item: bool = String(data.get("item_id", "")) != "" and int(data.get("amount", 0)) > 0
 		var item_id: String = String(data.get("item_id", ""))
 		var icon: Texture2D = Inventory.get_item_icon(item_id) if has_item else null
-		_hotbar_ui[i].set_slot_visual(icon, int(data.get("amount", 0)), i == Inventory.selected_hotbar_index, has_item, HOTBAR_KEY_LABELS[i])
+		_hotbar_ui[i].set_slot_visual(icon, int(data.get("amount", 0)), i == Inventory.selected_hotbar_index, has_item, HOTBAR_KEY_LABELS[i], item_id)
 
 func _refresh_inventory_slots() -> void:
 	for i in range(_inventory_ui.size()):
@@ -648,7 +661,7 @@ func _refresh_inventory_slots() -> void:
 		var has_item: bool = String(data.get("item_id", "")) != "" and int(data.get("amount", 0)) > 0
 		var item_id: String = String(data.get("item_id", ""))
 		var icon: Texture2D = Inventory.get_item_icon(item_id) if has_item else null
-		_inventory_ui[i].set_slot_visual(icon, int(data.get("amount", 0)), false, has_item, "")
+		_inventory_ui[i].set_slot_visual(icon, int(data.get("amount", 0)), false, has_item, "", item_id)
 
 
 func _on_slot_pressed(slot_index: int, button_index: int) -> void:
@@ -659,6 +672,31 @@ func _on_slot_pressed(slot_index: int, button_index: int) -> void:
 
 func _on_slot_dropped(source_index: int, target_index: int) -> void:
 	Inventory.move_slot(source_index, target_index)
+	_hide_item_tooltip()
+
+func _on_slot_hovered(slot_index: int, item_id: String) -> void:
+	if not inventory_panel.visible or slot_index < Inventory.HOTBAR_SIZE or item_id.is_empty():
+		_hide_item_tooltip()
+		return
+	item_tooltip_label.text = Inventory.get_item_name(item_id)
+	item_tooltip_panel.visible = true
+	_update_item_tooltip_position()
+
+func _on_slot_unhovered(_slot_index: int) -> void:
+	_hide_item_tooltip()
+
+func _hide_item_tooltip() -> void:
+	item_tooltip_panel.visible = false
+
+func _update_item_tooltip_position() -> void:
+	var viewport_rect: Rect2 = get_viewport_rect()
+	var tooltip_size: Vector2 = item_tooltip_panel.size
+	if tooltip_size == Vector2.ZERO:
+		tooltip_size = item_tooltip_panel.get_combined_minimum_size()
+	var mouse_pos: Vector2 = get_global_mouse_position() + TOOLTIP_OFFSET
+	mouse_pos.x = minf(mouse_pos.x, viewport_rect.size.x - tooltip_size.x - 8.0)
+	mouse_pos.y = minf(mouse_pos.y, viewport_rect.size.y - tooltip_size.y - 8.0)
+	item_tooltip_panel.position = mouse_pos
 
 
 # Compatibility — build_controller.gd calls these

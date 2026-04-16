@@ -850,9 +850,10 @@ func _fix_tool_textures(item_id: String, inst: Node3D) -> void:
 				var new_mat := std_mat.duplicate() as StandardMaterial3D
 				new_mat.albedo_texture = tex
 				mi.set_surface_override_material(surf_idx, new_mat)
-			elif mat == null:
+			else:
 				var new_mat := StandardMaterial3D.new()
 				new_mat.albedo_texture = tex
+				new_mat.roughness = 1.0
 				mi.set_surface_override_material(surf_idx, new_mat)
 
 func _gather_mesh_instances(node: Node) -> Array[MeshInstance3D]:
