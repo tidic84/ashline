@@ -141,6 +141,8 @@ func _process(delta: float) -> void:
 		else:
 			crosshair.color = Color(1.0, 0.3, 0.3, 0.9)
 
+	if tracked_chassis != null and not is_instance_valid(tracked_chassis):
+		tracked_chassis = null
 	tracked_chassis = _resolve_tracked_train(tracked_chassis)
 	if tracked_chassis == null or not is_instance_valid(tracked_chassis) or not _train_can_show_telemetry(tracked_chassis):
 		tracked_chassis = _find_nearest_chassis()
