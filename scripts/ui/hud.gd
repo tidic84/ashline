@@ -202,8 +202,15 @@ func _find_nearest_chassis() -> Node:
 		return null
 	return _resolve_tracked_train(nodes[0] as Node)
 
-func _resolve_tracked_train(node: Node) -> Node:
-	if node == null or not is_instance_valid(node):
+func _resolve_tracked_train(node_variant: Variant) -> Node:
+	if node_variant == null:
+		return null
+	if not (node_variant is Object):
+		return null
+	if not is_instance_valid(node_variant):
+		return null
+	var node := node_variant as Node
+	if node == null:
 		return null
 	if node is TrainChassis:
 		var parent := node.get_parent()
@@ -211,8 +218,13 @@ func _resolve_tracked_train(node: Node) -> Node:
 			return parent
 	return node
 
-func _train_can_show_telemetry(node: Node) -> bool:
-	if node == null or not is_instance_valid(node):
+func _train_can_show_telemetry(node_variant: Variant) -> bool:
+	if node_variant == null or not (node_variant is Object):
+		return false
+	if not is_instance_valid(node_variant):
+		return false
+	var node := node_variant as Node
+	if node == null:
 		return false
 	if node is WagonFrame:
 		var wf := node as WagonFrame
