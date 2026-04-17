@@ -52,6 +52,7 @@ const PLAYER_ANIMATION_SOURCES: Dictionary = {
 		"loop": true,
 	},
 }
+const FLOOR_PAINT_INTERVAL: float = 0.06
 
 @onready var camera: Camera3D = $Head/Camera3D
 @onready var head: Node3D = $Head
@@ -95,6 +96,8 @@ var _model_animation_player: AnimationPlayer = null
 var _model_animation_library: AnimationLibrary = null
 var _current_model_animation: String = ""
 var _ignore_shoot_until_msec: int = 0
+var _floor_paint_accum: float = 0.0
+var _last_floor_paint_key: String = ""
 
 func _enter_tree() -> void:
 	is_local = not multiplayer.has_multiplayer_peer() or get_multiplayer_authority() == multiplayer.get_unique_id()
@@ -152,6 +155,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not is_local:
 		return
 	if _controls_blocked():
+		_reset_floor_paint()
+		return
+
+	if event.is_action_released("shoot"):
+		_reset_floor_paint()
 		return
 
 	if event is InputEventMouseButton and event.pressed:
@@ -233,7 +241,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		if Time.get_ticks_msec() < _ignore_shoot_until_msec:
 			return
 		if BuildSystem.is_building:
-			_try_build()
+			if BuildSystem.mode == BuildSystem.BuildMode.FLOOR:
+				_floor_paint_accum = FLOOR_PAINT_INTERVAL
+				_try_paint_floor(true)
+			else:
+				_reset_floor_paint()
+				_try_build()
 		else:
 			_try_shoot()
 
@@ -297,6 +310,7 @@ func _physics_process(delta: float) -> void:
 
 	if BuildSystem.is_building:
 		_update_build_preview()
+		_handle_floor_paint(delta)
 
 	_update_player_model_animation()
 	_update_interact_hint()
@@ -506,6 +520,61 @@ func _try_build() -> void:
 					hit_point = p
 				BuildSystem.try_demolish(hit_point, target)
 
+func _handle_floor_paint(delta: float) -> void:
+	if not BuildSystem.is_building or BuildSystem.mode != BuildSystem.BuildMode.FLOOR:
+		_reset_floor_paint()
+		return
+	if _is_inventory_open() or _is_build_menu_open() or Time.get_ticks_msec() < _ignore_shoot_until_msec:
+		_reset_floor_paint()
+		return
+	if not Input.is_action_pressed("shoot"):
+		_reset_floor_paint()
+		return
+	_floor_paint_accum += delta
+	if _floor_paint_accum < FLOOR_PAINT_INTERVAL:
+		return
+	_floor_paint_accum = 0.0
+	_try_paint_floor(false)
+
+func _try_paint_floor(force: bool = false) -> void:
+	var context := _get_floor_build_context()
+	if context.is_empty():
+		return
+	var key: String = context["key"]
+	if not force and key == _last_floor_paint_key:
+		return
+	var hit_point: Vector3 = context["hit_point"]
+	var target := context["target"] as Node
+	if target == null:
+		return
+	var placed := BuildSystem.try_place_floor(hit_point, target)
+	if placed != null or WorldSync.should_request_host():
+		_last_floor_paint_key = key
+
+func _get_floor_build_context() -> Dictionary:
+	if not build_ray.is_colliding():
+		return {}
+	var hit_point := build_ray.get_collision_point()
+	var collider: Object = build_ray.get_collider()
+	if collider == null:
+		return {}
+	var target := _find_build_target(collider as Node)
+	if target == null:
+		return {}
+	var p: Variant = _get_build_point_on_target(target)
+	if p is Vector3:
+		hit_point = p
+	var grid_pos: Vector2i = target.get_grid_position(hit_point)
+	return {
+		"hit_point": hit_point,
+		"target": target,
+		"key": "%s:%s:%s" % [target.get_instance_id(), grid_pos.x, grid_pos.y],
+	}
+
+func _reset_floor_paint() -> void:
+	_floor_paint_accum = 0.0
+	_last_floor_paint_key = ""
+
 func _update_build_preview() -> void:
 	if not build_ray.is_colliding():
 		BuildSystem.hide_preview()
@@ -658,6 +727,7 @@ func _controls_blocked() -> bool:
 func _apply_blocked_movement(delta: float) -> bool:
 	if not _controls_blocked():
 		return false
+	_reset_floor_paint()
 	_update_wagon_platform(delta)
 	if is_on_floor() and velocity.y <= 0.0:
 		velocity.x = move_toward(velocity.x, 0.0, current_speed)
@@ -833,12 +903,16 @@ func _update_interact_hint() -> void:
 		if collider and collider.has_method("interact"):
 			if collider is PumpLever:
 				hud.show_interact_hint("[E] Pump")
-			elif collider is Harvestable:
+				hud.hide_harvest_hp()
+			elif collider is Harvestable or collider.is_in_group("harvestable"):
 				hud.show_interact_hint("[E] Harvest")
+				hud.show_harvest_hp(collider.hits_remaining, collider.hits_to_harvest)
 			elif collider.is_in_group("dropped_item"):
 				hud.show_interact_hint("[E] Ramasser")
+				hud.hide_harvest_hp()
 			else:
 				hud.show_interact_hint("[E] Interact")
+				hud.hide_harvest_hp()
 			return
 	hud.hide_interact_hint()
 

@@ -24,6 +24,8 @@ var _ignore_shoot_until_msec: int = 0
 var _wagon_platform: Node3D = null
 var _last_wagon_transform: Transform3D = Transform3D.IDENTITY
 var _platform_velocity_carry: Vector3 = Vector3.ZERO
+var _floor_paint_accum: float = 0.0
+var _last_floor_paint_key: String = ""
 const BUILD_RAY_LENGTH: float = 8.0
 const INTERACT_RAY_LENGTH: float = 4.0
 const BUILD_COLLISION_MASK: int = 137  # World (1) + Train (8) + BuildDetect (128)
@@ -31,6 +33,7 @@ const INTERACT_COLLISION_MASK: int = 48
 const LOOK_COLLISION_MASK: int = 57  # World (1) + Train (8) + Placeables (16) + Interactable (32)
 const BUILD_PREVIEW_INTERVAL: float = 0.033
 const INTERACT_CHECK_INTERVAL: float = 0.05
+const FLOOR_PAINT_INTERVAL: float = 0.06
 const GAME_AMBIENT_NAME: String = ""
 
 
@@ -82,6 +85,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _camera == null:
 		return
 	if _controls_blocked():
+		_reset_floor_paint()
+		return
+
+	if event.is_action_released("shoot"):
+		_reset_floor_paint()
 		return
 
 	if event is InputEventMouseButton and event.pressed:
@@ -150,7 +158,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		if Time.get_ticks_msec() < _ignore_shoot_until_msec:
 			return
 		if BuildSystem.is_building:
-			_try_build()
+			if BuildSystem.mode == BuildSystem.BuildMode.FLOOR:
+				_floor_paint_accum = FLOOR_PAINT_INTERVAL
+				_try_paint_floor(true)
+			else:
+				_reset_floor_paint()
+				_try_build()
 		elif _try_use_equipped_tool():
 			return
 
@@ -175,6 +188,7 @@ func _physics_process(delta: float) -> void:
 	if _camera == null:
 		return
 	if _apply_blocked_controls():
+		_reset_floor_paint()
 		BuildSystem.hide_preview()
 		return
 	if BuildSystem.is_building:
@@ -185,6 +199,7 @@ func _physics_process(delta: float) -> void:
 		if _build_preview_accum >= BUILD_PREVIEW_INTERVAL:
 			_build_preview_accum = 0.0
 			_update_build_preview()
+		_handle_floor_paint(delta)
 	_interact_check_accum += delta
 	if _interact_check_accum >= INTERACT_CHECK_INTERVAL:
 		_interact_check_accum = 0.0
@@ -267,6 +282,66 @@ func _try_build() -> void:
 				if p3 is Vector3:
 					hit_point = p3
 				BuildSystem.try_demolish(hit_point, target3)
+
+
+func _handle_floor_paint(delta: float) -> void:
+	if not BuildSystem.is_building or BuildSystem.mode != BuildSystem.BuildMode.FLOOR:
+		_reset_floor_paint()
+		return
+	if _is_inventory_open() or _is_build_menu_open() or Time.get_ticks_msec() < _ignore_shoot_until_msec:
+		_reset_floor_paint()
+		return
+	if not Input.is_action_pressed("shoot"):
+		_reset_floor_paint()
+		return
+	_floor_paint_accum += delta
+	if _floor_paint_accum < FLOOR_PAINT_INTERVAL:
+		return
+	_floor_paint_accum = 0.0
+	_try_paint_floor(false)
+
+
+func _try_paint_floor(force: bool = false) -> void:
+	var context := _get_floor_build_context()
+	if context.is_empty():
+		return
+	var key: String = context["key"]
+	if not force and key == _last_floor_paint_key:
+		return
+	var hit_point: Vector3 = context["hit_point"]
+	var target := context["target"] as Node
+	if target == null:
+		return
+	var placed := BuildSystem.try_place_floor(hit_point, target)
+	if placed != null or WorldSync.should_request_host():
+		_last_floor_paint_key = key
+
+
+func _get_floor_build_context() -> Dictionary:
+	var hit := _camera_ray(BUILD_RAY_LENGTH, BUILD_COLLISION_MASK)
+	if hit.is_empty():
+		return {}
+	var hit_point: Vector3 = hit["position"]
+	var collider: Object = hit["collider"]
+	if collider == null:
+		return {}
+	var target := _find_build_target(collider as Node)
+	if target == null:
+		return {}
+	var p: Variant = _get_build_point_on_target(target)
+	if p is Vector3:
+		hit_point = p
+	var grid_pos: Vector2i = target.get_grid_position(hit_point)
+	return {
+		"hit_point": hit_point,
+		"target": target,
+		"key": "%s:%s:%s" % [target.get_instance_id(), grid_pos.x, grid_pos.y],
+	}
+
+
+func _reset_floor_paint() -> void:
+	_floor_paint_accum = 0.0
+	_last_floor_paint_key = ""
 
 
 func _update_build_preview() -> void:

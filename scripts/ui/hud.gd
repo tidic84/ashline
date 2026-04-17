@@ -8,6 +8,7 @@ const HOTBAR_KEY_LABELS: Array[String] = ["1", "2", "3", "4", "5", "6", "7", "8"
 @onready var build_label: Label = $BuildPanel/BuildLabel
 @onready var crosshair: ColorRect = $Crosshair
 @onready var interact_hint: Label = $InteractHint
+@onready var harvest_hp_label: Label = $HarvestHpLabel
 @onready var target_info_bg: ColorRect = $TargetInfoBg
 @onready var target_name_label: Label = $TargetInfoBg/TargetNameLabel
 @onready var speed_label: Label = $SpeedLabel
@@ -25,6 +26,7 @@ const HOTBAR_KEY_LABELS: Array[String] = ["1", "2", "3", "4", "5", "6", "7", "8"
 @onready var craft_preview_label: Label = $InventoryPanel/Margin/VBox/Right/CraftInfo
 @onready var item_tooltip_panel: PanelContainer = $ItemTooltip
 @onready var item_tooltip_label: Label = $ItemTooltip/Name
+@onready var pickup_notif_container: VBoxContainer = $PickupNotifContainer
 
 var tracked_chassis: Node = null  # TrainChassis or WagonFrame
 var _hud_refresh_accum: float = 0.0
@@ -65,6 +67,7 @@ func _ready() -> void:
 	Inventory.selected_hotbar_changed.connect(_on_hotbar_selected)
 	Inventory.survival_changed.connect(_on_survival_changed)
 	Inventory.item_icon_preview_settings_changed.connect(_on_item_icon_preview_settings_changed)
+	Inventory.item_picked_up.connect(_on_item_picked_up)
 	NetworkManager.chat_message_received.connect(_on_chat_message_received)
 
 	_crafting_system = get_node_or_null("/root/CraftingSystem")
@@ -313,6 +316,16 @@ func show_interact_hint(text: String) -> void:
 
 func hide_interact_hint() -> void:
 	interact_hint.visible = false
+	harvest_hp_label.visible = false
+
+func show_harvest_hp(current: int, max_hits: int) -> void:
+	var filled: int = current
+	var empty: int = max_hits - current
+	harvest_hp_label.text = "█".repeat(filled) + "░".repeat(empty) + "  %d/%d" % [current, max_hits]
+	harvest_hp_label.visible = true
+
+func hide_harvest_hp() -> void:
+	harvest_hp_label.visible = false
 
 func show_target_name(text: String) -> void:
 	target_name_label.text = text
@@ -852,3 +865,24 @@ func _crafting_craft(recipe_id: String) -> bool:
 	if _crafting_system and _crafting_system.has_method("craft"):
 		return bool(_crafting_system.call("craft", recipe_id))
 	return false
+
+func _on_item_picked_up(item_id: String, amount: int) -> void:
+	var item_name: String = Inventory.ITEM_NAMES.get(item_id, item_id)
+	var label := Label.new()
+	label.text = "+ %d  %s" % [amount, item_name]
+	label.modulate = Color(1.0, 1.0, 1.0, 0.0)
+	label.add_theme_font_size_override("font_size", 18)
+	label.add_theme_color_override("font_color", Color(0.85, 1.0, 0.6, 1.0))
+	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 1.0))
+	label.add_theme_constant_override("shadow_offset_x", 2)
+	label.add_theme_constant_override("shadow_offset_y", 2)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.position = Vector2(40.0, 0.0)
+	pickup_notif_container.add_child(label)
+	var tween := create_tween().set_parallel(false)
+	tween.tween_property(label, "modulate:a", 1.0, 0.15)
+	tween.tween_property(label, "position:x", 0.0, 0.15)
+	tween.tween_interval(1.8)
+	tween.tween_property(label, "modulate:a", 0.0, 0.4)
+	tween.tween_callback(label.queue_free)

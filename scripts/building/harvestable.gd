@@ -8,11 +8,13 @@ class_name Harvestable
 @export var respawn_time: float = 0.0 # 0 = no respawn
 @export var required_tool_id: String = ""
 @export var interact_label: String = "Harvest"
+@export var hit_cooldown: float = 0.5
 
 const PICKUP_SFX: String = "pickup_item"
 
 var hits_remaining: int
 var is_depleted: bool = false
+var _next_harvest_hit_time: float = 0.0
 
 func _ready() -> void:
 	hits_remaining = hits_to_harvest
@@ -40,6 +42,8 @@ func server_harvest(peer_id: int) -> void:
 		selected_item = Inventory.get_selected_item()
 	if required_tool_id != "" and selected_item != required_tool_id:
 		_play_spatial_sfx("metal_hit", 0.0, 0.85)
+		return
+	if not _consume_hit_cooldown():
 		return
 	hits_remaining -= 1
 	if _is_pickup_collectible():
@@ -89,6 +93,15 @@ func _should_play_pickup_sfx_for_peer(peer_id: int) -> bool:
 		return true
 	return peer_id <= 0 or peer_id == Inventory.get_local_peer_id()
 
+func _consume_hit_cooldown() -> bool:
+	if hit_cooldown <= 0.0:
+		return true
+	var now := float(Time.get_ticks_msec()) / 1000.0
+	if now < _next_harvest_hit_time:
+		return false
+	_next_harvest_hit_time = now + hit_cooldown
+	return true
+
 func _on_hit() -> void:
 	# Shake effect
 	var tween := create_tween()
@@ -123,6 +136,7 @@ func _harvest(peer_id: int = 1) -> void:
 func _respawn() -> void:
 	is_depleted = false
 	hits_remaining = hits_to_harvest
+	_next_harvest_hit_time = 0.0
 	visible = true
 	var col: Node = get_node_or_null("CollisionShape3D")
 	if col:

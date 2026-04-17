@@ -10,12 +10,20 @@ var hits_to_harvest: int = 1
 var required_tool_id: String = ""
 var interact_label: String = "Harvest"
 var target_name: String = "Resource"
+var hit_cooldown: float = 0.5
 
 const PICKUP_SFX: String = "pickup_item"
 
 var _rng := RandomNumberGenerator.new()
 var _instances: Array[Dictionary] = []
 var _render_nodes: Array[MultiMeshInstance3D] = []
+
+var hits_remaining: int:
+	get:
+		for inst in _instances:
+			if not bool(inst.get("depleted", false)):
+				return int(inst.get("hits_remaining", hits_to_harvest))
+		return 0
 
 
 func _ready() -> void:
@@ -49,6 +57,7 @@ func setup_chunk(config: Dictionary) -> void:
 			"local_center": raw_instance.get("local_center", Vector3.ZERO),
 			"collision_shapes": collision_shapes,
 			"hits_remaining": hits_to_harvest,
+			"next_hit_time": 0.0,
 			"depleted": false,
 		})
 
@@ -73,6 +82,10 @@ func interact_at(_player: CharacterBody3D, hit: Dictionary) -> void:
 		_play_spatial_sfx("metal_hit", hit.get("position", global_position), 0.0, 0.85)
 		return
 
+	var now := float(Time.get_ticks_msec()) / 1000.0
+	if hit_cooldown > 0.0 and now < float(instance_data.get("next_hit_time", 0.0)):
+		return
+	instance_data["next_hit_time"] = now + hit_cooldown
 	instance_data["hits_remaining"] = int(instance_data.get("hits_remaining", hits_to_harvest)) - 1
 	_instances[instance_index] = instance_data
 	if _is_pickup_collectible():
@@ -145,7 +158,7 @@ func _harvest_instance(instance_index: int) -> void:
 		if instance_index < 0 or instance_index >= render_node.multimesh.instance_count:
 			continue
 		var hidden_transform: Transform3D = render_node.multimesh.get_instance_transform(instance_index)
-		hidden_transform.origin.y = -1000.0 - float(instance_index)
+		hidden_transform.basis = Basis(Vector3(0.0001, 0.0, 0.0), Vector3(0.0, 0.0001, 0.0), Vector3(0.0, 0.0, 0.0001))
 		render_node.multimesh.set_instance_transform(instance_index, hidden_transform)
 
 

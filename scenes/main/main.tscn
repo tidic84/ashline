@@ -26,7 +26,6 @@
 [ext_resource type="Script" uid="uid://cqk5duaw6het6" path="res://scripts/world/terrain_generator.gd" id="28_railgen"]
 [ext_resource type="PackedScene" uid="uid://bsu4gots2oiyy" path="res://scenes/rail/rail_switch.tscn" id="29_gkmcc"]
 [ext_resource type="Script" uid="uid://bib4e6vre4okx" path="res://scenes/environment/rail_path.gd" id="29_railpath"]
-[ext_resource type="Script" uid="uid://bhimv6olc15ri" path="res://scripts/rail/rail_switch.gd" id="30_7nlll"]
 [ext_resource type="Script" uid="uid://c5qvicfnpmm3v" path="res://scripts/player/build_controller.gd" id="30_buildctrl"]
 [ext_resource type="PackedScene" uid="uid://cggqb75a8w8r" path="res://addons/debug_menu/debug_menu.tscn" id="31_debug"]
 [ext_resource type="Script" uid="uid://ck00bpv2e6qsb" path="res://scripts/world/resource_spawner.gd" id="32_spawner"]
@@ -293,17 +292,11 @@ max_pitch_curvature_deg_per_m = 0.2
 connections_at_start = Array[NodePath]([NodePath("../RailPath"), NodePath("../RailPath2")])
 connections_at_end = Array[NodePath]([NodePath("../RailPath"), NodePath("../RailPath3")])
 
-[node name="RailSwitch_RailPath_End" type="StaticBody3D" parent="." unique_id=1506612423 instance=ExtResource("29_gkmcc")]
+[node name="RailSwitch_RailPath_End" parent="." unique_id=1506612423 instance=ExtResource("29_gkmcc")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.8894691, 2.3524878, 26.533476)
-collision_layer = 32
-collision_mask = 0
-script = ExtResource("30_7nlll")
 rail_path = NodePath("../RailPath")
 
-[node name="RailSwitch_RailPath_Start" type="StaticBody3D" parent="." unique_id=285797394 instance=ExtResource("29_gkmcc")]
+[node name="RailSwitch_RailPath_Start" parent="." unique_id=285797394 instance=ExtResource("29_gkmcc")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -35.322296, -2.9430847, -48.04425)
-collision_layer = 32
-collision_mask = 0
-script = ExtResource("30_7nlll")
 rail_path = NodePath("../RailPath")
 endpoint = 0

@@ -3,6 +3,7 @@ extends Node
 signal resource_changed(resource_id: String, amount: int)
 signal inventory_updated
 signal item_changed(item_id: String, amount: int)
+signal item_picked_up(item_id: String, amount: int)
 signal hotbar_updated
 signal selected_hotbar_changed(index: int, item_id: String)
 signal survival_changed(health: float, hunger: float, thirst: float)
@@ -26,6 +27,7 @@ const ITEM_NAMES: Dictionary = {
 	"branch": "Branch",
 	"log": "Log",
 	"stone": "Stone",
+	"fiber": "Fiber",
 	"metal_scrap": "Metal Scrap",
 	"axe": "Axe",
 	"pickaxe": "Pickaxe",
@@ -40,6 +42,7 @@ const ITEM_STACK_SIZES: Dictionary = {
 	"branch": 100,
 	"log": 100,
 	"stone": 150,
+	"fiber": 100,
 	"metal_scrap": 100,
 	"axe": 1,
 	"pickaxe": 1,
@@ -54,6 +57,7 @@ const ITEM_ICON_COLORS: Dictionary = {
 	"branch": Color(0.48, 0.30, 0.16, 1.0),
 	"log": Color(0.40, 0.25, 0.14, 1.0),
 	"stone": Color(0.52, 0.52, 0.56, 1.0),
+	"fiber": Color(0.32, 0.68, 0.38, 1.0),
 	"metal_scrap": Color(0.45, 0.46, 0.49, 1.0),
 	"axe": Color(0.74, 0.38, 0.28, 1.0),
 	"pickaxe": Color(0.42, 0.62, 0.74, 1.0),
@@ -390,6 +394,8 @@ func server_add_item(peer_id: int, item_id: String, amount: int) -> void:
 	var state: Dictionary = (player_inventories[peer_id] as Dictionary).duplicate(true)
 	_state_add_item(state, item_id, amount)
 	_commit_peer_state(peer_id, state)
+	if peer_id == get_local_peer_id() and amount > 0 and ITEM_NAMES.has(item_id):
+		item_picked_up.emit(item_id, amount)
 
 func server_remove_item(peer_id: int, item_id: String, amount: int) -> bool:
 	ensure_peer_inventory(peer_id)
@@ -513,6 +519,8 @@ func add_item(item_id: String, amount: int) -> void:
 	var added: int = amount - remaining
 	if added <= 0:
 		return
+
+	item_picked_up.emit(item_id, added)
 
 	if HARVEST_TO_ITEM.has(item_id):
 		var conversion: Dictionary = HARVEST_TO_ITEM[item_id]
