@@ -16,7 +16,7 @@
 [ext_resource type="Texture2D" uid="uid://b7qpk2tctbu0x" path="res://levels/biomes_mask.png" id="13_mask"]
 [ext_resource type="PackedScene" uid="uid://dg7d0q3ew7q7o" path="res://objects/plants/paproc.tscn" id="14_paproc"]
 [ext_resource type="PackedScene" uid="uid://b7sdar6o6ro6t" path="res://generated/biomes_billboards/plants/00_paproc/billboard.tscn" id="15_bb_paproc"]
-[ext_resource type="ArrayMesh" uid="uid://d4gwdbg276nmj" path="res://objects/plants/plant99.mesh" id="16_plant99"]
+[ext_resource type="PackedScene" uid="uid://b1h3rn8jt0a1k" path="res://objects/plants/plant99.tscn" id="16_plant99"]
 [ext_resource type="PackedScene" uid="uid://c6roi7ykvj2vb" path="res://generated/biomes_billboards/plants/01_plant99/billboard.tscn" id="17_bb_plant99"]
 [ext_resource type="Material" uid="uid://c7uwsax7ffiwo" path="res://grass/grass.tres" id="18_grass_mat"]
 [ext_resource type="ArrayMesh" uid="uid://cextepyc4ggc7" path="res://grass/grass.mesh" id="18_grass_mesh"]
@@ -107,15 +107,29 @@ probability = 0.6
 billboard_lod_distance = 20.0
 scale_min = Vector3(0.4, 0.4, 0.4)
 scale_max = Vector3(0.8, 0.8, 0.8)
+harvest_enabled = true
+harvest_drop_item_id = "fiber"
+harvest_amount_min = 2
+harvest_amount_max = 4
+harvest_hits_to_harvest = 4
+harvest_interact_label = "Harvest Fibers"
+harvest_target_name = "Plant"
 
 [sub_resource type="Resource" id="plant_plant99"]
 script = ExtResource("3_entry")
-mesh = ExtResource("16_plant99")
+mesh_scene = ExtResource("16_plant99")
 billboard_scene = ExtResource("17_bb_plant99")
 probability = 0.5
 billboard_lod_distance = 20.0
 scale_min = Vector3(0.84, 0.5, 0.9)
 scale_max = Vector3(1.725, 2, 2.195)
+harvest_enabled = true
+harvest_drop_item_id = "fiber"
+harvest_amount_min = 2
+harvest_amount_max = 4
+harvest_hits_to_harvest = 4
+harvest_interact_label = "Harvest Fibers"
+harvest_target_name = "Plant"
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_terrain"]
 noise_type = 3

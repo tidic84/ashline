@@ -1195,8 +1195,8 @@ func _build_harvest_chunk_collider(
         return
 
     body.name = "HarvestChunk_%s" % resolved_entry["index"]
-    body.collision_layer = chunk_collision_layer | 32
-    body.collision_mask = chunk_collision_mask
+    body.collision_layer = 32
+    body.collision_mask = 0
     chunk_node.add_child(body, false, INTERNAL_MODE_FRONT)
 
     var proxy_instances: Array = []

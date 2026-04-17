@@ -52,7 +52,6 @@ const PLAYER_ANIMATION_SOURCES: Dictionary = {
 		"loop": true,
 	},
 }
-const FLOOR_PAINT_INTERVAL: float = 0.06
 
 @onready var camera: Camera3D = $Head/Camera3D
 @onready var head: Node3D = $Head
@@ -96,8 +95,12 @@ var _model_animation_player: AnimationPlayer = null
 var _model_animation_library: AnimationLibrary = null
 var _current_model_animation: String = ""
 var _ignore_shoot_until_msec: int = 0
-var _floor_paint_accum: float = 0.0
-var _last_floor_paint_key: String = ""
+var _batch_build_active: bool = false
+var _batch_build_mode: int = BuildSystem.BuildMode.OFF
+var _batch_build_target: Node = null
+var _batch_build_start_grid: Vector2i = Vector2i.ZERO
+var _batch_build_end_grid: Vector2i = Vector2i.ZERO
+var _batch_build_edge: int = BuildSystem.EdgeSide.NONE
 
 func _enter_tree() -> void:
 	is_local = not multiplayer.has_multiplayer_peer() or get_multiplayer_authority() == multiplayer.get_unique_id()
@@ -155,11 +158,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not is_local:
 		return
 	if _controls_blocked():
-		_reset_floor_paint()
+		_cancel_batch_build()
 		return
 
 	if event.is_action_released("shoot"):
-		_reset_floor_paint()
+		if _batch_build_active:
+			_commit_batch_build()
+			_cancel_batch_build()
 		return
 
 	if event is InputEventMouseButton and event.pressed:
@@ -225,6 +230,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		if hud.build_menu.visible:
 			_close_build_menu()
 		elif BuildSystem.is_building:
+			_cancel_batch_build()
 			_on_build_exit_requested()
 
 	if event.is_action_pressed("interact"):
@@ -241,11 +247,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		if Time.get_ticks_msec() < _ignore_shoot_until_msec:
 			return
 		if BuildSystem.is_building:
-			if BuildSystem.mode == BuildSystem.BuildMode.FLOOR:
-				_floor_paint_accum = FLOOR_PAINT_INTERVAL
-				_try_paint_floor(true)
+			if _can_batch_build_current_mode():
+				_begin_batch_build()
 			else:
-				_reset_floor_paint()
+				_cancel_batch_build()
 				_try_build()
 		else:
 			_try_shoot()
@@ -309,8 +314,11 @@ func _physics_process(delta: float) -> void:
 		_broadcast_network_state()
 
 	if BuildSystem.is_building:
-		_update_build_preview()
-		_handle_floor_paint(delta)
+		if not _batch_build_active:
+			_update_build_preview()
+		_update_batch_build()
+	else:
+		_cancel_batch_build()
 
 	_update_player_model_animation()
 	_update_interact_hint()
@@ -520,45 +528,71 @@ func _try_build() -> void:
 					hit_point = p
 				BuildSystem.try_demolish(hit_point, target)
 
-func _handle_floor_paint(delta: float) -> void:
-	if not BuildSystem.is_building or BuildSystem.mode != BuildSystem.BuildMode.FLOOR:
-		_reset_floor_paint()
-		return
-	if _is_inventory_open() or _is_build_menu_open() or Time.get_ticks_msec() < _ignore_shoot_until_msec:
-		_reset_floor_paint()
-		return
-	if not Input.is_action_pressed("shoot"):
-		_reset_floor_paint()
-		return
-	_floor_paint_accum += delta
-	if _floor_paint_accum < FLOOR_PAINT_INTERVAL:
-		return
-	_floor_paint_accum = 0.0
-	_try_paint_floor(false)
+func _can_batch_build_current_mode() -> bool:
+	return BuildSystem.mode == BuildSystem.BuildMode.FLOOR or _is_wall_batch_mode()
 
-func _try_paint_floor(force: bool = false) -> void:
-	var context := _get_floor_build_context()
+func _is_wall_batch_mode() -> bool:
+	if BuildSystem.mode != BuildSystem.BuildMode.ITEM or BuildSystem.current_buildable_data == null:
+		return false
+	return BuildSystem.current_buildable_data.category in [
+		BuildableData.Category.WALL,
+		BuildableData.Category.BARRICADE,
+	]
+
+func _begin_batch_build() -> void:
+	var context: Dictionary = _get_batch_build_context()
 	if context.is_empty():
 		return
-	var key: String = context["key"]
-	if not force and key == _last_floor_paint_key:
+	_batch_build_active = true
+	_batch_build_mode = BuildSystem.mode
+	_batch_build_target = context["target"] as Node
+	_batch_build_start_grid = context["grid_pos"]
+	_batch_build_end_grid = _batch_build_start_grid
+	_batch_build_edge = int(context.get("edge", BuildSystem.EdgeSide.NONE))
+	_update_batch_build_text()
+
+func _update_batch_build() -> void:
+	if not _batch_build_active:
 		return
-	var hit_point: Vector3 = context["hit_point"]
-	var target := context["target"] as Node
-	if target == null:
+	if _is_build_menu_open() or _is_inventory_open():
+		_cancel_batch_build()
 		return
-	var placed := BuildSystem.try_place_floor(hit_point, target)
-	if placed != null or WorldSync.should_request_host():
-		_last_floor_paint_key = key
+	if BuildSystem.mode != _batch_build_mode or not is_instance_valid(_batch_build_target):
+		_cancel_batch_build()
+		return
+	var context: Dictionary = _get_batch_build_context()
+	if context.is_empty() or context["target"] != _batch_build_target:
+		return
+	_batch_build_end_grid = context["grid_pos"]
+	_update_batch_build_text()
+
+func _commit_batch_build() -> void:
+	if not _batch_build_active or not is_instance_valid(_batch_build_target):
+		return
+	if not BuildSystem.can_place:
+		return
+	if _batch_build_mode == BuildSystem.BuildMode.FLOOR:
+		for grid_pos in BuildSystem.get_batch_floor_order(_batch_build_target, _get_floor_batch_positions()):
+			BuildSystem.try_place_floor(_batch_build_target.grid_to_world(grid_pos), _batch_build_target)
+	elif _batch_build_mode == BuildSystem.BuildMode.ITEM and _batch_build_edge != BuildSystem.EdgeSide.NONE:
+		for grid_pos in _get_wall_batch_positions():
+			BuildSystem.try_place_item(_edge_hit_point(_batch_build_target, grid_pos, _batch_build_edge), _batch_build_target)
+
+func _get_batch_build_context() -> Dictionary:
+	if BuildSystem.mode == BuildSystem.BuildMode.FLOOR:
+		return _get_floor_build_context()
+	if _is_wall_batch_mode():
+		return _get_wall_build_context()
+	return {}
 
 func _get_floor_build_context() -> Dictionary:
 	if not build_ray.is_colliding():
 		return {}
-	var hit_point := build_ray.get_collision_point()
+	var hit_point: Vector3 = build_ray.get_collision_point()
 	var collider: Object = build_ray.get_collider()
 	if collider == null:
 		return {}
-	var target := _find_build_target(collider as Node)
+	var target: Node = _find_build_target(collider as Node)
 	if target == null:
 		return {}
 	var p: Variant = _get_build_point_on_target(target)
@@ -568,19 +602,106 @@ func _get_floor_build_context() -> Dictionary:
 	return {
 		"hit_point": hit_point,
 		"target": target,
-		"key": "%s:%s:%s" % [target.get_instance_id(), grid_pos.x, grid_pos.y],
+		"grid_pos": grid_pos,
 	}
 
-func _reset_floor_paint() -> void:
-	_floor_paint_accum = 0.0
-	_last_floor_paint_key = ""
+func _get_wall_build_context() -> Dictionary:
+	if not build_ray.is_colliding():
+		return {}
+	var hit_point: Vector3 = build_ray.get_collision_point()
+	var collider: Object = build_ray.get_collider()
+	if collider == null:
+		return {}
+	var target: Node = _find_build_target(collider as Node)
+	if target == null:
+		return {}
+	var p: Variant = _get_build_point_on_target(target)
+	if p is Vector3:
+		hit_point = p
+	var grid_pos: Vector2i = target.get_grid_position(hit_point)
+	return {
+		"hit_point": hit_point,
+		"target": target,
+		"grid_pos": grid_pos,
+		"edge": _detect_edge_from_hit_for_batch(target, hit_point, grid_pos),
+	}
+
+func _get_floor_batch_positions() -> Array[Vector2i]:
+	var positions: Array[Vector2i] = []
+	var step_x: int = 1 if _batch_build_end_grid.x >= _batch_build_start_grid.x else -1
+	var step_y: int = 1 if _batch_build_end_grid.y >= _batch_build_start_grid.y else -1
+	for y in range(_batch_build_start_grid.y, _batch_build_end_grid.y + step_y, step_y):
+		for x in range(_batch_build_start_grid.x, _batch_build_end_grid.x + step_x, step_x):
+			positions.append(Vector2i(x, y))
+	return positions
+
+func _get_wall_batch_positions() -> Array[Vector2i]:
+	var positions: Array[Vector2i] = []
+	if _batch_build_edge == BuildSystem.EdgeSide.NORTH or _batch_build_edge == BuildSystem.EdgeSide.SOUTH:
+		var step_x: int = 1 if _batch_build_end_grid.x >= _batch_build_start_grid.x else -1
+		for x in range(_batch_build_start_grid.x, _batch_build_end_grid.x + step_x, step_x):
+			positions.append(Vector2i(x, _batch_build_start_grid.y))
+	else:
+		var step_y: int = 1 if _batch_build_end_grid.y >= _batch_build_start_grid.y else -1
+		for y in range(_batch_build_start_grid.y, _batch_build_end_grid.y + step_y, step_y):
+			positions.append(Vector2i(_batch_build_start_grid.x, y))
+	return positions
+
+func _update_batch_build_text() -> void:
+	if _batch_build_mode == BuildSystem.BuildMode.FLOOR:
+		var width: int = absi(_batch_build_end_grid.x - _batch_build_start_grid.x) + 1
+		var length: int = absi(_batch_build_end_grid.y - _batch_build_start_grid.y) + 1
+		if hud != null and hud.has_method("show_build_drag_info"):
+			hud.show_build_drag_info("Floors: %dx%d (%d) - relache pour construire" % [width, length, width * length])
+		BuildSystem.show_batch_floor_preview(_batch_build_target, _get_floor_batch_positions())
+	elif _batch_build_mode == BuildSystem.BuildMode.ITEM:
+		var count: int = _get_wall_batch_positions().size()
+		if hud != null and hud.has_method("show_build_drag_info"):
+			hud.show_build_drag_info("Walls: 1x%d - relache pour construire" % count)
+		BuildSystem.show_batch_wall_preview(_batch_build_target, _get_wall_batch_positions(), _batch_build_edge)
+
+func _cancel_batch_build() -> void:
+	_batch_build_active = false
+	_batch_build_mode = BuildSystem.BuildMode.OFF
+	_batch_build_target = null
+	_batch_build_start_grid = Vector2i.ZERO
+	_batch_build_end_grid = Vector2i.ZERO
+	_batch_build_edge = BuildSystem.EdgeSide.NONE
+	BuildSystem.clear_batch_preview()
+	if hud != null and hud.has_method("hide_build_drag_info"):
+		hud.hide_build_drag_info()
+
+func _detect_edge_from_hit_for_batch(target: Node, hit_point: Vector3, grid_pos: Vector2i) -> int:
+	var hit_local: Vector3 = target.to_local(hit_point)
+	var cell_center: Vector3 = target.grid_to_local(grid_pos)
+	var local_offset: Vector3 = hit_local - cell_center
+	local_offset.y = 0.0
+	if local_offset.length_squared() < 0.0001:
+		return BuildSystem.EdgeSide.NORTH
+	if absf(local_offset.x) > absf(local_offset.z):
+		return BuildSystem.EdgeSide.EAST if local_offset.x > 0.0 else BuildSystem.EdgeSide.WEST
+	return BuildSystem.EdgeSide.SOUTH if local_offset.z > 0.0 else BuildSystem.EdgeSide.NORTH
+
+func _edge_hit_point(target: Node, grid_pos: Vector2i, edge: int) -> Vector3:
+	var local_pos: Vector3 = target.grid_to_local(grid_pos)
+	match edge:
+		BuildSystem.EdgeSide.NORTH:
+			local_pos.z -= 0.45
+		BuildSystem.EdgeSide.SOUTH:
+			local_pos.z += 0.45
+		BuildSystem.EdgeSide.EAST:
+			local_pos.x += 0.45
+		BuildSystem.EdgeSide.WEST:
+			local_pos.x -= 0.45
+	local_pos.y = target.get_build_surface_local_y()
+	return target.to_global(local_pos)
 
 func _update_build_preview() -> void:
 	if not build_ray.is_colliding():
 		BuildSystem.hide_preview()
 		return
-	var hit_point := build_ray.get_collision_point()
-	var hit_normal := build_ray.get_collision_normal()
+	var hit_point: Vector3 = build_ray.get_collision_point()
+	var hit_normal: Vector3 = build_ray.get_collision_normal()
 	var collider: Object = build_ray.get_collider()
 	if collider == null:
 		BuildSystem.hide_preview()
@@ -727,7 +848,7 @@ func _controls_blocked() -> bool:
 func _apply_blocked_movement(delta: float) -> bool:
 	if not _controls_blocked():
 		return false
-	_reset_floor_paint()
+	_cancel_batch_build()
 	_update_wagon_platform(delta)
 	if is_on_floor() and velocity.y <= 0.0:
 		velocity.x = move_toward(velocity.x, 0.0, current_speed)
@@ -893,6 +1014,7 @@ func _on_build_mode_selected(mode: int) -> void:
 	_close_build_menu()
 
 func _on_build_exit_requested() -> void:
+	_cancel_batch_build()
 	hud.build_menu.hide_menu()
 	BuildSystem.exit_build_mode()
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED

@@ -690,6 +690,12 @@ func can_place_item(grid_pos: Vector2i) -> bool:
 		return false
 	return true
 
+func can_place_item_footprint(grid_pos: Vector2i, footprint_size: Vector2i) -> bool:
+	for cell_pos in _get_item_footprint_cells(grid_pos, footprint_size):
+		if not can_place_item(cell_pos):
+			return false
+	return true
+
 func can_place_edge(grid_pos: Vector2i, edge: int) -> bool:
 	if not grid_cells.has(grid_pos):
 		return false
@@ -704,6 +710,11 @@ func can_place_edge(grid_pos: Vector2i, edge: int) -> bool:
 func place_item(grid_pos: Vector2i, item: Node3D) -> void:
 	grid_cells[grid_pos].item = item
 
+func place_item_footprint(grid_pos: Vector2i, footprint_size: Vector2i, item: Node3D) -> void:
+	for cell_pos in _get_item_footprint_cells(grid_pos, footprint_size):
+		var cell: Dictionary = _ensure_cell(cell_pos)
+		cell.item = item
+
 func place_edge_item(grid_pos: Vector2i, edge: int, item: Node3D) -> void:
 	var cell := _ensure_cell(grid_pos)
 	cell.edges[edge] = item
@@ -716,7 +727,19 @@ func place_edge_item(grid_pos: Vector2i, edge: int, item: Node3D) -> void:
 
 func remove_item(grid_pos: Vector2i) -> void:
 	if grid_cells.has(grid_pos) and grid_cells[grid_pos].item:
-		grid_cells[grid_pos].item = null
+		var item: Node3D = grid_cells[grid_pos].item as Node3D
+		for cell_key in grid_cells.keys():
+			if grid_cells[cell_key].item == item:
+				grid_cells[cell_key].item = null
+
+func _get_item_footprint_cells(grid_pos: Vector2i, footprint_size: Vector2i) -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	var width: int = maxi(1, footprint_size.x)
+	var length: int = maxi(1, footprint_size.y)
+	for z in range(length):
+		for x in range(width):
+			cells.append(Vector2i(grid_pos.x + x, grid_pos.y + z))
+	return cells
 
 func remove_edge_item(grid_pos: Vector2i, edge: int) -> void:
 	if grid_cells.has(grid_pos):

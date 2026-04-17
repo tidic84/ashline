@@ -13,6 +13,8 @@ var is_building: bool = false
 var current_buildable_data: BuildableData = null
 var current_buildable: PackedScene = null
 var preview_instance: Node3D = null
+var batch_preview_instances: Array[Node3D] = []
+var _batch_preview_scene: PackedScene = null
 var preview_material_valid: StandardMaterial3D
 var preview_material_invalid: StandardMaterial3D
 var can_place: bool = false
@@ -38,6 +40,10 @@ var preview_material_demolish: StandardMaterial3D
 enum EdgeSide { NONE, NORTH, SOUTH, EAST, WEST }
 var _last_edge: EdgeSide = EdgeSide.NONE
 var _last_edge_grid: Vector2i = Vector2i.ZERO
+var _last_item_preview_target: Node = null
+var _last_item_preview_grid: Vector2i = Vector2i.ZERO
+var _last_item_preview_buildable_id: String = ""
+var _last_item_preview_rotation: float = 0.0
 # Costs
 const CHASSIS_COST: Dictionary = { "wood": 10, "metal": 15 }
 const FLOOR_COST: Dictionary = { "wood": 3 }
@@ -372,6 +378,7 @@ func _update_item_preview(hit_point: Vector3, _hit_normal: Vector3, chassis: Nod
 	var rot_y: float = preview_rotation
 
 	if is_edge_item:
+		_clear_item_preview_anchor()
 		var edge: EdgeSide = _detect_edge_from_hit(chassis, hit_point, grid_pos)
 		_last_edge = edge
 		_last_edge_grid = grid_pos
@@ -384,9 +391,9 @@ func _update_item_preview(hit_point: Vector3, _hit_normal: Vector3, chassis: Nod
 		rot_y = _edge_rotation(edge) + preview_rotation
 	else:
 		_last_edge = EdgeSide.NONE
-		var local_center: Vector3 = chassis.grid_to_local(grid_pos)
-		local_center.y = chassis.get_build_surface_local_y() + 0.05
-		world_pos = chassis.to_global(local_center)
+		grid_pos = _resolve_buildable_anchor(chassis, grid_pos, current_buildable_data, preview_rotation)
+		_store_item_preview_anchor(chassis, grid_pos)
+		world_pos = _get_item_world_position(chassis, grid_pos, _get_buildable_footprint(current_buildable_data, preview_rotation))
 
 	var _sc: Vector3 = preview_instance.get_meta("original_scale", preview_instance.scale)
 	preview_instance.visible = true
@@ -399,7 +406,174 @@ func _update_item_preview(hit_point: Vector3, _hit_normal: Vector3, chassis: Nod
 	if is_edge_item and _last_edge != EdgeSide.NONE:
 		_set_preview_validity(chassis.can_place_edge(grid_pos, _last_edge) and has_cost and has_tool)
 	else:
-		_set_preview_validity(chassis.can_place_item(grid_pos) and has_cost and has_tool)
+		_set_preview_validity(_can_place_buildable_item(chassis, grid_pos, current_buildable_data, preview_rotation) and has_cost and has_tool)
+
+
+func show_batch_floor_preview(target: Node, grid_positions: Array[Vector2i]) -> void:
+	if target == null or floor_scene == null or grid_positions.is_empty():
+		clear_batch_preview()
+		can_place = false
+		return
+	if preview_instance and is_instance_valid(preview_instance) and preview_instance.is_inside_tree():
+		preview_instance.visible = false
+
+	_prepare_batch_preview(floor_scene, grid_positions.size())
+	var has_tool: bool = _has_build_tool()
+	var has_batch_cost: bool = _has_batch_resources(FLOOR_COST, grid_positions.size())
+	var floor_order: Array[Vector2i] = get_batch_floor_order(target, grid_positions)
+	var valid_floor_set: Dictionary = _positions_to_set(floor_order)
+	var all_valid: bool = has_tool and has_batch_cost and floor_order.size() == grid_positions.size()
+	for index in range(grid_positions.size()):
+		var preview: Node3D = batch_preview_instances[index]
+		var grid_pos: Vector2i = grid_positions[index]
+		var cell_valid: bool = valid_floor_set.has(grid_pos)
+		var local_pos: Vector3 = target.grid_to_local(grid_pos)
+		local_pos.y = target.get_build_surface_local_y()
+		preview.visible = true
+		preview.global_position = target.to_global(local_pos)
+		preview.global_basis = target.global_basis
+		_apply_material(preview, preview_material_valid if cell_valid and has_tool and has_batch_cost else preview_material_invalid)
+	can_place = all_valid
+
+
+func get_batch_floor_order(target: Node, grid_positions: Array[Vector2i]) -> Array[Vector2i]:
+	var ordered: Array[Vector2i] = []
+	if target == null or grid_positions.is_empty():
+		return ordered
+
+	var remaining: Array[Vector2i] = []
+	var seen: Dictionary = {}
+	for grid_pos in grid_positions:
+		if seen.has(grid_pos):
+			continue
+		seen[grid_pos] = true
+		if not _is_batch_floor_empty_cell(target, grid_pos):
+			return ordered
+		remaining.append(grid_pos)
+
+	var virtual_floors: Dictionary = {}
+	while not remaining.is_empty():
+		var placed_this_pass: bool = false
+		for index in range(remaining.size() - 1, -1, -1):
+			var grid_pos: Vector2i = remaining[index]
+			if _can_place_floor_with_virtual_batch(target, grid_pos, virtual_floors):
+				ordered.append(grid_pos)
+				virtual_floors[grid_pos] = true
+				remaining.remove_at(index)
+				placed_this_pass = true
+		if not placed_this_pass:
+			ordered.clear()
+			return ordered
+	return ordered
+
+
+func _is_batch_floor_empty_cell(target: Node, grid_pos: Vector2i) -> bool:
+	if target == null or not target.has_method("is_grid_in_bounds"):
+		return false
+	if not target.is_grid_in_bounds(grid_pos):
+		return false
+	if target.has_method("has_floor_at") and target.has_floor_at(grid_pos):
+		return false
+	return true
+
+
+func _can_place_floor_with_virtual_batch(target: Node, grid_pos: Vector2i, virtual_floors: Dictionary) -> bool:
+	if target == null or not target.has_method("can_place_floor"):
+		return false
+	if target.can_place_floor(grid_pos):
+		return true
+	var neighbors: Array[Vector2i] = [
+		Vector2i(grid_pos.x + 1, grid_pos.y),
+		Vector2i(grid_pos.x - 1, grid_pos.y),
+		Vector2i(grid_pos.x, grid_pos.y + 1),
+		Vector2i(grid_pos.x, grid_pos.y - 1),
+	]
+	for neighbor in neighbors:
+		if virtual_floors.has(neighbor):
+			return true
+	return false
+
+
+func _positions_to_set(positions: Array[Vector2i]) -> Dictionary:
+	var position_set: Dictionary = {}
+	for grid_pos in positions:
+		position_set[grid_pos] = true
+	return position_set
+
+
+func show_batch_wall_preview(target: Node, grid_positions: Array[Vector2i], edge: int) -> void:
+	if target == null or current_buildable == null or grid_positions.is_empty() or edge == EdgeSide.NONE:
+		clear_batch_preview()
+		can_place = false
+		return
+	if preview_instance and is_instance_valid(preview_instance) and preview_instance.is_inside_tree():
+		preview_instance.visible = false
+
+	_prepare_batch_preview(current_buildable, grid_positions.size())
+	var cost: Dictionary = current_buildable_data.cost if current_buildable_data else {}
+	var has_tool: bool = _has_build_tool()
+	var has_batch_cost: bool = cost.is_empty() or _has_batch_resources(cost, grid_positions.size())
+	var all_valid: bool = has_tool and has_batch_cost
+	var rot_y: float = _edge_rotation(edge) + preview_rotation
+	for index in range(grid_positions.size()):
+		var preview: Node3D = batch_preview_instances[index]
+		var grid_pos: Vector2i = grid_positions[index]
+		var cell_valid: bool = target.is_grid_in_bounds(grid_pos) and target.can_place_edge(grid_pos, edge)
+		all_valid = all_valid and cell_valid
+		var local_pos: Vector3 = target.grid_to_local(grid_pos)
+		local_pos.y = target.get_build_surface_local_y() + 0.05
+		local_pos += _edge_offset(edge)
+		var original_scale: Vector3 = preview.get_meta("original_scale", preview.scale)
+		preview.visible = true
+		preview.global_position = target.to_global(local_pos)
+		preview.global_basis = target.global_basis.orthonormalized() * Basis(Vector3.UP, rot_y)
+		preview.scale = original_scale
+		_apply_material(preview, preview_material_valid if cell_valid and has_tool and has_batch_cost else preview_material_invalid)
+	can_place = all_valid
+
+
+func clear_batch_preview() -> void:
+	for preview in batch_preview_instances:
+		if preview and is_instance_valid(preview) and preview.is_inside_tree():
+			preview.queue_free()
+	batch_preview_instances.clear()
+	_batch_preview_scene = null
+
+
+func _prepare_batch_preview(scene: PackedScene, count: int) -> void:
+	if scene == null:
+		clear_batch_preview()
+		return
+	if _batch_preview_scene != scene:
+		clear_batch_preview()
+		_batch_preview_scene = scene
+	while batch_preview_instances.size() > count:
+		var extra: Node3D = batch_preview_instances.pop_back()
+		if extra and is_instance_valid(extra) and extra.is_inside_tree():
+			extra.queue_free()
+	while batch_preview_instances.size() < count:
+		var preview: Node3D = scene.instantiate() as Node3D
+		if preview == null:
+			break
+		preview.set_meta("is_preview", true)
+		preview.set_meta("original_scale", preview.scale)
+		_apply_material(preview, preview_material_valid)
+		if get_tree().current_scene != null:
+			get_tree().current_scene.add_child(preview)
+			_disable_preview_collision(preview)
+		batch_preview_instances.append(preview)
+
+
+func _has_batch_resources(cost: Dictionary, count: int) -> bool:
+	if cost.is_empty():
+		return true
+	if count <= 0:
+		return false
+	var total_cost: Dictionary = {}
+	for item_id in cost:
+		total_cost[item_id] = int(cost[item_id]) * count
+	return Inventory.has_resources(total_cost)
+
 
 # --- Placement ---
 
@@ -693,6 +867,8 @@ func try_place_item(hit_point: Vector3, chassis: Node, actor_peer_id: int = -1, 
 	var requested_edge: EdgeSide = EdgeSide.NONE
 	if current_buildable_data != null and _is_edge_category():
 		requested_edge = _detect_edge_from_hit(chassis, hit_point, grid_pos)
+	elif current_buildable_data != null:
+		grid_pos = _get_cached_or_resolved_buildable_anchor(chassis, grid_pos, current_buildable_data, preview_rotation)
 	if WorldSync.should_request_host():
 		var buildable_id := current_buildable_data.id if current_buildable_data else ""
 		WorldSync.request_place_item(WorldSync.get_net_id(chassis), buildable_id, grid_pos, preview_rotation, requested_edge)
@@ -715,7 +891,7 @@ func try_place_item(hit_point: Vector3, chassis: Node, actor_peer_id: int = -1, 
 		if not chassis.can_place_edge(grid_pos, edge):
 			return null
 	else:
-		if not chassis.can_place_item(grid_pos):
+		if not _can_place_buildable_item(chassis, grid_pos, current_buildable_data, preview_rotation):
 			return null
 
 	var cost: Dictionary = current_buildable_data.cost if current_buildable_data else {}
@@ -785,7 +961,7 @@ func server_try_place_item(peer_id: int, target_net_id: int, buildable_id: Strin
 		if edge == EdgeSide.NONE or not target.can_place_edge(grid_pos, edge):
 			return null
 	else:
-		if not target.can_place_item(grid_pos):
+		if not _can_place_buildable_item(target, grid_pos, data, rotation_y):
 			return null
 	if not _spend_resources_for_peer(peer_id, data.cost):
 		return null
@@ -825,7 +1001,7 @@ func apply_network_item(target_net_id: int, item_net_id: int, buildable_id: Stri
 		if edge == EdgeSide.NONE or not target.can_place_edge(grid_pos, edge):
 			return null
 	else:
-		if not target.can_place_item(grid_pos):
+		if not _can_place_buildable_item(target, grid_pos, data, rotation_y):
 			return null
 	return _instantiate_buildable_on_target(target, data, grid_pos, rotation_y, edge, item_net_id)
 
@@ -838,13 +1014,13 @@ func _instantiate_buildable_on_target(target: Node, data: BuildableData, grid_po
 	instance.set_meta("buildable_id", data.id)
 	target.add_child(instance)
 	WorldSync.register_entity(instance, net_id)
-	var local_pos: Vector3 = target.grid_to_local(grid_pos)
-	local_pos.y = target.get_build_surface_local_y() + 0.05
 	var is_edge_item: bool = data.category in [
 		BuildableData.Category.WALL,
 		BuildableData.Category.BARRICADE,
 	]
 	if is_edge_item and edge != EdgeSide.NONE:
+		var local_pos: Vector3 = target.grid_to_local(grid_pos)
+		local_pos.y = target.get_build_surface_local_y() + 0.05
 		local_pos += _edge_offset(edge)
 		instance.rotation.y = _edge_rotation(edge) + rotation_y
 		instance.set_meta("edge_side", edge)
@@ -853,13 +1029,114 @@ func _instantiate_buildable_on_target(target: Node, data: BuildableData, grid_po
 		instance.position = local_pos
 		target.place_edge_item(grid_pos, edge, instance)
 	else:
+		var footprint_size: Vector2i = _get_buildable_footprint(data, rotation_y)
 		instance.rotation.y = rotation_y
-		instance.position = local_pos
-		target.place_item(grid_pos, instance)
+		instance.position = _get_item_local_position(target, grid_pos, footprint_size)
+		instance.set_meta("grid_pos_x", grid_pos.x)
+		instance.set_meta("grid_pos_y", grid_pos.y)
+		instance.set_meta("footprint_w", footprint_size.x)
+		instance.set_meta("footprint_h", footprint_size.y)
+		if target.has_method("place_item_footprint"):
+			target.place_item_footprint(grid_pos, footprint_size, instance)
+		else:
+			target.place_item(grid_pos, instance)
 	item_placed.emit(instance)
 	return instance
 
 # --- Edge snapping (walls/barricades snap to cell edges) ---
+
+func _get_buildable_footprint(data: BuildableData, rotation_y: float) -> Vector2i:
+	if data == null:
+		return Vector2i(1, 1)
+	var footprint_size: Vector2i = data.footprint_size
+	footprint_size.x = maxi(1, footprint_size.x)
+	footprint_size.y = maxi(1, footprint_size.y)
+	if data.can_rotate and _is_quarter_turn_sideways(rotation_y):
+		return Vector2i(footprint_size.y, footprint_size.x)
+	return footprint_size
+
+
+func _is_quarter_turn_sideways(rotation_y: float) -> bool:
+	var turns: int = int(round(rotation_y / (PI / 2.0)))
+	return absi(turns) % 2 == 1
+
+
+func _get_footprint_cells(grid_pos: Vector2i, footprint_size: Vector2i) -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	var width: int = maxi(1, footprint_size.x)
+	var length: int = maxi(1, footprint_size.y)
+	for z in range(length):
+		for x in range(width):
+			cells.append(Vector2i(grid_pos.x + x, grid_pos.y + z))
+	return cells
+
+
+func _resolve_buildable_anchor(target: Node, grid_pos: Vector2i, data: BuildableData, rotation_y: float) -> Vector2i:
+	var footprint_size: Vector2i = _get_buildable_footprint(data, rotation_y)
+	if footprint_size == Vector2i(1, 1) or _can_place_buildable_item(target, grid_pos, data, rotation_y):
+		return grid_pos
+	for z in range(footprint_size.y):
+		for x in range(footprint_size.x):
+			var candidate: Vector2i = Vector2i(grid_pos.x - x, grid_pos.y - z)
+			if _can_place_buildable_item(target, candidate, data, rotation_y):
+				return candidate
+	return grid_pos
+
+
+func _get_cached_or_resolved_buildable_anchor(target: Node, grid_pos: Vector2i, data: BuildableData, rotation_y: float) -> Vector2i:
+	if _has_matching_item_preview_anchor(target, data, rotation_y):
+		if _can_place_buildable_item(target, _last_item_preview_grid, data, rotation_y):
+			return _last_item_preview_grid
+	return _resolve_buildable_anchor(target, grid_pos, data, rotation_y)
+
+
+func _store_item_preview_anchor(target: Node, grid_pos: Vector2i) -> void:
+	_last_item_preview_target = target
+	_last_item_preview_grid = grid_pos
+	_last_item_preview_buildable_id = current_buildable_data.id if current_buildable_data else ""
+	_last_item_preview_rotation = preview_rotation
+
+
+func _clear_item_preview_anchor() -> void:
+	_last_item_preview_target = null
+	_last_item_preview_grid = Vector2i.ZERO
+	_last_item_preview_buildable_id = ""
+	_last_item_preview_rotation = 0.0
+
+
+func _has_matching_item_preview_anchor(target: Node, data: BuildableData, rotation_y: float) -> bool:
+	if _last_item_preview_target == null or not is_instance_valid(_last_item_preview_target):
+		return false
+	if _last_item_preview_target != target:
+		return false
+	if data == null or _last_item_preview_buildable_id != data.id:
+		return false
+	return is_equal_approx(_last_item_preview_rotation, rotation_y)
+
+
+func _get_item_local_position(target: Node, grid_pos: Vector2i, footprint_size: Vector2i) -> Vector3:
+	var cells: Array[Vector2i] = _get_footprint_cells(grid_pos, footprint_size)
+	var local_pos: Vector3 = Vector3.ZERO
+	for cell_pos in cells:
+		local_pos += target.grid_to_local(cell_pos)
+	local_pos /= float(cells.size())
+	local_pos.y = target.get_build_surface_local_y() + 0.05
+	return local_pos
+
+
+func _get_item_world_position(target: Node, grid_pos: Vector2i, footprint_size: Vector2i) -> Vector3:
+	return target.to_global(_get_item_local_position(target, grid_pos, footprint_size))
+
+
+func _can_place_buildable_item(target: Node, grid_pos: Vector2i, data: BuildableData, rotation_y: float) -> bool:
+	if target == null or data == null:
+		return false
+	var footprint_size: Vector2i = _get_buildable_footprint(data, rotation_y)
+	if target.has_method("can_place_item_footprint"):
+		return target.can_place_item_footprint(grid_pos, footprint_size)
+	if footprint_size != Vector2i(1, 1):
+		return false
+	return target.can_place_item(grid_pos)
 
 func _is_edge_category() -> bool:
 	if current_buildable_data == null:
@@ -1169,6 +1446,8 @@ func _refund_item(item: Node3D, peer_id: int) -> void:
 func hide_preview() -> void:
 	if preview_instance and is_instance_valid(preview_instance) and preview_instance.is_inside_tree():
 		preview_instance.visible = false
+	clear_batch_preview()
+	_clear_item_preview_anchor()
 	if _second_bogie_preview and is_instance_valid(_second_bogie_preview) and _second_bogie_preview.is_inside_tree():
 		_second_bogie_preview.visible = false
 	_clear_demolish_highlight()
@@ -1176,6 +1455,8 @@ func hide_preview() -> void:
 	_preview_material_state = -1
 
 func _clear_preview() -> void:
+	clear_batch_preview()
+	_clear_item_preview_anchor()
 	if preview_instance and is_instance_valid(preview_instance):
 		if preview_instance.is_inside_tree():
 			preview_instance.queue_free()

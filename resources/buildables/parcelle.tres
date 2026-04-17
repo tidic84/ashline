@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="BuildableData" load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/building/parcelle.tscn" id="1"]
+[ext_resource type="Script" path="res://scripts/building/buildable_data.gd" id="2"]
+
+[resource]
+script = ExtResource("2")
+id = "parcelle"
+display_name = "Parcelle"
+description = "Une parcelle de culture qui prend une surface de 2x2 floors."
+scene = ExtResource("1")
+category = 4
+health = 40.0
+build_weight = 2
+cost = { "wood": 4, "fiber": 2 }
+can_rotate = false
+footprint_size = Vector2i(2, 2)

@@ -54,6 +54,7 @@ var _chat_panel: PanelContainer
 var _chat_log: RichTextLabel
 var _chat_input: LineEdit
 var _chat_open: bool = false
+var _build_drag_text: String = ""
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -135,8 +136,9 @@ func _process(delta: float) -> void:
 	_hud_refresh_accum = 0.0
 
 	if BuildSystem.is_building:
-		var cost_text := _current_build_cost_text()
-		build_label.text = "%s%s\n[B] Menu  [R] Rotation  [Clic] Placer  [X] Retirer  [Clic droit] Annuler" % [BuildSystem.get_mode_name(), cost_text]
+		var cost_text: String = _current_build_cost_text()
+		var drag_text: String = "\n%s" % _build_drag_text if not _build_drag_text.is_empty() else ""
+		build_label.text = "%s%s%s\n[B] Menu  [R] Rotation  [Clic] Placer  [X] Retirer  [Clic droit] Annuler" % [BuildSystem.get_mode_name(), cost_text, drag_text]
 		if BuildSystem.mode == BuildSystem.BuildMode.OFF:
 			crosshair.color = Color(1, 1, 1, 0.8)
 		elif BuildSystem.can_place:
@@ -308,6 +310,15 @@ func _on_build_entered() -> void:
 func _on_build_exited() -> void:
 	build_panel.visible = false
 	crosshair.color = Color.WHITE
+	hide_build_drag_info()
+
+
+func show_build_drag_info(text: String) -> void:
+	_build_drag_text = text
+
+
+func hide_build_drag_info() -> void:
+	_build_drag_text = ""
 
 
 func show_interact_hint(text: String) -> void:

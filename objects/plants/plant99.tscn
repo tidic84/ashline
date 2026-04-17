@@ -1,0 +1,19 @@
+[gd_scene format=3 uid="uid://b1h3rn8jt0a1k"]
+
+[ext_resource type="ArrayMesh" uid="uid://d4gwdbg276nmj" path="res://objects/plants/plant99.mesh" id="1_mesh"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_harvest"]
+size = Vector3(1.2, 1.5, 1.2)
+
+[node name="Plant99" type="Node3D"]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = ExtResource("1_mesh")
+
+[node name="HarvestBody" type="StaticBody3D" parent="."]
+collision_layer = 0
+collision_mask = 0
+
+[node name="HarvestShape" type="CollisionShape3D" parent="HarvestBody"]
+position = Vector3(0, 0.75, 0)
+shape = SubResource("BoxShape3D_harvest")

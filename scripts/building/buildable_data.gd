@@ -11,6 +11,7 @@ extends Resource
 @export var build_weight: int = 1
 @export var cost: Dictionary = {}
 @export var can_rotate: bool = true
+@export var footprint_size: Vector2i = Vector2i(1, 1)
 
 enum Category {
 	WALL,

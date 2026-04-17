@@ -15,7 +15,7 @@
 [ext_resource type="Script" uid="uid://c0tpjiw2klhkn" path="res://addons/gnd_biomes/AutoBiomesFog.gd" id="7_wj6dr"]
 [ext_resource type="PackedScene" uid="uid://cdjtntpf7gt6t" path="res://generated/biomes_billboards/trees/01_scene/billboard.tscn" id="7_ym8rc"]
 [ext_resource type="PackedScene" uid="uid://biq16gh23fq2e" path="res://objects/pine-tree-3.tscn" id="8_mh1bx"]
-[ext_resource type="ArrayMesh" uid="uid://d4gwdbg276nmj" path="res://objects/plants/plant99.mesh" id="8_y1vgc"]
+[ext_resource type="PackedScene" uid="uid://b1h3rn8jt0a1k" path="res://objects/plants/plant99.tscn" id="8_y1vgc"]
 [ext_resource type="PackedScene" uid="uid://ro0aq5ma87ev" path="res://objects/birch_tree_1.tscn" id="10_djwcy"]
 [ext_resource type="PackedScene" uid="uid://cs8d46y6eed4s" path="res://generated/biomes_billboards/trees/03_birch_tree_1/billboard.tscn" id="10_imthj"]
 [ext_resource type="PackedScene" uid="uid://b7sdar6o6ro6t" path="res://generated/biomes_billboards/plants/00_paproc/billboard.tscn" id="14_va16g"]
@@ -135,16 +135,30 @@ billboard_lod_distance = 20.0
 scale_min = Vector3(0.4, 0.4, 0.4)
 scale_max = Vector3(0.8, 0.8, 0.8)
 metadata/_custom_type_script = "uid://c7po5kdfyl86e"
+harvest_enabled = true
+harvest_drop_item_id = "fiber"
+harvest_amount_min = 2
+harvest_amount_max = 4
+harvest_hits_to_harvest = 4
+harvest_interact_label = "Harvest Fibers"
+harvest_target_name = "Plant"
 
 [sub_resource type="Resource" id="Resource_ekfpt"]
 script = ExtResource("2_471tc")
-mesh = ExtResource("8_y1vgc")
+mesh_scene = ExtResource("8_y1vgc")
 billboard_scene = ExtResource("16_oyhxp")
 probability = 0.5
 billboard_lod_distance = 20.0
 scale_min = Vector3(0.84, 0.5, 0.9)
 scale_max = Vector3(1.725, 2, 2.195)
 metadata/_custom_type_script = "uid://c7po5kdfyl86e"
+harvest_enabled = true
+harvest_drop_item_id = "fiber"
+harvest_amount_min = 2
+harvest_amount_max = 4
+harvest_hits_to_harvest = 4
+harvest_interact_label = "Harvest Fibers"
+harvest_target_name = "Plant"
 
 [sub_resource type="Resource" id="Resource_2xaht"]
 script = ExtResource("2_471tc")
