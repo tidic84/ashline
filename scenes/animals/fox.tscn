@@ -1,0 +1,18 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/animals/fox.gd" id="1_fox_script"]
+[ext_resource type="PackedScene" path="res://assets/models/animals/fox.glb" id="2_fox_model"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_fox"]
+radius = 0.35
+height = 0.9
+
+[node name="Fox" type="CharacterBody3D"]
+script = ExtResource("1_fox_script")
+
+[node name="Model" parent="." instance=ExtResource("2_fox_model")]
+transform = Transform3D(350, 0, 0, 0, 350, 0, 0, 0, 350, 0, 0, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.45, 0)
+shape = SubResource("CapsuleShape3D_fox")
