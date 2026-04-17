@@ -109,13 +109,6 @@ text = "Resolution"
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="FullscreenLabel" type="Label" parent="Margin/VBox/Tabs/Parametres/SettingsGrid"]
-layout_mode = 2
-text = "Plein ecran"
-
-[node name="FullscreenCheck" type="CheckButton" parent="Margin/VBox/Tabs/Parametres/SettingsGrid"]
-layout_mode = 2
-
 [node name="ApplySettingsButton" type="Button" parent="Margin/VBox/Tabs/Parametres"]
 layout_mode = 2
 size_flags_horizontal = 4

@@ -11,7 +11,6 @@ const FPS_LIMITS: Array[int] = [30, 60, 90, 120, 240]
 @onready var _ssr_check: CheckButton = $Margin/VBox/Grid/SsrCheck
 @onready var _glow_check: CheckButton = $Margin/VBox/Grid/GlowCheck
 @onready var _vsync_check: CheckButton = $Margin/VBox/Grid/VsyncCheck
-@onready var _fullscreen_check: CheckButton = $Margin/VBox/Grid/FullscreenCheck
 @onready var _resolution_option: OptionButton = $Margin/VBox/Grid/ResolutionOption
 @onready var _scale_label: Label = $Margin/VBox/Grid/ScaleLabel
 @onready var _scale_slider: HSlider = $Margin/VBox/Grid/ScaleSlider
@@ -47,7 +46,6 @@ func _ready() -> void:
 	_ssr_check.toggled.connect(func(on: bool): GraphicsSettings.ssr_enabled = on; _apply())
 	_glow_check.toggled.connect(func(on: bool): GraphicsSettings.glow_enabled = on; _apply())
 	_vsync_check.toggled.connect(func(on: bool): GraphicsSettings.vsync = on; _apply())
-	_fullscreen_check.toggled.connect(func(on: bool): GraphicsSettings.fullscreen = on; _apply())
 	_resolution_option.item_selected.connect(_on_resolution_selected)
 	_scale_slider.value_changed.connect(func(v: float):
 		GraphicsSettings.render_scale = v
@@ -71,7 +69,6 @@ func _refresh() -> void:
 	_ssr_check.button_pressed = GraphicsSettings.ssr_enabled
 	_glow_check.button_pressed = GraphicsSettings.glow_enabled
 	_vsync_check.button_pressed = GraphicsSettings.vsync
-	_fullscreen_check.button_pressed = GraphicsSettings.fullscreen
 	_resolution_option.select(GraphicsSettings.get_resolution_index(GraphicsSettings.resolution))
 	_scale_slider.value = GraphicsSettings.render_scale
 	_scale_label.text = "Render Scale (%.2f)" % GraphicsSettings.render_scale

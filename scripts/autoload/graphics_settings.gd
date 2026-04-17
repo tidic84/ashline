@@ -3,6 +3,7 @@ extends Node
 const CONFIG_PATH: String = "user://settings.cfg"
 const FPS_LIMITS: Array[int] = [30, 60, 90, 120, 240]
 const RESOLUTIONS: Array[Vector2i] = [
+	Vector2i(1024, 576),
 	Vector2i(1280, 720),
 	Vector2i(1366, 768),
 	Vector2i(1600, 900),
@@ -19,7 +20,6 @@ enum Quality { LOW, MEDIUM, HIGH, ULTRA }
 @export var ssr_enabled: bool = false
 @export var glow_enabled: bool = true
 @export var vsync: bool = true
-@export var fullscreen: bool = false
 @export var resolution: Vector2i = Vector2i(1920, 1080)
 @export var render_scale: float = 0.85
 @export var fov: float = 75.0
@@ -41,7 +41,6 @@ func load_settings() -> void:
 	ssr_enabled = cfg.get_value("graphics", "ssr_enabled", ssr_enabled)
 	glow_enabled = cfg.get_value("graphics", "glow_enabled", glow_enabled)
 	vsync = cfg.get_value("graphics", "vsync", vsync)
-	fullscreen = cfg.get_value("graphics", "fullscreen", fullscreen)
 	var saved_resolution: Variant = cfg.get_value("graphics", "resolution", resolution)
 	if saved_resolution is Vector2i:
 		resolution = saved_resolution
@@ -68,7 +67,6 @@ func save_settings() -> void:
 	cfg.set_value("graphics", "ssr_enabled", ssr_enabled)
 	cfg.set_value("graphics", "glow_enabled", glow_enabled)
 	cfg.set_value("graphics", "vsync", vsync)
-	cfg.set_value("graphics", "fullscreen", fullscreen)
 	cfg.set_value("graphics", "resolution", resolution)
 	cfg.set_value("graphics", "resolution_width", resolution.x)
 	cfg.set_value("graphics", "resolution_height", resolution.y)
@@ -82,16 +80,7 @@ func apply_all() -> void:
 	DisplayServer.window_set_vsync_mode(
 		DisplayServer.VSYNC_ENABLED if vsync else DisplayServer.VSYNC_DISABLED
 	)
-	if fullscreen:
-		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-		DisplayServer.window_set_size(resolution)
-		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
-		call_deferred("_apply_deferred_window_size", resolution, false)
-	else:
-		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-		DisplayServer.window_set_size(resolution)
-		_center_window(resolution)
-		call_deferred("_apply_deferred_window_size", resolution, true)
+	_apply_window_resolution()
 
 	var viewport: Viewport = get_viewport()
 	if viewport:
@@ -105,6 +94,15 @@ func apply_all() -> void:
 	_apply_environment()
 	_apply_shadows()
 	_apply_scene_effects()
+
+func _apply_window_resolution() -> void:
+	_apply_windowed_size(resolution)
+	call_deferred("_retry_windowed_size", resolution, 4)
+	print("[GRAPHICS] Resolution demandee: %dx%d | window_size=%s" % [
+		resolution.x,
+		resolution.y,
+		str(DisplayServer.window_get_size())
+	])
 
 func _apply_scene_effects() -> void:
 	var main: Node = get_tree().current_scene
@@ -175,10 +173,38 @@ func set_resolution_by_index(index: int) -> void:
 		return
 	resolution = RESOLUTIONS[index]
 
-func _apply_deferred_window_size(window_size: Vector2i, should_center: bool) -> void:
+func _retry_windowed_size(window_size: Vector2i, remaining: int) -> void:
+	_apply_windowed_size(window_size)
+	print("[GRAPHICS] Resolution confirmee: %dx%d | window_size=%s | essais_restants=%d" % [
+		window_size.x,
+		window_size.y,
+		str(DisplayServer.window_get_size()),
+		remaining
+	])
+	if remaining > 0:
+		call_deferred("_retry_windowed_size", window_size, remaining - 1)
+
+func _apply_windowed_size(window_size: Vector2i) -> void:
+	var window := get_window()
+	_prepare_window_for_resize(window)
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 	DisplayServer.window_set_size(window_size)
-	if should_center:
-		_center_window(window_size)
+	if window != null:
+		window.mode = Window.MODE_WINDOWED
+		window.borderless = false
+		window.size = window_size
+	_center_window(window_size)
+
+func _prepare_window_for_resize(window: Window) -> void:
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, false)
+	DisplayServer.window_set_min_size(Vector2i.ZERO)
+	DisplayServer.window_set_max_size(Vector2i.ZERO)
+	if window != null:
+		window.mode = Window.MODE_WINDOWED
+		window.borderless = false
+		window.min_size = Vector2i.ZERO
+		window.max_size = Vector2i.ZERO
 
 func _center_window(window_size: Vector2i) -> void:
 	var screen := DisplayServer.window_get_current_screen()
