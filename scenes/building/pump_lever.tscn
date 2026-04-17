@@ -1,16 +1,8 @@
-[gd_scene load_steps=5 format=3 uid="uid://pumplever001"]
+[gd_scene load_steps=4 format=3 uid="uid://pumplever001"]
 
 [ext_resource type="Script" path="res://scripts/building/pump_lever.gd" id="1"]
-
-[sub_resource type="StandardMaterial3D" id="mat_metal"]
-albedo_color = Color(0.3, 0.28, 0.25, 1)
-metallic = 0.8
-roughness = 0.5
-
-[sub_resource type="StandardMaterial3D" id="mat_wood"]
-albedo_color = Color(0.45, 0.32, 0.18, 1)
-metallic = 0.0
-roughness = 0.9
+[ext_resource type="PackedScene" uid="uid://cpumpbase0001" path="res://assets/models/train/pump_base.glb" id="2_base"]
+[ext_resource type="PackedScene" uid="uid://cpumphandl0001" path="res://assets/models/train/pump_handle.glb" id="3_handle"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_pump"]
 size = Vector3(0.8, 1.2, 2.4)
@@ -20,40 +12,14 @@ script = ExtResource("1")
 collision_layer = 32
 collision_mask = 0
 
-[node name="SupportLeft" type="CSGBox3D" parent="."]
-size = Vector3(0.1, 0.9, 0.1)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.3, 0.45, 0)
-material = SubResource("mat_metal")
-
-[node name="SupportRight" type="CSGBox3D" parent="."]
-size = Vector3(0.1, 0.9, 0.1)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.3, 0.45, 0)
-material = SubResource("mat_metal")
-
-[node name="PivotAxle" type="CSGCylinder3D" parent="."]
-radius = 0.04
-height = 0.7
-transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0.9, 0)
-material = SubResource("mat_metal")
+[node name="Base" parent="." instance=ExtResource("2_base")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
 
 [node name="Handle" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 
-[node name="Beam" type="CSGBox3D" parent="Handle"]
-size = Vector3(0.1, 0.08, 2.0)
-material = SubResource("mat_wood")
-
-[node name="GripFront" type="CSGCylinder3D" parent="Handle"]
-radius = 0.035
-height = 0.5
-transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0.06, -0.95)
-material = SubResource("mat_wood")
-
-[node name="GripBack" type="CSGCylinder3D" parent="Handle"]
-radius = 0.035
-height = 0.5
-transform = Transform3D(0, 1, 0, -1, 0, 0, 0, 0, 1, 0, 0.06, 0.95)
-material = SubResource("mat_wood")
+[node name="HandleModel" parent="Handle" instance=ExtResource("3_handle")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="."]
 shape = SubResource("BoxShape3D_pump")
