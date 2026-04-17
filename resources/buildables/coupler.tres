@@ -1,0 +1,16 @@
+[gd_resource type="Resource" script_class="BuildableData" load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/building/coupler.tscn" id="1"]
+[ext_resource type="Script" path="res://scripts/building/buildable_data.gd" id="2"]
+
+[resource]
+script = ExtResource("2")
+id = "coupler"
+display_name = "Coupler"
+description = "Attelage de wagon. Place aux extremites pour coupler deux wagons sur le meme rail."
+scene = ExtResource("1")
+category = 5
+health = 80.0
+build_weight = 2
+cost = { "metal": 10 }
+can_rotate = false

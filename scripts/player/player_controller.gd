@@ -616,7 +616,7 @@ func _commit_batch_build() -> void:
 			BuildSystem.try_place_item(_edge_hit_point(_batch_build_target, grid_pos, _batch_build_edge), _batch_build_target)
 	elif _batch_build_mode == BuildSystem.BuildMode.DEMOLISH:
 		for entry in _get_demolish_batch_entries():
-			var demolish_grid_pos: Vector2i = entry["grid_pos"]
+			var demolish_grid_pos: Vector3i = entry["grid_pos"]
 			var edge: int = int(entry["edge"])
 			BuildSystem.try_demolish_entry(_batch_build_target, demolish_grid_pos, edge)
 
@@ -721,13 +721,13 @@ func _get_demolish_batch_entries() -> Array[Dictionary]:
 	if _batch_build_edge == BuildSystem.DEMOLISH_FLOOR_EDGE:
 		for grid_pos in _get_floor_batch_positions():
 			entries.append({
-				"grid_pos": Vector2i(grid_pos.x, grid_pos.y),
+				"grid_pos": grid_pos,
 				"edge": BuildSystem.DEMOLISH_FLOOR_EDGE,
 			})
 	else:
 		for grid_pos in _get_wall_batch_positions():
 			entries.append({
-				"grid_pos": Vector2i(grid_pos.x, grid_pos.y),
+				"grid_pos": grid_pos,
 				"edge": _batch_build_edge,
 			})
 	return entries
