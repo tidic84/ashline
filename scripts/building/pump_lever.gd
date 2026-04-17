@@ -4,9 +4,9 @@ class_name PumpLever
 @export var pump_cooldown: float = 0.22
 
 @export_group("Base Model")
-@export var base_position: Vector3 = Vector3.ZERO
+@export var base_position: Vector3 = Vector3(0.0, 0.285, 0.0)
 @export var base_rotation_deg: Vector3 = Vector3.ZERO
-@export var base_scale: Vector3 = Vector3.ONE
+@export var base_scale: Vector3 = Vector3(0.7, 0.7, 0.7)
 
 @export_group("Handle Pivot")
 @export var handle_pivot_position: Vector3 = Vector3(0, 0.9, 0)
@@ -18,6 +18,9 @@ class_name PumpLever
 
 @export_group("Animation")
 @export var pump_angle_deg: float = 20.0
+## Axe de rotation du bras. "x" = tangage (penche vers nous / arriere).
+## "z" = roulis (penche gauche / droite). Change selon l'orientation du modele.
+@export_enum("x", "y", "z") var pump_axis: String = "z"
 
 var can_pump: bool = true
 var _pump_target: Node = null  # WagonFrame or TrainChassis
@@ -43,6 +46,9 @@ func _ready() -> void:
 		current = current.get_parent()
 
 func _apply_transforms() -> void:
+	# Les exports de ce script sont la source de verite. Ils ecrasent toujours les
+	# transformations stockees dans la .tscn pour que l'inspecteur puisse piloter
+	# la taille/position du modele sans conflit.
 	var base: Node3D = get_node_or_null("Base") as Node3D
 	if base:
 		base.transform = _make_transform(base_position, base_rotation_deg, base_scale)
@@ -94,4 +100,4 @@ func _animate_pump() -> void:
 	_pump_down = not _pump_down
 	var target_angle: float = deg_to_rad(pump_angle_deg) if _pump_down else deg_to_rad(-pump_angle_deg)
 	var tween := create_tween()
-	tween.tween_property(handle, "rotation:x", target_angle, 0.18).set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)
+	tween.tween_property(handle, "rotation:" + pump_axis, target_angle, 0.18).set_ease(Tween.EASE_IN_OUT).set_trans(Tween.TRANS_SINE)

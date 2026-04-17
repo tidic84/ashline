@@ -1,26 +1,26 @@
-[gd_scene load_steps=4 format=3 uid="uid://pumplever001"]
+[gd_scene format=3 uid="uid://pumplever001"]
 
-[ext_resource type="Script" path="res://scripts/building/pump_lever.gd" id="1"]
+[ext_resource type="Script" uid="uid://c4jn0s445ddwi" path="res://scripts/building/pump_lever.gd" id="1"]
 [ext_resource type="PackedScene" uid="uid://cpumpbase0001" path="res://assets/models/train/pump_base.glb" id="2_base"]
-[ext_resource type="PackedScene" uid="uid://cpumphandl0001" path="res://assets/models/train/pump_handle.glb" id="3_handle"]
+[ext_resource type="PackedScene" uid="uid://co2f23c2qrm3y" path="res://assets/models/train/pump_handle.glb" id="3_handle"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_pump"]
-size = Vector3(0.8, 1.2, 2.4)
+size = Vector3(2.0332031, 1.2, 1.0888672)
 
-[node name="PumpLever" type="StaticBody3D"]
-script = ExtResource("1")
+[node name="PumpLever" type="StaticBody3D" unique_id=1582796707]
+transform = Transform3D(0.75, 0, 0, 0, 0.75, 0, 0, 0, 0.75, 0, 0, 0)
 collision_layer = 32
 collision_mask = 0
+script = ExtResource("1")
 
-[node name="Base" parent="." instance=ExtResource("2_base")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+[node name="Base" parent="." unique_id=811257626 instance=ExtResource("2_base")]
+transform = Transform3D(0.7, 0, 0, 0, 0.7, 0, 0, 0, 0.7, 0, 0.285, 0)
 
-[node name="Handle" type="Node3D" parent="."]
+[node name="Handle" type="Node3D" parent="." unique_id=1576412894]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 
-[node name="HandleModel" parent="Handle" instance=ExtResource("3_handle")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+[node name="HandleModel" parent="Handle" unique_id=1928757092 instance=ExtResource("3_handle")]
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-shape = SubResource("BoxShape3D_pump")
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1222651610]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 0)
+shape = SubResource("BoxShape3D_pump")

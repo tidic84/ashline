@@ -29,7 +29,7 @@ var _draw_snap_radius_spin: SpinBox
 var _draw_mode_active := false
 var _click_mode := false  # false = drag continuous, true = click-by-click
 var _draw_spacing := 8.0
-var _snap_radius := 2.0
+var _snap_radius := 5.0
 var _junction_merge_radius := 0.8
 var _current_stroke: Path3D = null
 var _last_stroke_world := Vector3.ZERO
@@ -174,11 +174,17 @@ func _build_panel() -> void:
 	_draw_spacing_spin.value_changed.connect(func(v: float): _draw_spacing = v)
 	draw_body.add_child(spacing_row)
 
-	var snap_row := _make_spin_row("Rayon auto-connect (m)", 0.5, 10.0, 0.5, 2.0,
+	var snap_row := _make_spin_row("Rayon auto-connect (m)", 0.5, 20.0, 0.5, 5.0,
 			"Distance de detection pour snap / connexion automatique aux rails voisins")
 	_draw_snap_radius_spin = snap_row.get_child(1) as SpinBox
 	_draw_snap_radius_spin.value_changed.connect(func(v: float): _snap_radius = v)
 	draw_body.add_child(snap_row)
+
+	var connect_all_btn := Button.new()
+	connect_all_btn.text = "Connecter tous les rails proches"
+	connect_all_btn.tooltip_text = "Relance l'auto-connect sur chaque rail de la scene (utile si un wagon s'arrete a une jonction)"
+	connect_all_btn.pressed.connect(_connect_all_rails_in_scene)
+	draw_body.add_child(connect_all_btn)
 
 	var gen_terrain_top := Button.new()
 	gen_terrain_top.text = "Generer le terrain autour des rails"
@@ -1303,6 +1309,10 @@ func _end_stroke() -> void:
 		return
 	_try_call_rail_method(path, "_apply_smoothing", "action_apply_smoothing")
 	_auto_connect_stroke_endpoints(path)
+	# Also trigger the rail_path's own full-radius auto-connect, then re-run it on
+	# all neighbors so reciprocal NodePath entries are populated on both sides.
+	_run_rail_auto_connect(path)
+	_refresh_neighbors_auto_connect(path)
 	_update_status("[color=#8bc34a]Rail cree: %s (%d points).[/color]" % [path.name, path.curve.point_count])
 	var sel := get_editor_interface().get_selection()
 	if sel != null:
@@ -1444,6 +1454,63 @@ func _try_snap_and_link(path: Path3D, endpoint: int, others: Array[Node]) -> voi
 	path.curve.set_point_position(idx, path.to_local(best_target))
 	# Link both sides.
 	_link_endpoints(path, endpoint, best_path, best_end)
+
+
+func _run_rail_auto_connect(path: Path3D) -> void:
+	# rail_path.gd exposes _auto_connect_endpoints() which connects BOTH endpoints
+	# to ALL neighbors within auto_connect_radius. Use it to get robust matching.
+	if path == null:
+		return
+	if not path.has_method("_auto_connect_endpoints"):
+		return
+	# Ensure the path's radius matches the user-configured snap radius.
+	if "auto_connect_radius" in path:
+		path.set("auto_connect_radius", _snap_radius)
+	path.call("_auto_connect_endpoints")
+
+
+func _refresh_neighbors_auto_connect(path: Path3D) -> void:
+	var root := _get_scene_root()
+	if root == null or path.curve == null:
+		return
+	var others: Array[Node] = []
+	_collect_rail_paths(root, others)
+	others.erase(path)
+	if others.is_empty():
+		return
+	var my_start: Vector3 = path.to_global(path.curve.get_point_position(0))
+	var my_end: Vector3 = path.to_global(path.curve.get_point_position(path.curve.point_count - 1))
+	var r: float = _snap_radius
+	for o in others:
+		var op := o as Path3D
+		if op == null or op.curve == null or op.curve.point_count < 1:
+			continue
+		var s: Vector3 = op.to_global(op.curve.get_point_position(0))
+		var e: Vector3 = op.to_global(op.curve.get_point_position(op.curve.point_count - 1))
+		var close := (s.distance_to(my_start) <= r or s.distance_to(my_end) <= r
+				or e.distance_to(my_start) <= r or e.distance_to(my_end) <= r)
+		if close:
+			_run_rail_auto_connect(op)
+
+
+func _connect_all_rails_in_scene() -> void:
+	var root := _get_scene_root()
+	if root == null:
+		_update_status("[color=#f44336]Aucune scene ouverte.[/color]")
+		return
+	var others: Array[Node] = []
+	_collect_rail_paths(root, others)
+	if others.is_empty():
+		_update_status("[color=#f44336]Aucun rail dans la scene.[/color]")
+		return
+	var count := 0
+	for o in others:
+		var p := o as Path3D
+		if p == null:
+			continue
+		_run_rail_auto_connect(p)
+		count += 1
+	_update_status("[color=#8bc34a]Connexion globale: %d rails traites (rayon %.1fm).[/color]" % [count, _snap_radius])
 
 
 func _link_endpoints(a: Path3D, ea: int, b: Path3D, eb: int) -> void:

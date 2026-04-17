@@ -91,6 +91,9 @@ const RAIL_SECTION_SCENE_PATH := "res://assets/models/rails/rail_section.glb"
 @export var connections_at_end: Array[NodePath] = []
 ## Max distance (meters) to auto-detect and snap nearby endpoints.
 @export_range(0.5, 20.0, 0.5) var auto_connect_radius: float = 5.0
+## Si vrai, reconstruit les connexions par proximite a chaque run (utile si
+## les NodePath dans la .tscn ne sont pas a jour apres dessin).
+@export var connect_on_ready: bool = true
 ## Scan all RailPaths and connect this path's endpoints within radius.
 ## Snaps endpoints to match the neighbor exactly so meshes join visually.
 @export var action_auto_connect: bool = false:
@@ -180,7 +183,10 @@ func _ready() -> void:
 	# Register with RailNetwork and set up connections
 	if not Engine.is_editor_hint():
 		RailNetwork.register_path(self)
-		call_deferred("_register_connections")
+		if connect_on_ready:
+			call_deferred("_auto_connect_then_register")
+		else:
+			call_deferred("_register_connections")
 	if curve.point_count == 0:
 		_reset_default_curve()
 	_apply_smoothing()
@@ -205,6 +211,15 @@ func _process(_delta: float) -> void:
 
 func get_rail_curve() -> Curve3D:
 	return curve
+
+
+func _auto_connect_then_register() -> void:
+	# Recompute connections by proximity (uses auto_connect_radius) and then
+	# register them with RailNetwork. This keeps junctions working even when
+	# the .tscn NodePaths weren't saved after an in-editor draw.
+	if curve != null and curve.point_count >= 2:
+		_auto_connect_endpoints()
+	_register_connections()
 
 
 func _register_connections() -> void:

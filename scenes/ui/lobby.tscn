@@ -1,6 +1,7 @@
-[gd_scene format=3 uid="uid://lobby001"]
+[gd_scene load_steps=3 format=3 uid="uid://lobby001"]
 
 [ext_resource type="Script" uid="uid://dpvlewkb46meg" path="res://scripts/ui/lobby.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/ui/settings_menu.tscn" id="2"]
 
 [node name="Lobby" type="Control" unique_id=2031507113]
 layout_mode = 3
@@ -11,199 +12,316 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1")
 
-[node name="BgGradient" type="ColorRect" parent="." unique_id=1577434706]
+[node name="BgGradient" type="ColorRect" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.06, 0.08, 0.06, 1)
+color = Color(0.04, 0.06, 0.05, 1)
 
-[node name="BgOverlay" type="ColorRect" parent="." unique_id=109885815]
+[node name="BgOverlay" type="ColorRect" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.03, 0.05, 0.03, 0.45)
+color = Color(0.02, 0.04, 0.03, 0.55)
 
-[node name="MainHBox" type="HBoxContainer" parent="." unique_id=476789742]
+[node name="Vignette" type="ColorRect" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_override_constants/separation = 0
+mouse_filter = 2
+color = Color(0, 0, 0, 0.35)
 
-[node name="LeftPanel" type="PanelContainer" parent="MainHBox" unique_id=419651634]
+[node name="TitleBlock" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -400.0
+offset_top = 90.0
+offset_right = 400.0
+offset_bottom = 240.0
+grow_horizontal = 2
+theme_override_constants/separation = 6
+alignment = 1
+
+[node name="Title" type="Label" parent="TitleBlock"]
 layout_mode = 2
-size_flags_horizontal = 3
-size_flags_stretch_ratio = 1.2
+theme_override_colors/font_color = Color(0.88, 0.78, 0.46, 1)
+theme_override_colors/font_outline_color = Color(0.1, 0.08, 0.04, 1)
+theme_override_constants/outline_size = 10
+theme_override_font_sizes/font_size = 96
+text = "ASHLINE"
+horizontal_alignment = 1
 
-[node name="LeftMargin" type="MarginContainer" parent="MainHBox/LeftPanel" unique_id=1196349226]
+[node name="Subtitle" type="Label" parent="TitleBlock"]
 layout_mode = 2
-theme_override_constants/margin_left = 60
-theme_override_constants/margin_top = 50
-theme_override_constants/margin_right = 30
-theme_override_constants/margin_bottom = 50
+theme_override_colors/font_color = Color(0.55, 0.6, 0.45, 0.8)
+theme_override_font_sizes/font_size = 18
+text = "Defend the train. Rebuild the line. Survive the forest."
+horizontal_alignment = 1
 
-[node name="LeftVBox" type="VBoxContainer" parent="MainHBox/LeftPanel/LeftMargin" unique_id=1759690652]
+[node name="MenuRoot" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="PanelStack" type="PanelContainer" parent="MenuRoot"]
+custom_minimum_size = Vector2(460, 0)
+layout_mode = 2
+
+[node name="StackMargin" type="MarginContainer" parent="MenuRoot/PanelStack"]
+layout_mode = 2
+theme_override_constants/margin_left = 36
+theme_override_constants/margin_top = 28
+theme_override_constants/margin_right = 36
+theme_override_constants/margin_bottom = 28
+
+[node name="StackRoot" type="VBoxContainer" parent="MenuRoot/PanelStack/StackMargin"]
 layout_mode = 2
 theme_override_constants/separation = 14
 
-[node name="Title" type="Label" parent="MainHBox/LeftPanel/LeftMargin/LeftVBox" unique_id=1570684962]
+[node name="MainPage" type="VBoxContainer" parent="MenuRoot/PanelStack/StackMargin/StackRoot"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.82, 0.72, 0.42, 1)
-theme_override_colors/font_outline_color = Color(0.2, 0.14, 0.08, 1)
-theme_override_constants/outline_size = 6
-theme_override_font_sizes/font_size = 56
-text = "ASHLINE"
+theme_override_constants/separation = 10
 
-[node name="Subtitle" type="Label" parent="MainHBox/LeftPanel/LeftMargin/LeftVBox" unique_id=1519299066]
+[node name="SoloButton" type="Button" parent="MenuRoot/PanelStack/StackMargin/StackRoot/MainPage"]
+custom_minimum_size = Vector2(0, 58)
 layout_mode = 2
-theme_override_colors/font_color = Color(0.45, 0.55, 0.38, 0.85)
-theme_override_font_sizes/font_size = 16
-text = "Nature reclaims all."
+theme_override_colors/font_color = Color(0.15, 0.12, 0.06, 1)
+theme_override_font_sizes/font_size = 22
+text = "JOUER"
 
-[node name="Sep0" type="HSeparator" parent="MainHBox/LeftPanel/LeftMargin/LeftVBox" unique_id=299505664]
-layout_mode = 2
-
-[node name="SoloButton" type="Button" parent="MainHBox/LeftPanel/LeftMargin/LeftVBox" unique_id=844686588]
-custom_minimum_size = Vector2(0, 44)
+[node name="CoopButton" type="Button" parent="MenuRoot/PanelStack/StackMargin/StackRoot/MainPage"]
+custom_minimum_size = Vector2(0, 46)
 layout_mode = 2
 theme_override_colors/font_color = Color(0.9, 0.88, 0.8, 1)
-theme_override_colors/font_hover_color = Color(0.95, 0.85, 0.45, 1)
-theme_override_font_sizes/font_size = 18
-text = "Jouer en solo"
+theme_override_font_sizes/font_size = 17
+text = "COOPERATIF"
 
-[node name="Sep1" type="HSeparator" parent="MainHBox/LeftPanel/LeftMargin/LeftVBox" unique_id=998797732]
+[node name="SettingsButton" type="Button" parent="MenuRoot/PanelStack/StackMargin/StackRoot/MainPage"]
+custom_minimum_size = Vector2(0, 40)
 layout_mode = 2
+theme_override_colors/font_color = Color(0.8, 0.78, 0.7, 1)
+theme_override_font_sizes/font_size = 15
+text = "Parametres"
 
-[node name="NameLabel" type="Label" parent="MainHBox/LeftPanel/LeftMargin/LeftVBox" unique_id=891226995]
+[node name="QuitButton" type="Button" parent="MenuRoot/PanelStack/StackMargin/StackRoot/MainPage"]
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.5, 0.45, 1)
+theme_override_font_sizes/font_size = 15
+text = "Quitter"
+
+[node name="CoopPage" type="VBoxContainer" parent="MenuRoot/PanelStack/StackMargin/StackRoot"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="PageTitle" type="Label" parent="MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.88, 0.78, 0.46, 0.9)
+theme_override_font_sizes/font_size = 22
+text = "COOPERATIF"
+horizontal_alignment = 1
+
+[node name="NameLabel" type="Label" parent="MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.65, 0.62, 0.55, 1)
 theme_override_font_sizes/font_size = 13
 text = "Pseudo"
 
-[node name="NameInput" type="LineEdit" parent="MainHBox/LeftPanel/LeftMargin/LeftVBox" unique_id=884887669]
+[node name="NameInput" type="LineEdit" parent="MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 15
 placeholder_text = "Entrez votre nom"
 
-[node name="AddressLabel" type="Label" parent="MainHBox/LeftPanel/LeftMargin/LeftVBox" unique_id=1704873013]
+[node name="AddressLabel" type="Label" parent="MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.65, 0.62, 0.55, 1)
 theme_override_font_sizes/font_size = 13
 text = "Adresse du serveur"
 
-[node name="AddressInput" type="LineEdit" parent="MainHBox/LeftPanel/LeftMargin/LeftVBox" unique_id=753192311]
+[node name="AddressRow" type="HBoxContainer" parent="MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage"]
 layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="AddressInput" type="LineEdit" parent="MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage/AddressRow"]
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 15
 text = "localhost"
 
-[node name="PortLabel" type="Label" parent="MainHBox/LeftPanel/LeftMargin/LeftVBox" unique_id=1941642322]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.65, 0.62, 0.55, 1)
-theme_override_font_sizes/font_size = 13
-text = "Port UDP"
-
-[node name="PortInput" type="LineEdit" parent="MainHBox/LeftPanel/LeftMargin/LeftVBox" unique_id=1388628305]
+[node name="PortInput" type="LineEdit" parent="MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage/AddressRow"]
+custom_minimum_size = Vector2(92, 0)
 layout_mode = 2
 theme_override_font_sizes/font_size = 15
 text = "27015"
 
-[node name="HBoxContainer" type="HBoxContainer" parent="MainHBox/LeftPanel/LeftMargin/LeftVBox" unique_id=846825180]
+[node name="ActionRow" type="HBoxContainer" parent="MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage"]
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="HostButton" type="Button" parent="MainHBox/LeftPanel/LeftMargin/LeftVBox/HBoxContainer" unique_id=1950353450]
-custom_minimum_size = Vector2(0, 42)
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_colors/font_color = Color(0.9, 0.88, 0.8, 1)
-theme_override_colors/font_hover_color = Color(0.95, 0.85, 0.45, 1)
-theme_override_font_sizes/font_size = 16
-text = "Heberger"
-
-[node name="JoinButton" type="Button" parent="MainHBox/LeftPanel/LeftMargin/LeftVBox/HBoxContainer" unique_id=998500842]
-custom_minimum_size = Vector2(0, 42)
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_colors/font_color = Color(0.9, 0.88, 0.8, 1)
-theme_override_colors/font_hover_color = Color(0.95, 0.85, 0.45, 1)
-theme_override_font_sizes/font_size = 16
-text = "Rejoindre"
-
-[node name="StartButton" type="Button" parent="MainHBox/LeftPanel/LeftMargin/LeftVBox" unique_id=1374886141]
+[node name="HostButton" type="Button" parent="MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage/ActionRow"]
 custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
-theme_override_colors/font_color = Color(0.2, 0.18, 0.12, 1)
-theme_override_colors/font_hover_color = Color(0.12, 0.1, 0.06, 1)
-theme_override_font_sizes/font_size = 18
-text = "Lancer la partie"
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.9, 0.88, 0.8, 1)
+theme_override_font_sizes/font_size = 16
+text = "HEBERGER"
 
-[node name="StatusLabel" type="Label" parent="MainHBox/LeftPanel/LeftMargin/LeftVBox" unique_id=1100059783]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.5, 0.52, 0.45, 0.7)
-theme_override_font_sizes/font_size = 12
-text = "Choisis un pseudo puis heberge ou rejoins."
-horizontal_alignment = 1
-
-[node name="RightPanel" type="PanelContainer" parent="MainHBox" unique_id=1247841274]
+[node name="JoinButton" type="Button" parent="MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage/ActionRow"]
+custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
 size_flags_horizontal = 3
-size_flags_stretch_ratio = 0.8
+theme_override_colors/font_color = Color(0.9, 0.88, 0.8, 1)
+theme_override_font_sizes/font_size = 16
+text = "REJOINDRE"
 
-[node name="RightMargin" type="MarginContainer" parent="MainHBox/RightPanel" unique_id=855392505]
-layout_mode = 2
-theme_override_constants/margin_left = 20
-theme_override_constants/margin_top = 50
-theme_override_constants/margin_right = 40
-theme_override_constants/margin_bottom = 30
-
-[node name="RightVBox" type="VBoxContainer" parent="MainHBox/RightPanel/RightMargin" unique_id=512111240]
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="PlayersLabel" type="Label" parent="MainHBox/RightPanel/RightMargin/RightVBox" unique_id=170203291]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.82, 0.72, 0.42, 0.9)
-theme_override_font_sizes/font_size = 20
-text = "Joueurs"
-
-[node name="PlayerList" type="ItemList" parent="MainHBox/RightPanel/RightMargin/RightVBox" unique_id=176335402]
-custom_minimum_size = Vector2(0, 100)
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="ChatLabel" type="Label" parent="MainHBox/RightPanel/RightMargin/RightVBox" unique_id=1736607668]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.82, 0.72, 0.42, 0.9)
-theme_override_font_sizes/font_size = 20
-text = "Chat"
-
-[node name="ChatLog" type="RichTextLabel" parent="MainHBox/RightPanel/RightMargin/RightVBox" unique_id=758300630]
-custom_minimum_size = Vector2(0, 180)
-layout_mode = 2
-size_flags_vertical = 3
-size_flags_stretch_ratio = 2.0
-scroll_following = true
-
-[node name="ChatRow" type="HBoxContainer" parent="MainHBox/RightPanel/RightMargin/RightVBox" unique_id=635953696]
+[node name="ConnectingRow" type="VBoxContainer" parent="MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage"]
+visible = false
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="ChatInput" type="LineEdit" parent="MainHBox/RightPanel/RightMargin/RightVBox/ChatRow" unique_id=2107970854]
+[node name="ConnectingLabel" type="Label" parent="MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage/ConnectingRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.82, 0.72, 0.42, 0.9)
+theme_override_font_sizes/font_size = 14
+text = "Connexion en cours..."
+horizontal_alignment = 1
+
+[node name="CancelButton" type="Button" parent="MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage/ConnectingRow"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.7, 0.65, 1)
+theme_override_font_sizes/font_size = 15
+text = "ANNULER LA CONNEXION"
+
+[node name="BackCoopButton" type="Button" parent="MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.7, 0.6, 1)
+theme_override_font_sizes/font_size = 14
+text = "< Retour"
+
+[node name="LobbyPage" type="VBoxContainer" parent="MenuRoot/PanelStack/StackMargin/StackRoot"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="LobbyHeader" type="HBoxContainer" parent="MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage"]
+layout_mode = 2
+
+[node name="LobbyTitle" type="Label" parent="MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage/LobbyHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.88, 0.78, 0.46, 0.9)
+theme_override_font_sizes/font_size = 22
+text = "SALON"
+
+[node name="PlayerCountLabel" type="Label" parent="MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage/LobbyHeader"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.65, 0.62, 0.55, 1)
+theme_override_font_sizes/font_size = 14
+text = "0 / 4"
+
+[node name="PlayersLabel" type="Label" parent="MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.65, 0.62, 0.55, 1)
+theme_override_font_sizes/font_size = 13
+text = "Equipage"
+
+[node name="PlayerList" type="ItemList" parent="MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage"]
+custom_minimum_size = Vector2(0, 110)
+layout_mode = 2
+
+[node name="ChatLabel" type="Label" parent="MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.65, 0.62, 0.55, 1)
+theme_override_font_sizes/font_size = 13
+text = "Chat"
+
+[node name="ChatLog" type="RichTextLabel" parent="MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage"]
+custom_minimum_size = Vector2(0, 120)
+layout_mode = 2
+scroll_following = true
+
+[node name="ChatRow" type="HBoxContainer" parent="MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ChatInput" type="LineEdit" parent="MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage/ChatRow"]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 14
 placeholder_text = "Ecrire..."
 max_length = 160
 
-[node name="ChatSendButton" type="Button" parent="MainHBox/RightPanel/RightMargin/RightVBox/ChatRow" unique_id=230883735]
+[node name="ChatSendButton" type="Button" parent="MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage/ChatRow"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 14
 text = "Envoyer"
+
+[node name="StartButton" type="Button" parent="MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage"]
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.15, 0.12, 0.06, 1)
+theme_override_font_sizes/font_size = 18
+text = "LANCER LA PARTIE"
+
+[node name="BackLobbyButton" type="Button" parent="MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.7, 0.6, 1)
+theme_override_font_sizes/font_size = 14
+text = "< Deconnecter"
+
+[node name="StatusLabel" type="Label" parent="MenuRoot/PanelStack/StackMargin/StackRoot"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.5, 0.52, 0.45, 0.7)
+theme_override_font_sizes/font_size = 12
+text = ""
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="Footer" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = -36.0
+offset_right = -20.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="Credits" type="Label" parent="Footer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.45, 0.48, 0.4, 0.55)
+theme_override_font_sizes/font_size = 12
+text = "Ashline - nature reclaims all."
+
+[node name="Version" type="Label" parent="Footer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.45, 0.48, 0.4, 0.55)
+theme_override_font_sizes/font_size = 12
+text = "v0.1"
+horizontal_alignment = 2
+
+[node name="SettingsLayer" type="CanvasLayer" parent="."]
+layer = 20
+
+[node name="SettingsMenu" parent="SettingsLayer" instance=ExtResource("2")]
