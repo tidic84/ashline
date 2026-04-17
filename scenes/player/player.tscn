@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://ci3jmp5jho7oe" path="res://scripts/player/player_controller.gd" id="1"]
 [ext_resource type="PackedScene" uid="uid://shlinehud01" path="res://scenes/ui/hud.tscn" id="hud_scene"]
-[ext_resource type="PackedScene" uid="uid://d3n1a7veqas0q" path="res://assets/models/player/Personnage1.glb" id="player_model"]
+[ext_resource type="PackedScene" uid="uid://sf0sg8htuyik" path="res://assets/models/player/animations/Idle.glb" id="player_model"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_001"]
 radius = 0.35

@@ -2,6 +2,14 @@ extends Node
 
 const CONFIG_PATH: String = "user://settings.cfg"
 const FPS_LIMITS: Array[int] = [30, 60, 90, 120, 240]
+const RESOLUTIONS: Array[Vector2i] = [
+	Vector2i(1280, 720),
+	Vector2i(1366, 768),
+	Vector2i(1600, 900),
+	Vector2i(1920, 1080),
+	Vector2i(2560, 1440),
+	Vector2i(3840, 2160),
+]
 
 enum Quality { LOW, MEDIUM, HIGH, ULTRA }
 
@@ -12,6 +20,7 @@ enum Quality { LOW, MEDIUM, HIGH, ULTRA }
 @export var glow_enabled: bool = true
 @export var vsync: bool = true
 @export var fullscreen: bool = false
+@export var resolution: Vector2i = Vector2i(1920, 1080)
 @export var render_scale: float = 0.85
 @export var fov: float = 75.0
 @export var fps_limit: int = 120
@@ -33,6 +42,17 @@ func load_settings() -> void:
 	glow_enabled = cfg.get_value("graphics", "glow_enabled", glow_enabled)
 	vsync = cfg.get_value("graphics", "vsync", vsync)
 	fullscreen = cfg.get_value("graphics", "fullscreen", fullscreen)
+	var saved_resolution: Variant = cfg.get_value("graphics", "resolution", resolution)
+	if saved_resolution is Vector2i:
+		resolution = saved_resolution
+	elif saved_resolution is Vector2:
+		resolution = Vector2i(saved_resolution)
+	else:
+		var width := int(cfg.get_value("graphics", "resolution_width", resolution.x))
+		var height := int(cfg.get_value("graphics", "resolution_height", resolution.y))
+		resolution = Vector2i(width, height)
+	if resolution.x <= 0 or resolution.y <= 0:
+		resolution = Vector2i(1920, 1080)
 	render_scale = cfg.get_value("graphics", "render_scale", render_scale)
 	fov = cfg.get_value("graphics", "fov", fov)
 	fps_limit = cfg.get_value("graphics", "fps_limit", fps_limit)
@@ -49,6 +69,9 @@ func save_settings() -> void:
 	cfg.set_value("graphics", "glow_enabled", glow_enabled)
 	cfg.set_value("graphics", "vsync", vsync)
 	cfg.set_value("graphics", "fullscreen", fullscreen)
+	cfg.set_value("graphics", "resolution", resolution)
+	cfg.set_value("graphics", "resolution_width", resolution.x)
+	cfg.set_value("graphics", "resolution_height", resolution.y)
 	cfg.set_value("graphics", "render_scale", render_scale)
 	cfg.set_value("graphics", "fov", fov)
 	cfg.set_value("graphics", "fps_limit", fps_limit)
@@ -59,9 +82,12 @@ func apply_all() -> void:
 	DisplayServer.window_set_vsync_mode(
 		DisplayServer.VSYNC_ENABLED if vsync else DisplayServer.VSYNC_DISABLED
 	)
-	DisplayServer.window_set_mode(
-		DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
-	)
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	DisplayServer.window_set_size(resolution)
+	if fullscreen:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
+	else:
+		_center_window(resolution)
 
 	var viewport: Viewport = get_viewport()
 	if viewport:
@@ -130,3 +156,27 @@ func _apply_shadows() -> void:
 func set_fov_on_camera(camera: Camera3D) -> void:
 	if camera:
 		camera.fov = fov
+
+func get_resolution_index(target_resolution: Vector2i) -> int:
+	for i in range(RESOLUTIONS.size()):
+		if RESOLUTIONS[i] == target_resolution:
+			return i
+	return maxi(0, RESOLUTIONS.find(Vector2i(1920, 1080)))
+
+func get_resolution_label(target_resolution: Vector2i) -> String:
+	return "%d x %d" % [target_resolution.x, target_resolution.y]
+
+func set_resolution_by_index(index: int) -> void:
+	if index < 0 or index >= RESOLUTIONS.size():
+		return
+	resolution = RESOLUTIONS[index]
+
+func _center_window(window_size: Vector2i) -> void:
+	var screen := DisplayServer.window_get_current_screen()
+	var screen_position := DisplayServer.screen_get_position(screen)
+	var screen_size := DisplayServer.screen_get_size(screen)
+	var centered_position := screen_position + Vector2i(
+		maxi(0, (screen_size.x - window_size.x) / 2),
+		maxi(0, (screen_size.y - window_size.y) / 2)
+	)
+	DisplayServer.window_set_position(centered_position)

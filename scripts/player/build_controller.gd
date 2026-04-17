@@ -81,6 +81,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventMouseButton and event.pressed:
+		if _is_build_menu_open() and (
+			event.button_index == MOUSE_BUTTON_WHEEL_UP
+			or event.button_index == MOUSE_BUTTON_WHEEL_DOWN
+		):
+			return
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			Inventory.cycle_hotbar(-1)
 			return
@@ -571,8 +576,9 @@ func _apply_blocked_controls() -> bool:
 	if not _controls_were_blocked:
 		_set_player_controllable(false)
 		_controls_were_blocked = true
-	_fps.velocity.x = 0.0
-	_fps.velocity.z = 0.0
+	if _fps.is_on_floor() and _fps.velocity.y <= 0.0:
+		_fps.velocity.x = 0.0
+		_fps.velocity.z = 0.0
 	_set_player_look_enabled(false)
 	return true
 
