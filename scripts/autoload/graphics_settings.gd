@@ -82,12 +82,16 @@ func apply_all() -> void:
 	DisplayServer.window_set_vsync_mode(
 		DisplayServer.VSYNC_ENABLED if vsync else DisplayServer.VSYNC_DISABLED
 	)
-	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
-	DisplayServer.window_set_size(resolution)
 	if fullscreen:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		DisplayServer.window_set_size(resolution)
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
+		call_deferred("_apply_deferred_window_size", resolution, false)
 	else:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+		DisplayServer.window_set_size(resolution)
 		_center_window(resolution)
+		call_deferred("_apply_deferred_window_size", resolution, true)
 
 	var viewport: Viewport = get_viewport()
 	if viewport:
@@ -170,6 +174,11 @@ func set_resolution_by_index(index: int) -> void:
 	if index < 0 or index >= RESOLUTIONS.size():
 		return
 	resolution = RESOLUTIONS[index]
+
+func _apply_deferred_window_size(window_size: Vector2i, should_center: bool) -> void:
+	DisplayServer.window_set_size(window_size)
+	if should_center:
+		_center_window(window_size)
 
 func _center_window(window_size: Vector2i) -> void:
 	var screen := DisplayServer.window_get_current_screen()

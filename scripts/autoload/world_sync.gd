@@ -125,6 +125,15 @@ func unregister_entity(net_id: int) -> void:
 	_train_entity_sent_state.erase(net_id)
 
 
+func unregister_entity_tree(root: Node) -> void:
+	if root == null:
+		return
+	if root.has_meta(NET_ID_META):
+		unregister_entity(int(root.get_meta(NET_ID_META)))
+	for child in root.get_children():
+		unregister_entity_tree(child)
+
+
 func run_remote_apply(action: Callable) -> Variant:
 	_is_applying_remote = true
 	var result: Variant = action.call()
@@ -206,6 +215,10 @@ func replicate_interact(net_id: int) -> void:
 	if is_networked() and multiplayer.is_server():
 		_apply_interact.rpc(net_id)
 
+func replicate_spatial_sfx(name: String, world_position: Vector3, volume_db: float = 0.0, pitch: float = 1.0) -> void:
+	if is_networked() and multiplayer.is_server():
+		_apply_spatial_sfx.rpc(name, world_position, volume_db, pitch)
+
 
 func replicate_spawn_chassis(net_id: int, transform: Transform3D, rail_path: NodePath, rail_progress: float) -> void:
 	if is_networked() and multiplayer.is_server():
@@ -228,7 +241,8 @@ func replicate_spawn_wagon_frame(
 	wagon_length: int,
 	rail_path: NodePath,
 	front_progress: float,
-	rear_progress: float
+	rear_progress: float,
+	owner_peer_id: int = 0
 ) -> void:
 	if is_networked() and multiplayer.is_server():
 		_apply_spawn_wagon_frame.rpc(
@@ -242,7 +256,8 @@ func replicate_spawn_wagon_frame(
 			wagon_length,
 			rail_path,
 			front_progress,
-			rear_progress
+			rear_progress,
+			owner_peer_id
 		)
 
 
@@ -341,8 +356,10 @@ func _apply_demolish(target_net_id: int, grid_pos: Vector2i, edge: int) -> void:
 func _apply_despawn(net_id: int) -> void:
 	var node := get_entity(net_id)
 	if node != null and is_instance_valid(node):
+		unregister_entity_tree(node)
 		node.queue_free()
-	unregister_entity(net_id)
+	else:
+		unregister_entity(net_id)
 
 
 @rpc("authority", "reliable")
@@ -350,6 +367,11 @@ func _apply_interact(net_id: int) -> void:
 	var node := get_entity(net_id)
 	if node != null and node.has_method("apply_network_interact"):
 		run_remote_apply(func(): return node.apply_network_interact())
+
+@rpc("authority", "unreliable")
+func _apply_spatial_sfx(name: String, world_position: Vector3, volume_db: float, pitch: float) -> void:
+	if AudioManager != null and AudioManager.has_method("play_sfx_3d"):
+		AudioManager.play_sfx_3d(name, world_position, volume_db, pitch)
 
 
 @rpc("authority", "reliable")
@@ -491,7 +513,8 @@ func _stream_wagon_frame_spawn(peer_id: int, wagon: Node) -> void:
 		frame.wagon_length,
 		rail_path_ref,
 		frame.front_bogie.rail_progress,
-		frame.rear_bogie.rail_progress
+		frame.rear_bogie.rail_progress,
+		int(frame.get_meta("owner_peer_id", 0))
 	)
 	# After frame spawn, stream its attached floors/items (children of its bogies or the frame itself)
 	_stream_children_placeables_to_peer(peer_id, frame)
@@ -888,7 +911,8 @@ func _apply_spawn_wagon_frame(
 	wagon_length: int,
 	rail_path: NodePath,
 	front_progress: float,
-	rear_progress: float
+	rear_progress: float,
+	owner_peer_id: int = 0
 ) -> void:
 	var old_first := get_entity(previous_first_net_id)
 	if old_first != null and is_instance_valid(old_first):
@@ -903,6 +927,8 @@ func _apply_spawn_wagon_frame(
 	frame.wagon_length = wagon_length
 	get_tree().current_scene.add_child(frame)
 	register_entity(frame, frame_net_id)
+	if owner_peer_id > 0:
+		frame.set_meta("owner_peer_id", owner_peer_id)
 	frame.global_transform = frame_transform
 	var front := scene.instantiate() as TrainChassis
 	var rear := scene.instantiate() as TrainChassis
@@ -910,6 +936,9 @@ func _apply_spawn_wagon_frame(
 	frame.add_child(rear)
 	register_entity(front, front_net_id)
 	register_entity(rear, rear_net_id)
+	if owner_peer_id > 0:
+		front.set_meta("owner_peer_id", owner_peer_id)
+		rear.set_meta("owner_peer_id", owner_peer_id)
 	front.global_transform = front_transform
 	rear.global_transform = rear_transform
 	frame.front_bogie = front

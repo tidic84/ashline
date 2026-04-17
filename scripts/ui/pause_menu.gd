@@ -12,11 +12,13 @@ const FPS_LIMITS: Array[int] = [30, 60, 90, 120, 240]
 @onready var _volume_slider: HSlider = $Margin/VBox/Tabs/Parametres/SettingsGrid/MasterVolumeSlider
 @onready var _fps_limit_option: OptionButton = $Margin/VBox/Tabs/Parametres/SettingsGrid/FpsLimitOption
 @onready var _resolution_option: OptionButton = $Margin/VBox/Tabs/Parametres/SettingsGrid/ResolutionOption
+@onready var _fullscreen_check: CheckButton = $Margin/VBox/Tabs/Parametres/SettingsGrid/FullscreenCheck
 @onready var _apply_settings_button: Button = $Margin/VBox/Tabs/Parametres/ApplySettingsButton
 
 var _syncing: bool = false
 var _pending_fps_limit: int = 120
 var _pending_resolution: Vector2i = Vector2i(1920, 1080)
+var _pending_fullscreen: bool = false
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -33,6 +35,7 @@ func _ready() -> void:
 	_volume_slider.value_changed.connect(_on_master_volume_changed)
 	_fps_limit_option.item_selected.connect(_on_fps_limit_selected)
 	_resolution_option.item_selected.connect(_on_resolution_selected)
+	_fullscreen_check.toggled.connect(_on_fullscreen_toggled)
 	_apply_settings_button.pressed.connect(_apply_pending_settings)
 	_sync_controls()
 
@@ -50,8 +53,10 @@ func _sync_controls() -> void:
 	_update_volume_label(_volume_slider.value)
 	_fps_limit_option.select(_get_fps_limit_index(GraphicsSettings.fps_limit))
 	_resolution_option.select(GraphicsSettings.get_resolution_index(GraphicsSettings.resolution))
+	_fullscreen_check.button_pressed = GraphicsSettings.fullscreen
 	_pending_fps_limit = GraphicsSettings.fps_limit
 	_pending_resolution = GraphicsSettings.resolution
+	_pending_fullscreen = GraphicsSettings.fullscreen
 	_syncing = false
 
 func _on_master_volume_changed(value: float) -> void:
@@ -74,9 +79,15 @@ func _on_resolution_selected(index: int) -> void:
 		return
 	_pending_resolution = GraphicsSettings.RESOLUTIONS[resolution_index]
 
+func _on_fullscreen_toggled(enabled: bool) -> void:
+	if _syncing:
+		return
+	_pending_fullscreen = enabled
+
 func _apply_pending_settings() -> void:
 	GraphicsSettings.fps_limit = _pending_fps_limit
 	GraphicsSettings.resolution = _pending_resolution
+	GraphicsSettings.fullscreen = _pending_fullscreen
 	GraphicsSettings.apply_all()
 	GraphicsSettings.save_settings()
 

@@ -22,6 +22,8 @@ const TRAIN_MOVE_SOUND_PITCH_SMOOTH: float = 0.35
 const TRAIN_MOVE_SOUND_UNIT_SIZE: float = 12.0
 const TRAIN_MOVE_SOUND_MAX_DISTANCE: float = 95.0
 const TRAIN_FADE_OUT_DURATION: float = 0.9
+const SFX_3D_UNIT_SIZE: float = 8.0
+const SFX_3D_MAX_DISTANCE: float = 65.0
 const WOODLAND_AMBIENT_PATH: String = "C:/Users/Thomas/Desktop/JEU TRAIN/SFX/Ambiance/Quiet_woodland_copse_#3-1776360977539.wav"
 const AMBIENT_FALLBACK_PATHS: Dictionary = {
 	"train_ambience": "res://assets/audio/ambient/train_ambience.wav",
@@ -186,6 +188,23 @@ func play_sfx(name: String, volume_db: float = 0.0, pitch: float = 1.0) -> void:
 	first.volume_db = volume_db
 	first.pitch_scale = pitch
 	first.play()
+
+func play_sfx_3d(name: String, world_position: Vector3, volume_db: float = 0.0, pitch: float = 1.0) -> void:
+	if not _sfx_cache.has(name):
+		return
+	var player := AudioStreamPlayer3D.new()
+	player.name = "SFX3D_%s" % name
+	player.process_mode = Node.PROCESS_MODE_ALWAYS
+	player.stream = _sfx_cache[name]
+	player.bus = "SFX" if AudioServer.get_bus_index("SFX") != -1 else "Master"
+	player.volume_db = volume_db
+	player.pitch_scale = pitch
+	player.unit_size = SFX_3D_UNIT_SIZE
+	player.max_distance = SFX_3D_MAX_DISTANCE
+	player.global_position = world_position
+	player.finished.connect(player.queue_free)
+	add_child(player)
+	player.play()
 
 func play_train_move_sound(speed: float = 0.0, world_position: Vector3 = Vector3.ZERO) -> void:
 	if not _ensure_train_move_player():

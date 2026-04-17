@@ -70,7 +70,7 @@ func interact_at(_player: CharacterBody3D, hit: Dictionary) -> void:
 		return
 
 	if not required_tool_id.is_empty() and Inventory.get_selected_item() != required_tool_id:
-		AudioManager.play_sfx("metal_hit", 0.0, 0.85)
+		_play_spatial_sfx("metal_hit", hit.get("position", global_position), 0.0, 0.85)
 		return
 
 	instance_data["hits_remaining"] = int(instance_data.get("hits_remaining", hits_to_harvest)) - 1
@@ -78,7 +78,7 @@ func interact_at(_player: CharacterBody3D, hit: Dictionary) -> void:
 	if _is_pickup_collectible():
 		_play_pickup_sfx()
 	else:
-		_play_hit_sfx()
+		_play_hit_sfx(hit.get("position", global_position))
 
 	if int(instance_data["hits_remaining"]) <= 0:
 		_harvest_instance(instance_index)
@@ -103,18 +103,22 @@ func _format_interact_text() -> String:
 	return "[E] %s (%s required)" % [interact_label, tool_name]
 
 
-func _play_hit_sfx() -> void:
+func _play_hit_sfx(hit_position: Vector3) -> void:
 	match drop_item_id:
 		"wood", "branch", "log":
 			var idx: int = randi_range(1, 9)
-			AudioManager.play_sfx("cutting_wood0%d" % idx, 0.0, randf_range(0.95, 1.05))
+			_play_spatial_sfx("cutting_wood0%d" % idx, hit_position, 0.0, randf_range(0.95, 1.05))
 		"stone":
 			var idx: int = randi_range(1, 4)
-			AudioManager.play_sfx("mining_stone0%d" % idx, 0.0, randf_range(0.9, 1.1))
+			_play_spatial_sfx("mining_stone0%d" % idx, hit_position, 0.0, randf_range(0.9, 1.1))
 		"metal", "metal_scrap":
-			AudioManager.play_sfx("metal_hit", 0.0, randf_range(0.9, 1.1))
+			_play_spatial_sfx("metal_hit", hit_position, 0.0, randf_range(0.9, 1.1))
 		_:
-			AudioManager.play_sfx("harvest", 0.0, randf_range(0.9, 1.1))
+			_play_spatial_sfx("harvest", hit_position, 0.0, randf_range(0.9, 1.1))
+
+func _play_spatial_sfx(name: String, hit_position: Vector3, volume_db: float = 0.0, pitch: float = 1.0) -> void:
+	if AudioManager != null and AudioManager.has_method("play_sfx_3d"):
+		AudioManager.play_sfx_3d(name, hit_position, volume_db, pitch)
 
 func _is_pickup_collectible() -> bool:
 	return required_tool_id.is_empty() and hits_to_harvest <= 1

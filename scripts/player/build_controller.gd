@@ -20,6 +20,10 @@ var _ray_exclude: Array[RID] = []
 var _build_preview_accum: float = 0.0
 var _interact_check_accum: float = 0.0
 var _controls_were_blocked: bool = false
+var _ignore_shoot_until_msec: int = 0
+var _wagon_platform: Node3D = null
+var _last_wagon_transform: Transform3D = Transform3D.IDENTITY
+var _platform_velocity_carry: Vector3 = Vector3.ZERO
 const BUILD_RAY_LENGTH: float = 8.0
 const INTERACT_RAY_LENGTH: float = 4.0
 const BUILD_COLLISION_MASK: int = 137  # World (1) + Train (8) + BuildDetect (128)
@@ -143,6 +147,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		var bm3: Node = _hud.get_node_or_null("BuildMenu")
 		if bm3 and bm3.visible:
 			return
+		if Time.get_ticks_msec() < _ignore_shoot_until_msec:
+			return
 		if BuildSystem.is_building:
 			_try_build()
 		elif _try_use_equipped_tool():
@@ -251,6 +257,10 @@ func _try_build() -> void:
 					hit_point = p2
 				BuildSystem.try_place_item(hit_point, target2)
 		BuildSystem.BuildMode.DEMOLISH:
+			var hit_chassis := _find_chassis(collider as Node)
+			if hit_chassis != null:
+				BuildSystem.try_demolish_train_part(hit_chassis)
+				return
 			var target3 := _find_build_target(collider as Node)
 			if target3:
 				var p3: Variant = _get_build_point_on_target(target3)
@@ -285,6 +295,10 @@ func _update_build_preview() -> void:
 			else:
 				BuildSystem.hide_preview()
 		BuildSystem.BuildMode.DEMOLISH:
+			var hit_chassis := _find_chassis(collider as Node)
+			if hit_chassis != null:
+				BuildSystem.update_preview_on_target(hit_point, hit_normal, hit_chassis)
+				return
 			var target2 := _find_build_target(collider as Node)
 			if target2:
 				var p2: Variant = _get_build_point_on_target(target2)
@@ -309,6 +323,10 @@ func _try_deconstruct() -> void:
 	var node: Node = collider as Node
 
 	# Walk up to find what we're deconstructing: a placed item, a floor piece, or a chassis
+	var hit_chassis := _find_chassis(node)
+	if hit_chassis != null:
+		BuildSystem.try_demolish_train_part(hit_chassis)
+		return
 	var target := _find_build_target(node)
 	if target == null:
 		return
@@ -576,6 +594,7 @@ func _apply_blocked_controls() -> bool:
 	if not _controls_were_blocked:
 		_set_player_controllable(false)
 		_controls_were_blocked = true
+	_update_wagon_platform(get_physics_process_delta_time())
 	if _fps.is_on_floor() and _fps.velocity.y <= 0.0:
 		_fps.velocity.x = 0.0
 		_fps.velocity.z = 0.0
@@ -586,6 +605,78 @@ func _apply_blocked_controls() -> bool:
 func _is_build_menu_open() -> bool:
 	var bm: Node = _hud.get_node_or_null("BuildMenu") if _hud else null
 	return bm != null and bm.visible
+
+
+func _update_wagon_platform(delta: float) -> void:
+	var current_wagon := _find_wagon_underfoot()
+	if current_wagon != _wagon_platform:
+		if _wagon_platform != null and current_wagon == null:
+			_fps.velocity.x += _platform_velocity_carry.x
+			_fps.velocity.z += _platform_velocity_carry.z
+		_wagon_platform = current_wagon
+		_platform_velocity_carry = Vector3.ZERO
+		if _wagon_platform != null and is_instance_valid(_wagon_platform):
+			_last_wagon_transform = _wagon_platform.global_transform
+		else:
+			_last_wagon_transform = Transform3D.IDENTITY
+		return
+	if _wagon_platform == null:
+		_last_wagon_transform = Transform3D.IDENTITY
+		_platform_velocity_carry = Vector3.ZERO
+		return
+	if not is_instance_valid(_wagon_platform):
+		_wagon_platform = null
+		_last_wagon_transform = Transform3D.IDENTITY
+		_platform_velocity_carry = Vector3.ZERO
+		return
+	var current_transform: Transform3D = _wagon_platform.global_transform
+	var previous_transform: Transform3D = _last_wagon_transform
+	var local_pos: Vector3 = previous_transform.affine_inverse() * _fps.global_position
+	var target_pos: Vector3 = current_transform * local_pos
+	if delta > 0.0:
+		_platform_velocity_carry = (target_pos - _fps.global_position) / delta
+	_fps.global_position = target_pos
+	var old_fwd: Vector3 = previous_transform.basis.orthonormalized().z
+	var new_fwd: Vector3 = current_transform.basis.orthonormalized().z
+	old_fwd.y = 0.0
+	new_fwd.y = 0.0
+	if old_fwd.length_squared() > 0.0001 and new_fwd.length_squared() > 0.0001:
+		var angle := old_fwd.signed_angle_to(new_fwd, Vector3.UP)
+		if absf(angle) > 0.0001:
+			_fps.rotate_y(angle)
+	_last_wagon_transform = current_transform
+
+
+func _find_wagon_underfoot() -> Node3D:
+	if _fps == null:
+		return null
+	if not _fps.is_on_floor() and _wagon_platform == null:
+		return null
+	var from := _fps.global_position + Vector3.UP * 0.3
+	var to := _fps.global_position + Vector3.DOWN * 1.8
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.exclude = [_fps.get_rid()]
+	var hit := _fps.get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return _wagon_platform if _wagon_platform != null and is_instance_valid(_wagon_platform) else null
+	var collider: Variant = hit.get("collider", null)
+	if collider == null or not (collider is Node):
+		return _wagon_platform if _wagon_platform != null and is_instance_valid(_wagon_platform) else null
+	return _find_wagon_parent(collider as Node)
+
+
+func _find_wagon_parent(node: Node) -> Node3D:
+	var current: Node = node
+	while current != null:
+		if current is WagonFrame:
+			return current as Node3D
+		if current is TrainChassis:
+			var parent := current.get_parent()
+			if parent is WagonFrame:
+				return parent as Node3D
+			return current as Node3D
+		current = current.get_parent()
+	return null
 
 
 func _toggle_inventory_panel() -> void:
@@ -606,11 +697,13 @@ func _on_inventory_toggle_requested() -> void:
 
 func _on_build_item_selected(buildable_id: String) -> void:
 	BuildSystem.select_buildable(buildable_id)
+	_ignore_shoot_until_msec = Time.get_ticks_msec() + 250
 	_close_build_menu()
 
 
 func _on_build_mode_selected(mode: int) -> void:
 	BuildSystem.set_mode(mode)
+	_ignore_shoot_until_msec = Time.get_ticks_msec() + 250
 	_close_build_menu()
 
 

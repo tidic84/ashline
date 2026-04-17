@@ -39,11 +39,12 @@ func server_harvest(peer_id: int) -> void:
 	else:
 		selected_item = Inventory.get_selected_item()
 	if required_tool_id != "" and selected_item != required_tool_id:
-		AudioManager.play_sfx("metal_hit", 0.0, 0.85)
+		_play_spatial_sfx("metal_hit", 0.0, 0.85)
 		return
 	hits_remaining -= 1
 	if _is_pickup_collectible():
-		_play_pickup_sfx()
+		if _should_play_pickup_sfx_for_peer(peer_id):
+			_play_pickup_sfx()
 	else:
 		_play_hit_sfx()
 	_on_hit()
@@ -61,18 +62,32 @@ func _play_hit_sfx() -> void:
 	match kind:
 		"wood", "branch", "log":
 			var idx: int = randi_range(1, 9)
-			AudioManager.play_sfx("cutting_wood0%d" % idx, 0.0, randf_range(0.95, 1.05))
+			_play_spatial_sfx("cutting_wood0%d" % idx, 0.0, randf_range(0.95, 1.05))
 		"stone":
 			var idx: int = randi_range(1, 4)
-			AudioManager.play_sfx("mining_stone0%d" % idx, 0.0, randf_range(0.9, 1.1))
-		"metal", "metal_scrap": AudioManager.play_sfx("metal_hit", 0.0, randf_range(0.9, 1.1))
-		_: AudioManager.play_sfx("harvest", 0.0, randf_range(0.9, 1.1))
+			_play_spatial_sfx("mining_stone0%d" % idx, 0.0, randf_range(0.9, 1.1))
+		"metal", "metal_scrap":
+			_play_spatial_sfx("metal_hit", 0.0, randf_range(0.9, 1.1))
+		_:
+			_play_spatial_sfx("harvest", 0.0, randf_range(0.9, 1.1))
+
+func _play_spatial_sfx(name: String, volume_db: float = 0.0, pitch: float = 1.0) -> void:
+	var pos := global_position
+	if AudioManager != null and AudioManager.has_method("play_sfx_3d"):
+		AudioManager.play_sfx_3d(name, pos, volume_db, pitch)
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		WorldSync.replicate_spatial_sfx(name, pos, volume_db, pitch)
 
 func _is_pickup_collectible() -> bool:
 	return required_tool_id.is_empty() and hits_to_harvest <= 1
 
 func _play_pickup_sfx() -> void:
 	AudioManager.play_sfx(PICKUP_SFX, 0.0, randf_range(0.96, 1.04))
+
+func _should_play_pickup_sfx_for_peer(peer_id: int) -> bool:
+	if not multiplayer.has_multiplayer_peer():
+		return true
+	return peer_id <= 0 or peer_id == Inventory.get_local_peer_id()
 
 func _on_hit() -> void:
 	# Shake effect

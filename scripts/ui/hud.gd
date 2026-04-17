@@ -141,11 +141,7 @@ func _process(delta: float) -> void:
 		else:
 			crosshair.color = Color(1.0, 0.3, 0.3, 0.9)
 
-	if tracked_chassis != null and not is_instance_valid(tracked_chassis):
-		tracked_chassis = null
-	tracked_chassis = _resolve_tracked_train(tracked_chassis)
-	if tracked_chassis == null or not is_instance_valid(tracked_chassis) or not _train_can_show_telemetry(tracked_chassis):
-		tracked_chassis = _find_nearest_chassis()
+	tracked_chassis = _find_nearest_chassis()
 	if tracked_chassis and is_instance_valid(tracked_chassis):
 		var on_rails: bool = false
 		var spd: float = 0.0
@@ -196,11 +192,57 @@ func _find_nearest_chassis() -> Node:
 	# Prefer WagonFrame (the main movable unit) over standalone bogies.
 	var frames := get_tree().get_nodes_in_group("wagon_frame")
 	if not frames.is_empty():
-		return frames[0]
+		return _find_best_wagon_frame(frames)
 	var nodes := get_tree().get_nodes_in_group("chassis")
 	if nodes.is_empty():
 		return null
-	return _resolve_tracked_train(nodes[0] as Node)
+	return _find_best_train_node(nodes)
+
+func _find_best_wagon_frame(frames: Array) -> Node:
+	return _find_best_train_node(frames)
+
+func _find_best_train_node(nodes: Array) -> Node:
+	var local_peer_id := Inventory.get_local_peer_id()
+	var has_owned_frames := false
+	var local_pos := _get_telemetry_reference_position()
+	var best_owned: Node = null
+	var best_owned_dist := INF
+	var best_any: Node = null
+	var best_any_dist := INF
+	for node_variant in nodes:
+		if not (node_variant is Node) or not is_instance_valid(node_variant):
+			continue
+		var train_node := _resolve_tracked_train(node_variant)
+		if train_node == null or not is_instance_valid(train_node):
+			continue
+		if not _train_can_show_telemetry(train_node):
+			continue
+		var train_3d := train_node as Node3D
+		if train_3d == null:
+			continue
+		var dist := train_3d.global_position.distance_squared_to(local_pos)
+		if dist < best_any_dist:
+			best_any_dist = dist
+			best_any = train_node
+		if train_node.has_meta("owner_peer_id"):
+			has_owned_frames = true
+			if int(train_node.get_meta("owner_peer_id")) == local_peer_id and dist < best_owned_dist:
+				best_owned_dist = dist
+				best_owned = train_node
+	if best_owned != null:
+		return best_owned
+	if has_owned_frames:
+		return null
+	return best_any
+
+func _get_telemetry_reference_position() -> Vector3:
+	var player_node := _get_local_player_controller()
+	if player_node != null:
+		return player_node.global_position
+	var camera := get_viewport().get_camera_3d()
+	if camera != null:
+		return camera.global_position
+	return Vector3.ZERO
 
 func _resolve_tracked_train(node_variant: Variant) -> Node:
 	if node_variant == null:
@@ -225,6 +267,8 @@ func _train_can_show_telemetry(node_variant: Variant) -> bool:
 		return false
 	var node := node_variant as Node
 	if node == null:
+		return false
+	if node.has_meta("owner_peer_id") and int(node.get_meta("owner_peer_id")) != Inventory.get_local_peer_id():
 		return false
 	if node is WagonFrame:
 		var wf := node as WagonFrame

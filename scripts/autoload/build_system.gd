@@ -458,6 +458,7 @@ func try_place_chassis(hit_point: Vector3, actor_peer_id: int = -1, replicate: b
 	var instance := chassis_scene.instantiate() as TrainChassis
 	get_tree().current_scene.add_child(instance)
 	var chassis_net_id := WorldSync.register_entity(instance)
+	instance.set_meta("owner_peer_id", peer_id)
 	instance.global_position = world_curve.sample_baked(best_offset)
 	_orient_node_on_curve(instance, world_curve, best_offset)
 	if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
@@ -522,6 +523,7 @@ func _place_second_bogie(hit_point: Vector3, actor_peer_id: int = -1, _replicate
 	frame.wagon_length = wagon_tiles
 	get_tree().current_scene.add_child(frame)
 	var frame_net_id := WorldSync.register_entity(frame)
+	frame.set_meta("owner_peer_id", peer_id)
 
 	# Position frame at midpoint — use snapped progress values
 	var front_pos: Vector3 = curve.sample_baked(front_progress)
@@ -560,6 +562,8 @@ func _place_second_bogie(hit_point: Vector3, actor_peer_id: int = -1, _replicate
 	# Initialize frame
 	frame.front_bogie = front
 	frame.rear_bogie = rear
+	front.set_meta("owner_peer_id", peer_id)
+	rear.set_meta("owner_peer_id", peer_id)
 	frame._setup_bogies()
 	frame._build_frame_visuals()
 	frame._build_collision_surface()
@@ -590,7 +594,8 @@ func _place_second_bogie(hit_point: Vector3, actor_peer_id: int = -1, _replicate
 			wagon_tiles,
 			rail_path_ref,
 			front_progress,
-			rear_progress
+			rear_progress,
+			peer_id
 		)
 
 	# Clean up second preview
@@ -1048,8 +1053,78 @@ func try_demolish(hit_point: Vector3, chassis: Node, actor_peer_id: int = -1, re
 		return true
 	return false
 
+func try_demolish_train_part(part: Node, actor_peer_id: int = -1, replicate: bool = true, refund: bool = true) -> bool:
+	if part == null or not is_instance_valid(part):
+		return false
+	if WorldSync.should_request_host():
+		WorldSync.request_demolish(WorldSync.get_net_id(part), Vector2i.ZERO, -2)
+		return false
+	var target := _get_train_demolish_root(part)
+	if target == null:
+		return false
+	var peer_id := _resolve_actor_peer_id(actor_peer_id)
+	if refund:
+		_refund_train_chassis_parts(target, peer_id)
+	var main_net_id := WorldSync.get_net_id(target)
+	_unregister_train_tree(target)
+	if target == _first_bogie or (target is WagonFrame and _first_bogie != null and _first_bogie.get_parent() == target):
+		_first_bogie = null
+		_first_bogie_progress = 0.0
+		_first_bogie_curve = null
+		_first_bogie_rail_path = null
+	if target is WagonFrame:
+		(target as WagonFrame)._stop_train_move_sound()
+	target.queue_free()
+	item_removed.emit(target)
+	_clear_demolish_highlight()
+	if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server() and main_net_id > 0:
+		WorldSync.replicate_despawn(main_net_id)
+	return true
+
+func _get_train_demolish_root(part: Node) -> Node:
+	if part is WagonFrame:
+		return part
+	if part is TrainChassis:
+		var parent := part.get_parent()
+		if parent is WagonFrame:
+			return parent
+		return part
+	var current := part
+	while current != null:
+		if current is WagonFrame:
+			return current
+		if current is TrainChassis:
+			var chassis_parent := current.get_parent()
+			if chassis_parent is WagonFrame:
+				return chassis_parent
+			return current
+		current = current.get_parent()
+	return null
+
+func _refund_train_chassis_parts(target: Node, peer_id: int) -> void:
+	var chassis_count := 0
+	if target is TrainChassis:
+		chassis_count = 1
+	else:
+		for child in target.get_children():
+			if child is TrainChassis:
+				chassis_count += 1
+	for i in range(chassis_count):
+		for res_name in CHASSIS_COST:
+			_refund_resource_for_peer(peer_id, res_name, int(ceil(CHASSIS_COST[res_name] * 0.5)))
+
+func _unregister_train_tree(root: Node) -> void:
+	if root.has_meta(WorldSync.NET_ID_META):
+		WorldSync.unregister_entity(int(root.get_meta(WorldSync.NET_ID_META)))
+	for child in root.get_children():
+		_unregister_train_tree(child)
+
 func server_try_demolish(peer_id: int, target_net_id: int, grid_pos: Vector2i, _edge: int) -> bool:
 	var target := WorldSync.get_entity(target_net_id)
+	if _edge == -2:
+		if target == null:
+			return false
+		return try_demolish_train_part(target, peer_id, true, true)
 	if target == null or not target.has_method("grid_to_world"):
 		return false
 	return try_demolish(target.grid_to_world(grid_pos), target, peer_id, true, true)

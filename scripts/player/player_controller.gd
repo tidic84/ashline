@@ -94,6 +94,7 @@ var _remote_state_initialized: bool = false
 var _model_animation_player: AnimationPlayer = null
 var _model_animation_library: AnimationLibrary = null
 var _current_model_animation: String = ""
+var _ignore_shoot_until_msec: int = 0
 
 func _enter_tree() -> void:
 	is_local = not multiplayer.has_multiplayer_peer() or get_multiplayer_authority() == multiplayer.get_unique_id()
@@ -228,6 +229,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _is_inventory_open():
 			return
 		if hud.build_menu.visible:
+			return
+		if Time.get_ticks_msec() < _ignore_shoot_until_msec:
 			return
 		if BuildSystem.is_building:
 			_try_build()
@@ -492,6 +495,10 @@ func _try_build() -> void:
 					hit_point = p
 				BuildSystem.try_place_item(hit_point, target)
 		BuildSystem.BuildMode.DEMOLISH:
+			var hit_chassis := _find_chassis(collider as Node)
+			if hit_chassis != null:
+				BuildSystem.try_demolish_train_part(hit_chassis)
+				return
 			var target := _find_build_target(collider as Node)
 			if target:
 				var p: Variant = _get_build_point_on_target(target)
@@ -527,6 +534,10 @@ func _update_build_preview() -> void:
 			else:
 				BuildSystem.hide_preview()
 		BuildSystem.BuildMode.DEMOLISH:
+			var hit_chassis := _find_chassis(collider as Node)
+			if hit_chassis != null:
+				BuildSystem.update_preview_on_target(hit_point, hit_normal, hit_chassis)
+				return
 			var target := _find_build_target(collider as Node)
 			if target:
 				var p: Variant = _get_build_point_on_target(target)
@@ -538,6 +549,14 @@ func _update_build_preview() -> void:
 				BuildSystem.hide_preview()
 		_:
 			BuildSystem.hide_preview()
+
+func _find_chassis(node: Node) -> TrainChassis:
+	var current: Node = node
+	while current:
+		if current is TrainChassis:
+			return current
+		current = current.get_parent()
+	return null
 
 func _find_build_target(node: Node) -> Node:
 	var current: Node = node
@@ -639,6 +658,7 @@ func _controls_blocked() -> bool:
 func _apply_blocked_movement(delta: float) -> bool:
 	if not _controls_blocked():
 		return false
+	_update_wagon_platform(delta)
 	if is_on_floor() and velocity.y <= 0.0:
 		velocity.x = move_toward(velocity.x, 0.0, current_speed)
 		velocity.z = move_toward(velocity.z, 0.0, current_speed)
@@ -794,10 +814,12 @@ func _toggle_inventory_panel() -> void:
 
 func _on_build_item_selected(buildable_id: String) -> void:
 	BuildSystem.select_buildable(buildable_id)
+	_ignore_shoot_until_msec = Time.get_ticks_msec() + 250
 	_close_build_menu()
 
 func _on_build_mode_selected(mode: int) -> void:
 	BuildSystem.set_mode(mode)
+	_ignore_shoot_until_msec = Time.get_ticks_msec() + 250
 	_close_build_menu()
 
 func _on_build_exit_requested() -> void:
