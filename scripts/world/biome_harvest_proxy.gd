@@ -2,6 +2,12 @@ extends StaticBody3D
 class_name BiomeHarvestProxy
 
 const INTERACTABLE_LAYER: int = 32
+const FIBER_ITEM_ID: String = "fiber"
+const FIBER_PICK_SFX_NAMES: Array[String] = [
+	"FougerePick1",
+	"FougerePick2",
+	"FougerePick3",
+]
 
 var drop_item_id: String = ""
 var amount_min: int = 1
@@ -17,6 +23,7 @@ const PICKUP_SFX: String = "pickup_item"
 var _rng := RandomNumberGenerator.new()
 var _instances: Array[Dictionary] = []
 var _render_nodes: Array[MultiMeshInstance3D] = []
+var _last_fiber_pick_sfx: String = ""
 
 var hits_remaining: int:
 	get:
@@ -110,6 +117,8 @@ func get_target_name_at(_hit: Dictionary) -> String:
 
 
 func _format_interact_text() -> String:
+	if drop_item_id == FIBER_ITEM_ID:
+		return interact_label
 	if required_tool_id.is_empty():
 		return "[E] %s" % interact_label
 	var tool_name: String = Inventory.get_item_name(required_tool_id)
@@ -126,12 +135,35 @@ func _play_hit_sfx(hit_position: Vector3) -> void:
 			_play_spatial_sfx("mining_stone0%d" % idx, hit_position, 0.0, randf_range(0.9, 1.1))
 		"metal", "metal_scrap":
 			_play_spatial_sfx("metal_hit", hit_position, 0.0, randf_range(0.9, 1.1))
+		FIBER_ITEM_ID:
+			_play_fiber_pick_sfx(hit_position)
 		_:
 			_play_spatial_sfx("harvest", hit_position, 0.0, randf_range(0.9, 1.1))
 
 func _play_spatial_sfx(name: String, hit_position: Vector3, volume_db: float = 0.0, pitch: float = 1.0) -> void:
 	if AudioManager != null and AudioManager.has_method("play_sfx_3d"):
 		AudioManager.play_sfx_3d(name, hit_position, volume_db, pitch)
+
+func _play_fiber_pick_sfx(hit_position: Vector3) -> void:
+	var sfx_name: String = _pick_fiber_sfx_name()
+	if sfx_name.is_empty():
+		return
+	_play_spatial_sfx(sfx_name, hit_position, 0.0, randf_range(0.96, 1.04))
+
+func _pick_fiber_sfx_name() -> String:
+	if FIBER_PICK_SFX_NAMES.is_empty():
+		return ""
+	var candidates: Array[String] = []
+	for index in range(FIBER_PICK_SFX_NAMES.size()):
+		var candidate: String = FIBER_PICK_SFX_NAMES[index]
+		if FIBER_PICK_SFX_NAMES.size() <= 1 or candidate != _last_fiber_pick_sfx:
+			candidates.append(candidate)
+	if candidates.is_empty():
+		candidates.append(FIBER_PICK_SFX_NAMES[0])
+	var selected_index: int = _rng.randi_range(0, candidates.size() - 1)
+	var sfx_name: String = candidates[selected_index]
+	_last_fiber_pick_sfx = sfx_name
+	return sfx_name
 
 func _is_pickup_collectible() -> bool:
 	return required_tool_id.is_empty() and hits_to_harvest <= 1
