@@ -24,6 +24,8 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.7, -0.1)
 [node name="LeverModel" parent="Visuals/Lever" unique_id=738830550 instance=ExtResource("3")]
 transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 0.46, 0.7, 0)
 
+[node name="Arrow" type="Node3D" parent="." unique_id=180100001]
+
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1007503197]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
 shape = SubResource("BoxShape3D_switch")

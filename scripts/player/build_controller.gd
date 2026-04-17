@@ -30,6 +30,7 @@ var _batch_build_target: Node = null
 var _batch_build_start_grid: Vector2i = Vector2i.ZERO
 var _batch_build_end_grid: Vector2i = Vector2i.ZERO
 var _batch_build_edge: int = BuildSystem.EdgeSide.NONE
+var _hovered_switch: RailSwitch = null
 const BUILD_RAY_LENGTH: float = 8.0
 const INTERACT_RAY_LENGTH: float = 4.0
 const BUILD_COLLISION_MASK: int = 137  # World (1) + Train (8) + BuildDetect (128)
@@ -195,11 +196,13 @@ func _physics_process(delta: float) -> void:
 	if _camera == null:
 		return
 	if _apply_blocked_controls():
+		_clear_hovered_switch()
 		_cancel_batch_build()
 		BuildSystem.hide_preview()
 		return
 	if BuildSystem.is_building:
 		if _is_inventory_open():
+			_clear_hovered_switch()
 			_cancel_batch_build()
 			BuildSystem.hide_preview()
 			return
@@ -673,6 +676,7 @@ func _ray_plane_intersection(
 
 func _update_interact_hint() -> void:
 	if _is_inventory_open():
+		_clear_hovered_switch()
 		_hud.hide_interact_hint()
 		_hud.hide_target_name()
 		return
@@ -689,6 +693,10 @@ func _update_interact_hint() -> void:
 	if not hit.is_empty():
 		var collider: Object = hit.get("collider")
 		if collider and (collider.has_method("interact_at") or collider.has_method("interact")):
+			if collider is RailSwitch:
+				_set_hovered_switch(collider as RailSwitch)
+			else:
+				_clear_hovered_switch()
 			var text := "[E] Interact"
 			if collider is PumpLever:
 				text = "[E] Pump"
@@ -704,7 +712,27 @@ func _update_interact_hint() -> void:
 				text = "[E] Harvest"
 			_hud.show_interact_hint(text)
 			return
+	_clear_hovered_switch()
 	_hud.hide_interact_hint()
+
+
+func _exit_tree() -> void:
+	_clear_hovered_switch()
+
+
+func _set_hovered_switch(rail_switch: RailSwitch) -> void:
+	if _hovered_switch == rail_switch:
+		return
+	_clear_hovered_switch()
+	_hovered_switch = rail_switch
+	if _hovered_switch != null and is_instance_valid(_hovered_switch):
+		_hovered_switch.set_hovered(true)
+
+
+func _clear_hovered_switch() -> void:
+	if _hovered_switch != null and is_instance_valid(_hovered_switch):
+		_hovered_switch.set_hovered(false)
+	_hovered_switch = null
 
 func _get_target_display_name(hit: Dictionary) -> String:
 	var collider: Object = hit.get("collider")

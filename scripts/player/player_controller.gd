@@ -101,6 +101,7 @@ var _batch_build_target: Node = null
 var _batch_build_start_grid: Vector2i = Vector2i.ZERO
 var _batch_build_end_grid: Vector2i = Vector2i.ZERO
 var _batch_build_edge: int = BuildSystem.EdgeSide.NONE
+var _hovered_switch: RailSwitch = null
 
 func _enter_tree() -> void:
 	is_local = not multiplayer.has_multiplayer_peer() or get_multiplayer_authority() == multiplayer.get_unique_id()
@@ -1072,6 +1073,7 @@ func _on_build_exit_requested() -> void:
 
 func _update_interact_hint() -> void:
 	if _is_inventory_open():
+		_clear_hovered_switch()
 		hud.hide_interact_hint()
 		hud.hide_harvest_hp()
 		return
@@ -1082,6 +1084,10 @@ func _update_interact_hint() -> void:
 			"collider": collider,
 		}
 		if collider and collider.has_method("interact"):
+			if collider is RailSwitch:
+				_set_hovered_switch(collider as RailSwitch)
+			else:
+				_clear_hovered_switch()
 			if collider is PumpLever:
 				hud.show_interact_hint("[E] Pump")
 				hud.hide_harvest_hp()
@@ -1107,8 +1113,28 @@ func _update_interact_hint() -> void:
 				hud.show_interact_hint("[E] Interact")
 				hud.hide_harvest_hp()
 			return
+	_clear_hovered_switch()
 	hud.hide_interact_hint()
 	hud.hide_harvest_hp()
+
+
+func _exit_tree() -> void:
+	_clear_hovered_switch()
+
+
+func _set_hovered_switch(rail_switch: RailSwitch) -> void:
+	if _hovered_switch == rail_switch:
+		return
+	_clear_hovered_switch()
+	_hovered_switch = rail_switch
+	if _hovered_switch != null and is_instance_valid(_hovered_switch):
+		_hovered_switch.set_hovered(true)
+
+
+func _clear_hovered_switch() -> void:
+	if _hovered_switch != null and is_instance_valid(_hovered_switch):
+		_hovered_switch.set_hovered(false)
+	_hovered_switch = null
 
 func _try_drop_item() -> void:
 	var slot_index := Inventory.selected_hotbar_index

@@ -27,30 +27,79 @@ TARGETS = [
 ]
 
 
-def delight(img: Image.Image) -> Image.Image:
-    """Remove low-frequency luminance gradient, keep detail & color."""
+def delight(img: Image.Image, ignore_alpha_mask: bool = True, strength: float = 0.95) -> Image.Image:
+    """Remove low-frequency gradient by per-channel high-pass.
+
+    For each RGB channel:
+      result = image - blur(image) * strength + channel_mean * strength
+    This removes smooth gradients across the entire texture while preserving
+    fine detail (scratches, rivets, tiling). UV-invalid zones (alpha=0) kept.
+    """
     has_alpha = img.mode == "RGBA"
     rgb = img.convert("RGB")
     arr = np.array(rgb).astype(np.float32)
+    h, w = arr.shape[:2]
 
-    lum = 0.299 * arr[..., 0] + 0.587 * arr[..., 1] + 0.114 * arr[..., 2]
-    lum_img = Image.fromarray(np.clip(lum, 0, 255).astype(np.uint8), "L")
+    if has_alpha and ignore_alpha_mask:
+        alpha_arr = np.array(img.split()[-1])
+        valid_mask = alpha_arr > 8
+    else:
+        valid_mask = np.ones((h, w), dtype=bool)
 
-    radius = max(img.size) // 6
-    low = np.array(lum_img.filter(ImageFilter.GaussianBlur(radius=radius))).astype(np.float32)
+    radius = max(h, w) // 5
 
-    target = float(low.mean())
-    correction = target / np.maximum(low, 1.0)
-    correction = np.clip(correction, 0.55, 1.8)
+    result = np.empty_like(arr)
+    weight_img = Image.fromarray((valid_mask.astype(np.float32) * 255).astype(np.uint8), "L")
+    weight_blurred = np.array(weight_img.filter(ImageFilter.GaussianBlur(radius=radius))).astype(np.float32) / 255.0
+    weight_blurred = np.maximum(weight_blurred, 0.01)
 
-    result = arr * correction[..., None]
+    for c in range(3):
+        ch = arr[..., c]
+        masked = np.where(valid_mask, ch, 0.0)
+        ch_img = Image.fromarray(np.clip(masked, 0, 255).astype(np.uint8), "L")
+        ch_blur = np.array(ch_img.filter(ImageFilter.GaussianBlur(radius=radius))).astype(np.float32)
+        low = ch_blur / weight_blurred
+
+        valid_vals = ch[valid_mask]
+        ch_mean = float(valid_vals.mean()) if valid_vals.size else float(low.mean())
+        flattened = ch - strength * (low - ch_mean)
+        result[..., c] = np.where(valid_mask, flattened, ch)
+
     result = np.clip(result, 0, 255).astype(np.uint8)
+
+    # Extend RGB into alpha=0 regions by iterative pull-dilation so UV
+    # sampling that strays outside the island samples a similar color
+    # instead of pure black.
+    if has_alpha and ignore_alpha_mask:
+        result = _fill_outside_mask(result, valid_mask)
 
     out = Image.fromarray(result, "RGB")
     if has_alpha:
         alpha = img.split()[-1]
         out = Image.merge("RGBA", (*out.split(), alpha))
     return out
+
+
+def _fill_outside_mask(rgb_u8: np.ndarray, mask: np.ndarray, iterations: int = 40) -> np.ndarray:
+    """Pull valid colors outward into invalid regions via repeated blur."""
+    arr = rgb_u8.astype(np.float32)
+    m = mask.astype(np.float32)
+    for c in range(3):
+        arr[..., c] = arr[..., c] * m
+    for _ in range(iterations):
+        img_c = [Image.fromarray(np.clip(arr[..., c], 0, 255).astype(np.uint8), "L")
+                 for c in range(3)]
+        m_img = Image.fromarray((m * 255).astype(np.uint8), "L")
+        blurred = [np.array(ic.filter(ImageFilter.GaussianBlur(radius=6))).astype(np.float32)
+                   for ic in img_c]
+        m_blur = np.array(m_img.filter(ImageFilter.GaussianBlur(radius=6))).astype(np.float32) / 255.0
+        valid_new = m_blur > 0.02
+        for c in range(3):
+            extended = blurred[c] / np.maximum(m_blur, 0.001)
+            arr[..., c] = np.where(mask, rgb_u8[..., c].astype(np.float32),
+                                   np.where(valid_new, extended, arr[..., c]))
+        m = np.where(mask | valid_new, 1.0, m)
+    return np.clip(arr, 0, 255).astype(np.uint8)
 
 
 def read_glb(path):
