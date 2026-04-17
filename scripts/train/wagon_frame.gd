@@ -10,6 +10,8 @@ const EDGE_SOUTH: int = 2
 const EDGE_EAST: int = 3
 const EDGE_WEST: int = 4
 const NETWORK_SNAPSHOT_INTERVAL: float = 0.016
+const MAX_STEP_DISTANCE: float = 0.25
+const MAX_SUBSTEPS: int = 16
 const TRAIN_ROLL_LOOP_PATH: String = "res://assets/audio/sfx/train_roll_loop.wav"
 const TRAIN_ROLL_LOOP_FALLBACK_PATH: String = "C:/Users/Thomas/Desktop/JEU TRAIN/SFX/TRAIN/BruitsTrain.wav"
 const TRAIN_AUDIO_TRIGGER_SPEED: float = 0.1
@@ -134,10 +136,47 @@ func _physics_process(delta: float) -> void:
 
 	if not is_net_client:
 		front_bogie.speed = move_toward(front_bogie.speed, 0.0, front_bogie.friction * delta)
+
+	var old_pos: Vector3 = global_position
+	var frame_ds: float = absf(front_bogie.speed * delta)
+	var substeps: int = clampi(int(ceil(frame_ds / MAX_STEP_DISTANCE)), 1, MAX_SUBSTEPS)
+	var sub_delta: float = delta / float(substeps)
+	var transitioned_this_frame: bool = false
+	for _step_i in range(substeps):
+		if not _advance_step(sub_delta, is_net_client):
+			break
+		if front_bogie._just_transitioned:
+			transitioned_this_frame = true
+
+	var curve: Curve3D = front_bogie.rail_curve
+	var total: float = curve.get_baked_length() if curve != null else 0.0
+
+	# Platform velocity — use curve tangent on transition frame to avoid spike
+	if transitioned_this_frame:
+		front_bogie._just_transitioned = false
+		var ahead_t: float = minf(front_bogie.rail_progress + 1.0, total)
+		var behind_t: float = maxf(front_bogie.rail_progress - 1.0, 0.0)
+		var fwd_t: Vector3 = curve.sample_baked(ahead_t) - curve.sample_baked(behind_t)
+		if fwd_t.length_squared() > 0.0001:
+			fwd_t = fwd_t.normalized()
+		else:
+			fwd_t = Vector3.FORWARD
+		_set_platform_velocity(fwd_t * front_bogie.speed)
+	else:
+		var actual_vel: Vector3 = (global_position - old_pos) / delta
+		_set_platform_velocity(actual_vel)
+
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		_network_snapshot_accum += delta
+		if _network_snapshot_accum >= NETWORK_SNAPSHOT_INTERVAL:
+			_network_snapshot_accum = 0.0
+			_broadcast_rail_snapshot()
+
+
+func _advance_step(delta: float, is_net_client: bool) -> bool:
 	var ds: float = front_bogie.speed * delta
 	front_bogie.distance_traveled += absf(ds)
 
-	var old_pos: Vector3 = global_position
 	var curve: Curve3D = front_bogie.rail_curve
 	var total: float = curve.get_baked_length()
 	var spacing: float = float(wagon_length) * GRID_SIZE
@@ -172,7 +211,7 @@ func _physics_process(delta: float) -> void:
 			front_bogie.speed_changed.emit(0.0)
 			_set_platform_velocity(Vector3.ZERO)
 			_stop_train_move_sound()
-			return
+			return false
 		else:
 			# Compute overflow past the exited endpoint, and the endpoint index
 			# (0=curve start, 1=curve end) for the transition call.
@@ -202,7 +241,7 @@ func _physics_process(delta: float) -> void:
 				front_bogie.speed_changed.emit(0.0)
 				_set_platform_velocity(Vector3.ZERO)
 				_stop_train_move_sound()
-				return
+				return false
 	else:
 		front_bogie.rail_progress = raw_progress
 
@@ -285,27 +324,7 @@ func _physics_process(delta: float) -> void:
 		rear_bogie.rail_progress = rear_progress
 		rear_bogie.current_rail_path = front_bogie.current_rail_path
 
-	# Platform velocity — use curve tangent on transition frame to avoid spike
-	if front_bogie._just_transitioned:
-		front_bogie._just_transitioned = false
-		var total_t: float = curve.get_baked_length()
-		var ahead_t: float = minf(front_bogie.rail_progress + 1.0, total_t)
-		var behind_t: float = maxf(front_bogie.rail_progress - 1.0, 0.0)
-		var fwd_t: Vector3 = curve.sample_baked(ahead_t) - curve.sample_baked(behind_t)
-		if fwd_t.length_squared() > 0.0001:
-			fwd_t = fwd_t.normalized()
-		else:
-			fwd_t = Vector3.FORWARD
-		_set_platform_velocity(fwd_t * front_bogie.speed)
-	else:
-		var actual_vel: Vector3 = (global_position - old_pos) / delta
-		_set_platform_velocity(actual_vel)
-
-	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
-		_network_snapshot_accum += delta
-		if _network_snapshot_accum >= NETWORK_SNAPSHOT_INTERVAL:
-			_network_snapshot_accum = 0.0
-			_broadcast_rail_snapshot()
+	return true
 
 
 func _broadcast_rail_snapshot() -> void:

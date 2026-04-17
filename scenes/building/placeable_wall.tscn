@@ -4,7 +4,7 @@
 [ext_resource type="PackedScene" path="res://assets/models/survival/metal-panel.glb" id="2"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_wall"]
-size = Vector3(1, 2, 0.2)
+size = Vector3(1, 2, 0.4)
 
 [node name="PlaceableWall" type="StaticBody3D"]
 collision_layer = 16

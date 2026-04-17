@@ -4,7 +4,7 @@
 [ext_resource type="PackedScene" uid="uid://1perf0s0ytkb" path="res://assets/models/building/wall-yellow.glb" id="2"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_wall_yellow"]
-size = Vector3(0.9308106, 2.1680665, 0.11569824)
+size = Vector3(0.9308106, 2.1680665, 0.4)
 
 [node name="PlaceableWallYellow" type="StaticBody3D" unique_id=1605861477]
 collision_layer = 16
