@@ -26,8 +26,8 @@
 [ext_resource type="Script" uid="uid://cqk5duaw6het6" path="res://scripts/world/terrain_generator.gd" id="28_railgen"]
 [ext_resource type="PackedScene" uid="uid://bsu4gots2oiyy" path="res://scenes/rail/rail_switch.tscn" id="29_gkmcc"]
 [ext_resource type="Script" uid="uid://bib4e6vre4okx" path="res://scenes/environment/rail_path.gd" id="29_railpath"]
+[ext_resource type="Script" uid="uid://bhimv6olc15ri" path="res://scripts/rail/rail_switch.gd" id="30_7nlll"]
 [ext_resource type="Script" uid="uid://c5qvicfnpmm3v" path="res://scripts/player/build_controller.gd" id="30_buildctrl"]
-[ext_resource type="Script" uid="uid://bhimv6olc15ri" path="res://scripts/rail/rail_switch.gd" id="30_gkmcc"]
 [ext_resource type="PackedScene" uid="uid://cggqb75a8w8r" path="res://addons/debug_menu/debug_menu.tscn" id="31_debug"]
 [ext_resource type="Script" uid="uid://ck00bpv2e6qsb" path="res://scripts/world/resource_spawner.gd" id="32_spawner"]
 
@@ -123,45 +123,31 @@ noise_type = 3
 
 [sub_resource type="Curve3D" id="Curve3D_62atk"]
 _data = {
-"points": PackedVector3Array(3.093544, 0.2955668, 2.4939518, -3.093544, -0.2955668, -2.493952, 1.643074, 2.2461443, 5.22908, 6.3685684, 0.19373335, -1.2839091, -6.3685684, -0.19373335, 1.2839091, -15.182141, 0.05396653, 1.8676224, 0.32167873, -0.03855533, -0.39041573, -0.32167873, 0.03855533, 0.39041573, -27.130497, 1.0936234, 9.915685, 0.121082656, 0.21193804, -6.338671, -0.121082656, -0.21193804, 6.338671, -32.60842, 2.1331897, 22.862478, -7.627926, -0.2686913, -5.5780096, 7.627926, 0.2686913, 5.5780096, -25.184586, -0.71141815, 42.308205, -8.083243, -0.7134662, 3.8818965, 8.083243, 0.7134662, -3.8818965, -2.852686, 3.4379034, 43.46385, -1.1581001, 0.282856, 4.5551834, 1.1581001, -0.282856, -4.5551834, 8.949825, 2.5651827, 27.353943),
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, -35.322296, -2.9430847, -48.04425, 1.6359048, -0.19260949, -2.0345962, -1.6359048, 0.19260949, 2.0345962, -41.77032, -2.1144717, -39.662407, 2.2003155, -0.3508664, -2.8583167, -2.2003155, 0.3508664, 2.8583167, -46.93803, -1.5587462, -33.510372, 1.6150452, -0.7386922, -3.1809313, -1.6150452, 0.7386922, 3.1809313, -51.613583, -0.5403716, -26.866175, 0.88557136, -0.86169165, -3.4271872, -0.88557136, 0.86169165, 3.4271872, -54.07439, 1.692687, -19.483736, 0.33617693, 0.031106405, -3.61065, -0.33617693, -0.031106405, 3.61065, -55.550877, 3.29223, -11.609131, -0.2729167, 0.48209265, -3.5838356, 0.2729167, -0.48209265, 3.5838356, -55.550877, 1.5797148, -3.7345264, -0.32276133, 0.058702946, -1.1239041, 0.32276133, -0.058702946, 1.1239041, -54.32047, 1.1539993, 4.3861594, -1.7246597, -0.2850605, -3.1753533, 1.7246597, 0.2850605, 3.1753533, -51.12141, 0.76993465, 11.768598, -2.5661817, -0.37606937, -2.596404, 2.5661817, 0.37606937, 2.596404, -46.69195, 2.4262528, 18.41279, -2.4209192, -0.0048685167, -1.1249748, 2.4209192, 0.0048685167, 1.1249748, -39.55559, 2.4014475, 23.334421, -3.7247956, -0.20103985, -0.658277, 3.7247956, 0.20103985, 0.658277, -31.434902, 2.455799, 25.54915, -4.275087, 0.18881801, -0.17895426, 4.275087, -0.18881801, 0.17895426, -19.623005, 3.6366532, 26.533476, -3.323272, 0.2017154, 0, 3.323272, -0.2017154, 0, -10.271915, 1.8632387, 26.533476, 0, 0, 0, 0, 0, 0, -2.8894691, 2.3524878, 26.533476),
+"tilts": PackedFloat32Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+}
+point_count = 15
+
+[sub_resource type="Curve3D" id="Curve3D_i7in8"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, -3.3815436, 2.3080592, 26.439074, -3.134371, 0.10072317, 1.8345424, 3.134371, -0.10072317, -1.8345424, 9.6606865, 1.816238, 20.873602, -2.3742127, 0.4890451, 2.706274, 2.3742127, -0.4890451, -2.706274, 16.058788, 1.6520079, 15.95198, -1.0214231, 0.957657, 3.4038758, 1.0214231, -0.957657, -3.4038758, 19.996105, -0.3277294, 9.061706, -0.16640489, 0.6195002, 3.608584, 0.16640489, -0.6195002, -3.608584, 20.488247, -2.5019646, 1.1870981, 0.14049159, -0.5406507, 3.6223345, -0.14049159, 0.5406507, -3.6223345, 20.734325, -3.0776534, -6.9335885, 0.33472353, 0.446957, 3.3344572, -0.33472353, -0.446957, -3.3344572, 19.776339, 0.19251084, -15.409363, 0.390112, 1.0292215, 3.1967063, -0.390112, -1.0292215, -3.1967063, 19.257854, -4.2414017, -21.452383, 1.270949, -0.5923356, 3.4200351, -1.270949, 0.5923356, -3.4200351, 18.027431, -4.1355257, -29.573069, 0, 0, 0, 0, 0, 0, 11.844639, -0.5720455, -39.195698),
+"tilts": PackedFloat32Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+}
+point_count = 10
+
+[sub_resource type="Curve3D" id="Curve3D_gkmcc"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, 11.875408, -0.57776034, -39.170242, 2.8398368, 0.41513205, 2.176557, -2.8398368, -0.41513205, -2.176557, 6.215542, -0.631609, -44.830116, 1.9291286, 0.4830488, 0.7838932, -1.9291286, -0.4830488, -0.7838932, -0.67473984, -2.4250762, -48.767414, 3.4972622, 0.88022476, 0.5008874, -3.4972622, -0.88022476, -0.5008874, -8.303265, -4.2674575, -50.736065, 3.6263452, 0.072931774, 0.05637453, -3.6263452, -0.072931774, -0.05637453, -16.17786, -6.3275533, -50.982147, 3.5363345, -0.65079063, -0.47925612, -3.5363345, 0.65079063, 0.47925612, -24.052464, -4.6033916, -50.982147, 0, 0, 0, 0, 0, 0, -35.173668, -2.9541583, -47.93278),
 "tilts": PackedFloat32Array(0, 0, 0, 0, 0, 0, 0)
 }
 point_count = 7
 
-[sub_resource type="Curve3D" id="Curve3D_i7in8"]
-_data = {
-"points": PackedVector3Array(-0.2175293, 0.053129673, 0.8556118, 0.2175293, -0.053129673, -0.8556118, 2.7195282, 2.5651827, -1.9290581, 1.651591, 0.060385108, 4.890709, -1.651591, -0.060385108, -4.890709, 1.0693674, 1.7317325, -14.086702, 3.093544, 0.2955668, 2.4939518, -3.093544, -0.2955668, -2.4939518, -4.587223, 2.2461443, -24.05392),
-"tilts": PackedFloat32Array(0, 0, 0)
-}
-point_count = 3
-
-[sub_resource type="Curve3D" id="Curve3D_gkmcc"]
-_data = {
-"points": PackedVector3Array(3.093544, 0.2955668, 2.4939518, -3.093544, -0.2955668, -2.493952, -0.4601097, -0.40932226, -0.4334221, 1.0196078, 0.04718724, 0.9994197, -1.0196078, -0.04718724, -0.9994197, -6.75618, -1.525775, -6.558688, 3.2021503, -0.16678162, 4.412431, -3.2021503, 0.16678162, -4.412431, -15.36491, -0.79476213, -15.060131, 0, 0, 0, 0, 0, 0, -23.833645, -0.79476213, -31.97504),
-"tilts": PackedFloat32Array(0, 0, 0, 0)
-}
-point_count = 4
-
 [sub_resource type="Curve3D" id="Curve3D_7nlll"]
 _data = {
-"points": PackedVector3Array(-0.41617665, 0.032689925, 0.32420394, 0.41617665, -0.032689925, -0.32420394, 0, 0, 0, 0, 0, 0, 0, 0, 0, 20.33369, 0, -15.719835),
-"tilts": PackedFloat32Array(0, 0)
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, -3.653192, 2.2720704, 26.36146, -3.6187956, 0.09455531, -0.740918, 3.6187956, -0.09455531, 0.740918, 7.9381065, 2.708372, 29.73253, -3.5633388, 0.48211005, -0.21653831, 3.5633388, -0.48211005, 0.21653831, 16.058788, 1.993719, 30.71686, -3.595726, 0.18826662, 0.109598756, 3.595726, -0.18826662, -0.109598756, 23.933392, 0.55389416, 30.71686, -3.6451316, -0.22720379, 0.3779268, 3.6451316, 0.22720379, -0.3779268, 32.05409, 1.1760223, 30.224695, -3.5209985, -0.28444338, 1.0545251, 3.5209985, 0.28444338, -1.0545251, 40.420834, 1.5772073, 28.994287, -3.2018883, -0.094597265, 1.7130084, 3.2018883, 0.094597265, -1.7130084, 47.80328, 2.4394276, 25.54915, -2.8258157, 0.27218243, 2.2663004, 2.8258157, -0.27218243, -2.2663004, 54.69357, 2.0083117, 21.365767, -2.0430276, 0.24123228, 3.0727518, 2.0430276, -0.24123228, -3.0727518, 60.353436, 1.226418, 15.459815, -1.3524878, 0.35265353, 4.017632, 1.3524878, -0.35265353, -4.017632, 65.275055, 0.8160265, 4.1400743, -0.75056887, 0.3819239, 3.9424722, 0.75056887, -0.3819239, -3.9424722, 67.48981, -0.42957595, -4.964933, -0.40598145, -0.002451563, 4.01092, 0.40598145, 0.002451563, -4.01092, 68.7202, -0.9432239, -13.823861, 0.17053519, -0.64567477, 5.0786223, -0.17053519, 0.64567477, -5.0786223, 69.45845, -0.26351866, -25.389688, 1.2443888, -0.52639776, 4.9409294, -1.2443888, 0.52639776, -4.9409294, 67.98195, 1.9196525, -36.46335, 2.1166651, -0.13347653, 4.2338467, -2.1166651, 0.13347653, -4.2338467, 63.552486, 2.0659816, -48.275253, 2.269499, -0.3559332, 2.827246, -2.269499, 0.3559332, -2.827246, 57.89262, 2.5338206, -57.134182, 3.1169403, -0.4840632, 1.8223616, -3.1169403, 0.4840632, -1.8223616, 52.23274, 3.7444425, -62.794052, 3.6064537, -0.03843836, 0.8372839, -3.6064537, 0.03843836, -0.8372839, 44.35815, 4.630301, -65.00878, 4.255362, -0.10358754, 0.5735134, -4.255362, 0.10358754, -0.5735134, 35.00706, 3.7997065, -66.73135, 3.6625414, 0.24471694, 0.21539532, -3.6625414, -0.24471694, -0.21539532, 17.781353, 6.1535535, -68.20784, 3.5365334, 1.0050406, -0.05757434, -3.5365334, -1.0050406, 0.05757434, 9.90675, 3.986086, -68.45392, 8.333142, 1.5082268, -3.0998302, -8.333142, -1.5082268, 3.0998302, -9.287586, -1.6413761, -67.22351, 0, 0, 0, 0, 0, 0, -35.545235, -2.8829513, -47.82131),
+"tilts": PackedFloat32Array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 }
-point_count = 2
-
-[sub_resource type="Curve3D" id="Curve3D_ii537"]
-_data = {
-"points": PackedVector3Array(2.7558033, -0.21646339, -2.1467862, -2.7558033, 0.21646337, 2.1467862, 1.3872898, 0.2, 0.35626006, 0, 0, 0, 0, 0, 0, -15.684668, 0.4171983, 3.568472),
-"tilts": PackedFloat32Array(0, 0)
-}
-point_count = 2
-
-[sub_resource type="Curve3D" id="Curve3D_rofvo"]
-_data = {
-"points": PackedVector3Array(2.7558033, -0.21646339, -2.1467865, -2.7558033, 0.21646339, 2.1467865, 0, 0, 0, 0, 0, 0, 0, 0, 0, -5.2386656, 2.0531206, 11.656803),
-"tilts": PackedFloat32Array(0, 0)
-}
-point_count = 2
+point_count = 23
 
 [node name="Main" type="Node3D" unique_id=1921519102]
 script = ExtResource("1_main")
@@ -269,97 +255,55 @@ script = ExtResource("32_spawner")
 
 [node name="CanvasLayer" parent="." unique_id=1602580574 instance=ExtResource("31_debug")]
 
-[node name="RailPath" type="Path3D" parent="." unique_id=843419991]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -47.39913, 0, 0)
+[node name="RailPath" type="Path3D" parent="." unique_id=646535526]
 curve = SubResource("Curve3D_62atk")
 script = ExtResource("29_railpath")
 smoothing_mode = 2
-smooth_length = 35.5
-max_curvature_deg_per_m = 0.2
+smooth_length = 25.5
+max_curvature_deg_per_m = 0.30000000000000004
 max_pitch_curvature_deg_per_m = 0.2
-connections_at_start = Array[NodePath]([NodePath("../RailPath2"), NodePath("../RailPath3")])
-connections_at_end = Array[NodePath]([NodePath("../RailPath2")])
-metadata/_custom_type_script = "uid://bib4e6vre4okx"
+connections_at_start = Array[NodePath]([NodePath("../RailPath3"), NodePath("../RailPath4")])
+connections_at_end = Array[NodePath]([NodePath("../RailPath2"), NodePath("../RailPath4")])
 
-[node name="RailPath2" type="Path3D" parent="." unique_id=1892202132]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -41.168835, 0, 29.283)
+[node name="RailPath2" type="Path3D" parent="." unique_id=1813754980]
 curve = SubResource("Curve3D_i7in8")
 script = ExtResource("29_railpath")
 smoothing_mode = 2
-smooth_length = 5.5
-max_curvature_deg_per_m = 0.6
-max_pitch_curvature_deg_per_m = 0.5
-connections_at_start = Array[NodePath]([NodePath("../RailPath")])
-connections_at_end = Array[NodePath]([NodePath("../RailPath"), NodePath("../RailPath3")])
-metadata/_custom_type_script = "uid://bib4e6vre4okx"
+smooth_length = 25.5
+max_curvature_deg_per_m = 0.30000000000000004
+max_pitch_curvature_deg_per_m = 0.2
+connections_at_start = Array[NodePath]([NodePath("../RailPath"), NodePath("../RailPath4")])
 
-[node name="RailPath3" type="Path3D" parent="." unique_id=312836854]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -45.295948, 2.6554666, 5.6625023)
+[node name="RailPath3" type="Path3D" parent="." unique_id=707160144]
 curve = SubResource("Curve3D_gkmcc")
 script = ExtResource("29_railpath")
 smoothing_mode = 2
-smooth_length = 38.5
+smooth_length = 25.5
 max_curvature_deg_per_m = 0.30000000000000004
-max_pitch_curvature_deg_per_m = 0.30000000000000004
-connections_at_start = Array[NodePath]([NodePath("../RailPath"), NodePath("../RailPath2")])
-metadata/_custom_type_script = "uid://bib4e6vre4okx"
+max_pitch_curvature_deg_per_m = 0.2
+connections_at_end = Array[NodePath]([NodePath("../RailPath"), NodePath("../RailPath4")])
 
-[node name="RailSwitch" parent="." unique_id=2065821429 instance=ExtResource("29_gkmcc")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -38.449306, 2.5651827, 27.353943)
-rail_path = NodePath("../RailPath2")
-endpoint = 0
-
-[node name="@StaticBody3D@32407" parent="." unique_id=1133532432 instance=ExtResource("29_gkmcc")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -38.449306, 2.5651827, 27.353943)
-rail_path = NodePath("../RailPath2")
-endpoint = 0
-
-[node name="@StaticBody3D@33581" parent="." unique_id=289148547 instance=ExtResource("29_gkmcc")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -38.449306, 2.5651827, 27.353943)
-rail_path = NodePath("../RailPath")
-
-[node name="RailPath4" type="Path3D" parent="." unique_id=742086920]
+[node name="RailPath4" type="Path3D" parent="." unique_id=1201272931]
 curve = SubResource("Curve3D_7nlll")
 script = ExtResource("29_railpath")
 smoothing_mode = 2
-smooth_length = 3.5
-max_curvature_deg_per_m = 0.4
-max_pitch_curvature_deg_per_m = 0.30000000000000004
-connections_at_start = Array[NodePath]([NodePath("../RailPath5"), NodePath("../RailPath6")])
-metadata/_custom_type_script = "uid://bib4e6vre4okx"
+smooth_length = 25.5
+max_curvature_deg_per_m = 0.30000000000000004
+max_pitch_curvature_deg_per_m = 0.2
+connections_at_start = Array[NodePath]([NodePath("../RailPath"), NodePath("../RailPath2")])
+connections_at_end = Array[NodePath]([NodePath("../RailPath"), NodePath("../RailPath3")])
 
-[node name="RailPath5" type="Path3D" parent="." unique_id=818434700]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.1156096, 0, -0.46781158)
-curve = SubResource("Curve3D_ii537")
-script = ExtResource("29_railpath")
-smoothing_mode = 2
-smooth_length = 3.5
-max_curvature_deg_per_m = 0.4
-max_pitch_curvature_deg_per_m = 0.30000000000000004
-connections_at_start = Array[NodePath]([NodePath("../RailPath4"), NodePath("../RailPath6")])
-metadata/_custom_type_script = "uid://bib4e6vre4okx"
-
-[node name="RailPath6" type="Path3D" parent="." unique_id=1987318804]
-curve = SubResource("Curve3D_rofvo")
-script = ExtResource("29_railpath")
-smoothing_mode = 2
-smooth_length = 3.5
-max_curvature_deg_per_m = 0.4
-max_pitch_curvature_deg_per_m = 0.30000000000000004
-connections_at_start = Array[NodePath]([NodePath("../RailPath4"), NodePath("../RailPath5")])
-metadata/_custom_type_script = "uid://bib4e6vre4okx"
-
-[node name="RailSwitch_RailPath5_Start" type="StaticBody3D" parent="." unique_id=1622356854 instance=ExtResource("29_gkmcc")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.27168012, 0.2, -0.11155152)
+[node name="RailSwitch_RailPath_End" type="StaticBody3D" parent="." unique_id=1506612423 instance=ExtResource("29_gkmcc")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.8894691, 2.3524878, 26.533476)
 collision_layer = 32
 collision_mask = 0
-script = ExtResource("30_gkmcc")
-rail_path = NodePath("../RailPath5")
-endpoint = 0
+script = ExtResource("30_7nlll")
+rail_path = NodePath("../RailPath")
 
-[node name="RailSwitch_RailPath6_Start" type="StaticBody3D" parent="." unique_id=1446936139 instance=ExtResource("29_gkmcc")]
+[node name="RailSwitch_RailPath_Start" type="StaticBody3D" parent="." unique_id=285797394 instance=ExtResource("29_gkmcc")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -35.322296, -2.9430847, -48.04425)
 collision_layer = 32
 collision_mask = 0
-script = ExtResource("30_gkmcc")
-rail_path = NodePath("../RailPath6")
+script = ExtResource("30_7nlll")
+rail_path = NodePath("../RailPath")
 endpoint = 0

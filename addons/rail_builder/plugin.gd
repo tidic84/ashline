@@ -2,6 +2,8 @@
 extends EditorPlugin
 
 const PANEL_TITLE := "Rail Builder"
+const RAIL_SWITCH_SCENE_PATH := "res://scenes/rail/rail_switch.tscn"
+const RAIL_PATH_SCRIPT_PATH := "res://scenes/environment/rail_path.gd"
 
 # --- UI references ---
 var _panel: VBoxContainer
@@ -17,6 +19,30 @@ var _preview_real_check: CheckBox
 var _current_path: Path3D = null
 var _curve_signature := ""
 
+# --- Draw mode UI refs ---
+var _draw_mode_check: CheckBox
+var _draw_spacing_spin: SpinBox
+var _draw_click_mode_check: CheckBox
+var _draw_snap_radius_spin: SpinBox
+
+# --- Draw mode state ---
+var _draw_mode_active := false
+var _click_mode := false  # false = drag continuous, true = click-by-click
+var _draw_spacing := 8.0
+var _snap_radius := 2.0
+var _junction_merge_radius := 0.8
+var _current_stroke: Path3D = null
+var _last_stroke_world := Vector3.ZERO
+var _stroke_point_count := 0
+var _dragging_point_path: Path3D = null
+var _dragging_point_index := -1
+var _hover_screen := Vector2.ZERO
+var _hover_world := Vector3.ZERO
+var _hover_valid := false
+var _violating_points: Dictionary = {}  # instance_id -> PackedInt32Array
+var _junction_hotspots: Array = []  # [{rect: Rect2, path: Path3D, endpoint: int}]
+var _last_camera: Camera3D = null
+
 # --- Pop-out window ---
 var _popup_window: Window = null
 var _is_popped_out := false
@@ -28,6 +54,8 @@ var _section_bodies: Dictionary = {}  # String -> Control
 
 func _enter_tree() -> void:
 	_build_panel()
+	set_input_event_forwarding_always_enabled()
+	set_force_draw_over_forwarding_enabled()
 	set_process(true)
 	var selection := get_editor_interface().get_selection()
 	if selection and not selection.selection_changed.is_connected(_on_selection_changed):
@@ -55,8 +83,9 @@ func _edit(object: Object) -> void:
 
 
 func _make_visible(visible: bool) -> void:
+	# Panel reste toujours accessible (on peut activer mode dessin sans rail selectionne).
 	if _panel != null:
-		_panel.visible = visible
+		_panel.visible = true
 
 
 func _process(_delta: float) -> void:
@@ -118,8 +147,47 @@ func _build_panel() -> void:
 	_inner.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_scroll.add_child(_inner)
 
-	# ---- SECTION: Construction ----
-	var build_body := _add_section("Construction", "Ajouter et configurer des segments de rail")
+	# ---- SECTION: Dessin (Y viewport) ----
+	var draw_body := _add_section("Dessin (touche Y dans le viewport)",
+			"Mode dessin pour tracer des rails a la souris en vue dessus", false)
+
+	var draw_hint := Label.new()
+	draw_hint.text = "1. Numpad 7 pour vue dessus\n2. Touche Y ou bouton ci-dessous pour activer\n3. Glisser ou cliquer pour tracer"
+	draw_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	draw_body.add_child(draw_hint)
+
+	_draw_mode_check = CheckBox.new()
+	_draw_mode_check.text = "Activer le mode dessin (Y)"
+	_draw_mode_check.tooltip_text = "Bascule le mode dessin. Une fois actif, les clics dans le viewport 3D tracent des rails."
+	_draw_mode_check.toggled.connect(_on_draw_mode_toggled)
+	draw_body.add_child(_draw_mode_check)
+
+	_draw_click_mode_check = CheckBox.new()
+	_draw_click_mode_check.text = "Mode clic-a-clic (sinon drag continu)"
+	_draw_click_mode_check.tooltip_text = "Decoche: clique-glisse pour tracer. Coche: chaque clic pose un point, clic droit termine."
+	_draw_click_mode_check.toggled.connect(func(on: bool): _click_mode = on)
+	draw_body.add_child(_draw_click_mode_check)
+
+	var spacing_row := _make_spin_row("Espacement (m)", 1.0, 50.0, 0.5, 8.0,
+			"Distance minimum entre deux points en mode drag")
+	_draw_spacing_spin = spacing_row.get_child(1) as SpinBox
+	_draw_spacing_spin.value_changed.connect(func(v: float): _draw_spacing = v)
+	draw_body.add_child(spacing_row)
+
+	var snap_row := _make_spin_row("Rayon auto-connect (m)", 0.5, 10.0, 0.5, 2.0,
+			"Distance de detection pour snap / connexion automatique aux rails voisins")
+	_draw_snap_radius_spin = snap_row.get_child(1) as SpinBox
+	_draw_snap_radius_spin.value_changed.connect(func(v: float): _snap_radius = v)
+	draw_body.add_child(snap_row)
+
+	var gen_terrain_top := Button.new()
+	gen_terrain_top.text = "Generer le terrain autour des rails"
+	gen_terrain_top.tooltip_text = "Sculpte le sol le long de chaque rail et reconstruit les meshes"
+	gen_terrain_top.pressed.connect(_on_generate_terrain_pressed)
+	draw_body.add_child(gen_terrain_top)
+
+	# ---- SECTION: Construction (avance) ----
+	var build_body := _add_section("Construction (avance)", "Ajouter et configurer des segments de rail", true)
 
 	var len_row := _make_spin_row("Longueur (m)", 1.0, 200.0, 0.5, 12.0,
 		"Longueur du prochain segment en metres")
@@ -149,7 +217,7 @@ func _build_panel() -> void:
 	build_body.add_child(remove_last_btn)
 
 	# ---- SECTION: Boucles & Connexions ----
-	var loop_body := _add_section("Boucles & Connexions", "Creer des circuits fermes et connecter des rails")
+	var loop_body := _add_section("Boucles & Connexions", "Creer des circuits fermes et connecter des rails", true)
 
 	var close_loop_btn := Button.new()
 	close_loop_btn.text = "Fermer la boucle"
@@ -181,8 +249,8 @@ func _build_panel() -> void:
 	clear_connections_btn.pressed.connect(_on_clear_connections_pressed)
 	loop_body.add_child(clear_connections_btn)
 
-	# ---- SECTION: Aiguillages ----
-	var switch_body := _add_section("Aiguillages", "Placer et gerer les aiguillages aux jonctions")
+	# ---- SECTION: Aiguillages (manuel) ----
+	var switch_body := _add_section("Aiguillages (manuel)", "Placer et gerer les aiguillages aux jonctions", true)
 
 	var add_switch_start_btn := Button.new()
 	add_switch_start_btn.text = "Aiguillage au DEBUT"
@@ -197,7 +265,7 @@ func _build_panel() -> void:
 	switch_body.add_child(add_switch_end_btn)
 
 	# ---- SECTION: Contraintes & Lissage ----
-	var constraint_body := _add_section("Contraintes & Lissage", "Valider, appliquer et lisser les contraintes du rail")
+	var constraint_body := _add_section("Contraintes & Lissage", "Valider, appliquer et lisser les contraintes du rail", true)
 
 	var row_a := HBoxContainer.new()
 	var validate_btn := Button.new()
@@ -236,7 +304,7 @@ func _build_panel() -> void:
 	constraint_body.add_child(_auto_enforce_check)
 
 	# ---- SECTION: Preview ----
-	var preview_body := _add_section("Preview", "Controles de l'apercu en temps reel dans l'editeur")
+	var preview_body := _add_section("Preview", "Controles de l'apercu en temps reel dans l'editeur", true)
 
 	_preview_enabled_check = CheckBox.new()
 	_preview_enabled_check.text = "Apercu active"
@@ -257,7 +325,7 @@ func _build_panel() -> void:
 	preview_body.add_child(preview_refresh_btn)
 
 	# ---- SECTION: Terrain ----
-	var terrain_body := _add_section("Terrain", "Generation du terrain le long des rails")
+	var terrain_body := _add_section("Terrain", "Generation du terrain le long des rails", true)
 
 	var gen_terrain_btn := Button.new()
 	gen_terrain_btn.text = "Generer le terrain"
@@ -288,9 +356,9 @@ func _build_panel() -> void:
 #  UI HELPERS
 # ============================================================
 
-func _add_section(title: String, tooltip: String) -> VBoxContainer:
+func _add_section(title: String, tooltip: String, start_collapsed: bool = false) -> VBoxContainer:
 	var header := Button.new()
-	header.text = "[ - ]  " + title
+	header.text = ("[ + ]  " if start_collapsed else "[ - ]  ") + title
 	header.tooltip_text = tooltip
 	header.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	header.flat = true
@@ -304,6 +372,7 @@ func _add_section(title: String, tooltip: String) -> VBoxContainer:
 	margin.add_theme_constant_override("margin_left", 8)
 	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	margin.add_child(body)
+	margin.visible = not start_collapsed
 	_inner.add_child(margin)
 
 	_inner.add_child(_make_separator())
@@ -426,7 +495,7 @@ func _on_selection_changed() -> void:
 func _set_current_path(path: Path3D) -> void:
 	_current_path = path
 	if _panel != null:
-		_panel.visible = _current_path != null
+		_panel.visible = true
 	if _current_path == null:
 		_update_status("Aucun RailPath selectionne.")
 		_curve_signature = ""
@@ -968,6 +1037,645 @@ func _on_regenerate_rails_pressed() -> void:
 		_update_status("[color=#8bc34a]Rails regeneres.[/color]")
 		return
 	_update_status("[color=#f44336]Aucun TerrainGenerator trouve.[/color]")
+
+
+# ============================================================
+#  DRAW MODE (viewport top-down)
+# ============================================================
+
+func _on_draw_mode_toggled(on: bool) -> void:
+	_draw_mode_active = on
+	if not on:
+		_cancel_stroke()
+		_dragging_point_path = null
+		_dragging_point_index = -1
+	update_overlays()
+	if on:
+		_update_status("[color=#64b5f6]Mode dessin ACTIF.[/color] Numpad 7 = vue dessus. Clic = tracer.")
+	else:
+		_update_status("Mode dessin desactive.")
+
+
+func _forward_3d_gui_input(camera: Camera3D, event: InputEvent) -> int:
+	_last_camera = camera
+	# Touche Y: toggle mode dessin (meme sans panneau ouvert).
+	if event is InputEventKey:
+		var ek := event as InputEventKey
+		if ek.pressed and not ek.echo:
+			if ek.keycode == KEY_Y and not ek.ctrl_pressed and not ek.alt_pressed and not ek.shift_pressed:
+				if _draw_mode_check != null:
+					_draw_mode_check.button_pressed = not _draw_mode_check.button_pressed
+				else:
+					_on_draw_mode_toggled(not _draw_mode_active)
+				return AFTER_GUI_INPUT_STOP
+
+	if not _draw_mode_active:
+		return AFTER_GUI_INPUT_PASS
+
+	if event is InputEventMouse:
+		_hover_screen = (event as InputEventMouse).position
+		var hw: Variant = _raycast_world(camera, _hover_screen)
+		if hw != null:
+			_hover_world = hw
+			_hover_valid = true
+		else:
+			_hover_valid = false
+		update_overlays()
+
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.pressed:
+				# 1. Junction [+] button?
+				for hs in _junction_hotspots:
+					var rect: Rect2 = hs.rect
+					if rect.has_point(mb.position):
+						_handle_junction_click(hs)
+						return AFTER_GUI_INPUT_STOP
+				# 2. Drag existing point?
+				var hit := _pick_point_at_screen(camera, mb.position)
+				if hit.size() > 0:
+					_dragging_point_path = hit.path
+					_dragging_point_index = int(hit.index)
+					return AFTER_GUI_INPUT_STOP
+				# 3. Start / continue stroke.
+				if _click_mode:
+					_click_mode_pose_point(camera, mb.position)
+				else:
+					_begin_stroke(camera, mb.position)
+				return AFTER_GUI_INPUT_STOP
+			else:
+				if _dragging_point_path != null:
+					_dragging_point_path = null
+					_dragging_point_index = -1
+					return AFTER_GUI_INPUT_STOP
+				if not _click_mode and _current_stroke != null:
+					_end_stroke()
+					return AFTER_GUI_INPUT_STOP
+		elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
+			if _click_mode and _current_stroke != null:
+				_end_stroke()
+				return AFTER_GUI_INPUT_STOP
+			if _current_stroke != null:
+				_cancel_stroke()
+				return AFTER_GUI_INPUT_STOP
+
+	if event is InputEventMouseMotion:
+		var mm := event as InputEventMouseMotion
+		if _dragging_point_path != null and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+			var wp: Variant = _raycast_world(camera, mm.position)
+			if wp != null:
+				_update_dragged_point(wp as Vector3)
+			return AFTER_GUI_INPUT_STOP
+		if not _click_mode and _current_stroke != null and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+			_continue_stroke(camera, mm.position)
+			return AFTER_GUI_INPUT_STOP
+
+	if event is InputEventKey:
+		var ek2 := event as InputEventKey
+		if ek2.pressed and ek2.keycode == KEY_ESCAPE and _current_stroke != null:
+			_cancel_stroke()
+			return AFTER_GUI_INPUT_STOP
+
+	return AFTER_GUI_INPUT_PASS
+
+
+func _forward_3d_draw_over_viewport(overlay: Control) -> void:
+	if not _draw_mode_active:
+		return
+	var camera := _get_editor_camera()
+	if camera == null:
+		return
+
+	var root := _get_scene_root()
+	var all_paths: Array[Node] = []
+	if root != null:
+		_collect_rail_paths(root, all_paths)
+
+	# Recompute violations.
+	_violating_points.clear()
+	for node in all_paths:
+		var p := node as Path3D
+		if p == null or p.curve == null:
+			continue
+		var arr := _compute_violations(p)
+		if arr.size() > 0:
+			_violating_points[p.get_instance_id()] = arr
+
+	# Draw existing points (circles) + path outlines from top.
+	for node in all_paths:
+		var p := node as Path3D
+		if p == null or p.curve == null:
+			continue
+		var n := p.curve.point_count
+		var violations: PackedInt32Array = _violating_points.get(p.get_instance_id(), PackedInt32Array())
+		# Segments between points.
+		var prev_screen := Vector2.ZERO
+		var prev_valid := false
+		for i in range(n):
+			var w: Vector3 = p.to_global(p.curve.get_point_position(i))
+			if camera.is_position_behind(w):
+				prev_valid = false
+				continue
+			var s: Vector2 = camera.unproject_position(w)
+			if prev_valid:
+				overlay.draw_line(prev_screen, s, Color(0.4, 0.7, 1.0, 0.7), 2.0)
+			prev_screen = s
+			prev_valid = true
+			var col := Color.WHITE
+			if i in violations:
+				col = Color(1.0, 0.3, 0.3, 1.0)
+			overlay.draw_circle(s, 6.0, col)
+
+	# Junction [+] buttons.
+	_junction_hotspots.clear()
+	var junctions := _scan_junctions(all_paths)
+	for j in junctions:
+		var world_pos: Vector3 = j.pos
+		if camera.is_position_behind(world_pos):
+			continue
+		var s := camera.unproject_position(world_pos)
+		var rect := Rect2(s - Vector2(12, 12), Vector2(24, 24))
+		overlay.draw_rect(rect, Color(0.2, 0.9, 0.3, 0.85))
+		overlay.draw_rect(rect, Color.BLACK, false, 1.0)
+		var font := overlay.get_theme_default_font()
+		if font != null:
+			overlay.draw_string(font, s + Vector2(-6, 6), "+",
+					HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color.BLACK)
+		# Store all cluster members so the click handler can cross-link them.
+		var anchor = j.members[0]
+		_junction_hotspots.append({
+			"rect": rect,
+			"path": anchor.path,
+			"endpoint": int(anchor.endpoint),
+			"members": j.members,
+		})
+
+	# Current stroke preview line (last point -> hover).
+	if _current_stroke != null and _current_stroke.curve != null and _current_stroke.curve.point_count > 0 and _hover_valid:
+		var last_w: Vector3 = _current_stroke.to_global(
+				_current_stroke.curve.get_point_position(_current_stroke.curve.point_count - 1))
+		if not camera.is_position_behind(last_w) and not camera.is_position_behind(_hover_world):
+			var a := camera.unproject_position(last_w)
+			var b := camera.unproject_position(_hover_world)
+			overlay.draw_line(a, b, Color(1.0, 0.85, 0.2, 0.9), 2.0)
+			overlay.draw_circle(b, 5.0, Color(1.0, 0.85, 0.2, 0.9))
+
+	# HUD.
+	var font2 := overlay.get_theme_default_font()
+	if font2 != null:
+		var mode_str := "CLIC" if _click_mode else "DRAG"
+		var hud := "MODE DESSIN ACTIF  |  Y = quitter  |  Numpad 7 = vue dessus  |  Espacement: %.1fm  |  %s" % [_draw_spacing, mode_str]
+		overlay.draw_rect(Rect2(Vector2(8, 8), Vector2(640, 26)), Color(0, 0, 0, 0.55))
+		overlay.draw_string(font2, Vector2(14, 26), hud, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 1, 0.6, 1))
+		if _current_stroke != null:
+			var hint := "Clic gauche = pose point  |  Clic droit ou Echap = terminer" if _click_mode else "Relachez pour terminer le trait"
+			overlay.draw_string(font2, Vector2(14, 46), hint, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color.WHITE)
+
+
+# ------------- Stroke lifecycle -------------
+
+func _begin_stroke(camera: Camera3D, screen_pos: Vector2) -> void:
+	var wp: Variant = _raycast_world(camera, screen_pos)
+	if wp == null:
+		return
+	var world: Vector3 = wp
+	var path := _create_new_rail_path(world)
+	if path == null:
+		return
+	_current_stroke = path
+	_last_stroke_world = world
+	_stroke_point_count = 1
+	_update_status("Trait en cours... (%s)" % path.name)
+
+
+func _continue_stroke(camera: Camera3D, screen_pos: Vector2) -> void:
+	if _current_stroke == null or _current_stroke.curve == null:
+		return
+	var wp: Variant = _raycast_world(camera, screen_pos)
+	if wp == null:
+		return
+	var world: Vector3 = wp
+	if world.distance_to(_last_stroke_world) < _draw_spacing:
+		return
+	_append_stroke_point(world)
+
+
+func _click_mode_pose_point(camera: Camera3D, screen_pos: Vector2) -> void:
+	var wp: Variant = _raycast_world(camera, screen_pos)
+	if wp == null:
+		return
+	var world: Vector3 = wp
+	if _current_stroke == null:
+		var path := _create_new_rail_path(world)
+		if path == null:
+			return
+		_current_stroke = path
+		_last_stroke_world = world
+		_stroke_point_count = 1
+		_update_status("Trait en cours (clic)... (%s)" % path.name)
+	else:
+		_append_stroke_point(world)
+
+
+func _append_stroke_point(world: Vector3) -> void:
+	if _current_stroke == null or _current_stroke.curve == null:
+		return
+	var c: Curve3D = _current_stroke.curve
+	c.add_point(_current_stroke.to_local(world), Vector3.ZERO, Vector3.ZERO)
+	_last_stroke_world = world
+	_stroke_point_count = c.point_count
+	_try_call_rail_method(_current_stroke, "_apply_smoothing", "action_apply_smoothing")
+	_update_status("Points: %d" % c.point_count)
+
+
+func _end_stroke() -> void:
+	if _current_stroke == null:
+		return
+	var path := _current_stroke
+	_current_stroke = null
+	if path.curve == null or path.curve.point_count < 2:
+		# Unusable: remove.
+		if path.is_inside_tree():
+			path.get_parent().remove_child(path)
+		path.queue_free()
+		_update_status("[color=#ff9800]Trait annule (trop court).[/color]")
+		return
+	_try_call_rail_method(path, "_apply_smoothing", "action_apply_smoothing")
+	_auto_connect_stroke_endpoints(path)
+	_update_status("[color=#8bc34a]Rail cree: %s (%d points).[/color]" % [path.name, path.curve.point_count])
+	var sel := get_editor_interface().get_selection()
+	if sel != null:
+		sel.clear()
+		sel.add_node(path)
+
+
+func _cancel_stroke() -> void:
+	if _current_stroke == null:
+		return
+	var path := _current_stroke
+	_current_stroke = null
+	if path.is_inside_tree():
+		path.get_parent().remove_child(path)
+	path.queue_free()
+	_update_status("Trait annule.")
+
+
+# ------------- Point drag -------------
+
+func _pick_point_at_screen(camera: Camera3D, screen_pos: Vector2) -> Dictionary:
+	var root := _get_scene_root()
+	if root == null:
+		return {}
+	var all_paths: Array[Node] = []
+	_collect_rail_paths(root, all_paths)
+	var best_dist := 10.0  # pixels
+	var best_path: Path3D = null
+	var best_idx := -1
+	for node in all_paths:
+		var p := node as Path3D
+		if p == null or p.curve == null:
+			continue
+		for i in range(p.curve.point_count):
+			var w: Vector3 = p.to_global(p.curve.get_point_position(i))
+			if camera.is_position_behind(w):
+				continue
+			var s := camera.unproject_position(w)
+			var d := s.distance_to(screen_pos)
+			if d < best_dist:
+				best_dist = d
+				best_path = p
+				best_idx = i
+	if best_path == null:
+		return {}
+	return {"path": best_path, "index": best_idx}
+
+
+func _update_dragged_point(world: Vector3) -> void:
+	var path := _dragging_point_path
+	if path == null or path.curve == null:
+		return
+	var idx := _dragging_point_index
+	if idx < 0 or idx >= path.curve.point_count:
+		return
+	var target := world
+	# Snap Y to terrain + ground_offset when constraints would allow.
+	var tentative_local := path.to_local(target)
+	path.curve.set_point_position(idx, tentative_local)
+	_try_call_rail_method(path, "_apply_smoothing", "action_apply_smoothing")
+
+
+# ------------- Rail creation -------------
+
+func _create_new_rail_path(world_origin: Vector3) -> Path3D:
+	var scene_root := _get_scene_root()
+	if scene_root == null:
+		_update_status("[color=#f44336]Pas de scene editee.[/color]")
+		return null
+	var path := Path3D.new()
+	var script := load(RAIL_PATH_SCRIPT_PATH)
+	if script != null:
+		path.set_script(script)
+	path.name = _pick_unique_rail_name(scene_root)
+	# Curve is built in WORLD space because path has no offset yet (pos = 0,0,0).
+	var curve := Curve3D.new()
+	curve.bake_interval = 0.5
+	curve.add_point(world_origin, Vector3.ZERO, Vector3.ZERO)
+	path.curve = curve
+	scene_root.add_child(path)
+	path.owner = scene_root
+	path.add_to_group("rail_path")
+	return path
+
+
+func _pick_unique_rail_name(scene_root: Node) -> String:
+	var i := 1
+	while true:
+		var n := "RailPath" if i == 1 else "RailPath%d" % i
+		if scene_root.get_node_or_null(n) == null:
+			return n
+		i += 1
+	return "RailPath"
+
+
+# ------------- Auto-connect on stroke end -------------
+
+func _auto_connect_stroke_endpoints(path: Path3D) -> void:
+	var root := _get_scene_root()
+	if root == null or path.curve == null:
+		return
+	var others: Array[Node] = []
+	_collect_rail_paths(root, others)
+	others.erase(path)
+	if others.is_empty():
+		return
+	_try_snap_and_link(path, 0, others)
+	_try_snap_and_link(path, 1, others)
+
+
+func _try_snap_and_link(path: Path3D, endpoint: int, others: Array[Node]) -> void:
+	var idx := 0 if endpoint == 0 else path.curve.point_count - 1
+	var my_world: Vector3 = path.to_global(path.curve.get_point_position(idx))
+	var best_dist := _snap_radius
+	var best_path: Path3D = null
+	var best_end := 0
+	var best_target := my_world
+	for o in others:
+		var op := o as Path3D
+		if op == null or op.curve == null or op.curve.point_count == 0:
+			continue
+		var s: Vector3 = op.to_global(op.curve.get_point_position(0))
+		var e: Vector3 = op.to_global(op.curve.get_point_position(op.curve.point_count - 1))
+		var ds := my_world.distance_to(s)
+		if ds < best_dist:
+			best_dist = ds
+			best_path = op
+			best_end = 0
+			best_target = s
+		var de := my_world.distance_to(e)
+		if de < best_dist:
+			best_dist = de
+			best_path = op
+			best_end = 1
+			best_target = e
+	if best_path == null:
+		return
+	# Snap own endpoint to the target.
+	path.curve.set_point_position(idx, path.to_local(best_target))
+	# Link both sides.
+	_link_endpoints(path, endpoint, best_path, best_end)
+
+
+func _link_endpoints(a: Path3D, ea: int, b: Path3D, eb: int) -> void:
+	var prop_a := "connections_at_start" if ea == 0 else "connections_at_end"
+	var prop_b := "connections_at_start" if eb == 0 else "connections_at_end"
+	if _has_property(a, prop_a):
+		var list_a: Array = a.get(prop_a)
+		var np_b: NodePath = a.get_path_to(b)
+		var has_a := false
+		for np in list_a:
+			if str(np) == str(np_b):
+				has_a = true
+				break
+		if not has_a:
+			list_a.append(np_b)
+			a.set(prop_a, list_a)
+	if _has_property(b, prop_b):
+		var list_b: Array = b.get(prop_b)
+		var np_a: NodePath = b.get_path_to(a)
+		var has_b := false
+		for np in list_b:
+			if str(np) == str(np_a):
+				has_b = true
+				break
+		if not has_b:
+			list_b.append(np_a)
+			b.set(prop_b, list_b)
+
+
+# ------------- Junction scan -------------
+
+func _scan_junctions(paths: Array[Node]) -> Array:
+	# Collect all endpoints (world pos, path, endpoint).
+	var endpoints: Array = []
+	for node in paths:
+		var p := node as Path3D
+		if p == null or p.curve == null or p.curve.point_count < 1:
+			continue
+		endpoints.append({
+			"pos": p.to_global(p.curve.get_point_position(0)),
+			"path": p,
+			"endpoint": 0,
+		})
+		if p.curve.point_count >= 2:
+			endpoints.append({
+				"pos": p.to_global(p.curve.get_point_position(p.curve.point_count - 1)),
+				"path": p,
+				"endpoint": 1,
+			})
+	# Cluster by proximity.
+	var clusters: Array = []
+	var used := PackedInt32Array()
+	used.resize(endpoints.size())
+	for i in range(endpoints.size()):
+		if used[i] == 1:
+			continue
+		var group: Array = [endpoints[i]]
+		used[i] = 1
+		for j in range(i + 1, endpoints.size()):
+			if used[j] == 1:
+				continue
+			var d: float = (endpoints[i].pos as Vector3).distance_to(endpoints[j].pos as Vector3)
+			if d <= _junction_merge_radius:
+				group.append(endpoints[j])
+				used[j] = 1
+		if group.size() >= 3:
+			var sum := Vector3.ZERO
+			for g in group:
+				sum += g.pos
+			var avg: Vector3 = sum / float(group.size())
+			if _junction_already_has_switch(group):
+				continue
+			clusters.append({"pos": avg, "members": group})
+	return clusters
+
+
+func _junction_already_has_switch(group: Array) -> bool:
+	var root := _get_scene_root()
+	if root == null:
+		return false
+	for g in group:
+		var p: Path3D = g.path
+		var ep: int = int(g.endpoint)
+		if _find_existing_switch_for_endpoint(root, p, ep) != null:
+			return true
+	return false
+
+
+func _handle_junction_click(hotspot: Dictionary) -> void:
+	var members: Array = hotspot.get("members", [])
+	if members.size() < 2:
+		_update_status("[color=#f44336]Jonction invalide.[/color]")
+		return
+	# 1. Cross-link every member of the cluster so each anchor endpoint has
+	#    connections to all the others (required by _add_switch_at_endpoint,
+	#    which demands >=2 connections on the target endpoint).
+	for i in range(members.size()):
+		for k in range(members.size()):
+			if i == k:
+				continue
+			var a: Path3D = members[i].path
+			var ea: int = int(members[i].endpoint)
+			var b: Path3D = members[k].path
+			var eb: int = int(members[k].endpoint)
+			if a == b and ea == eb:
+				continue
+			_link_endpoints(a, ea, b, eb)
+	# 2. Pick an anchor that now has >=2 connections.
+	var anchor_path: Path3D = members[0].path
+	var anchor_end: int = int(members[0].endpoint)
+	for m in members:
+		var p: Path3D = m.path
+		var ep: int = int(m.endpoint)
+		var prop := "connections_at_start" if ep == 0 else "connections_at_end"
+		if _has_property(p, prop):
+			var list: Array = p.get(prop)
+			if list.size() >= 2:
+				anchor_path = p
+				anchor_end = ep
+				break
+	_current_path = anchor_path
+	_add_switch_at_endpoint(anchor_end)
+
+
+# ------------- Raycast / camera helpers -------------
+
+func _raycast_world(camera: Camera3D, screen_pos: Vector2) -> Variant:
+	if camera == null:
+		return null
+	var origin := camera.project_ray_origin(screen_pos)
+	var normal := camera.project_ray_normal(screen_pos)
+	# Prefer terrain height lookup.
+	var root := _get_scene_root()
+	if root != null:
+		var terrain := _find_terrain_with_sample(root)
+		if terrain != null:
+			# Intersect ray with Y=0 plane to find (x,z), then sample height.
+			var hit_xz := _ray_plane_intersect(origin, normal, 0.0)
+			if hit_xz != null:
+				var p: Vector3 = hit_xz
+				var local_t: Vector3 = (terrain as Node3D).to_local(Vector3(p.x, 0.0, p.z))
+				var h := float(terrain.call("_sample_height", local_t.x, local_t.z))
+				return Vector3(p.x, h + 0.2, p.z)
+	# Fallback: plane Y=0.
+	return _ray_plane_intersect(origin, normal, 0.0)
+
+
+func _ray_plane_intersect(origin: Vector3, normal: Vector3, plane_y: float) -> Variant:
+	if absf(normal.y) < 0.0001:
+		return null
+	var t := (plane_y - origin.y) / normal.y
+	if t < 0.0:
+		return null
+	return origin + normal * t
+
+
+func _get_editor_camera() -> Camera3D:
+	if _last_camera != null and is_instance_valid(_last_camera):
+		return _last_camera
+	var ei := get_editor_interface()
+	if ei == null:
+		return null
+	if ei.has_method("get_editor_viewport_3d"):
+		var vp = ei.call("get_editor_viewport_3d", 0)
+		if vp != null and vp.has_method("get_camera_3d"):
+			return vp.call("get_camera_3d") as Camera3D
+	return null
+
+
+func _get_scene_root() -> Node:
+	return get_tree().edited_scene_root
+
+
+func _find_terrain_with_sample(root: Node) -> Node:
+	if root == null:
+		return null
+	if root.has_method("_sample_height"):
+		return root
+	for c in root.get_children():
+		var f := _find_terrain_with_sample(c)
+		if f != null:
+			return f
+	return null
+
+
+# ------------- Violations -------------
+
+func _compute_violations(path: Path3D) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	if path.curve == null or path.curve.point_count < 2:
+		return out
+	var max_yaw: float = 12.0
+	var max_abs_pitch: float = 15.0
+	var max_pitch_delta: float = 5.0
+	var min_seg: float = 4.0
+	if _has_property(path, "max_yaw_deg"):
+		max_yaw = float(path.get("max_yaw_deg"))
+	if _has_property(path, "max_abs_pitch_deg"):
+		max_abs_pitch = float(path.get("max_abs_pitch_deg"))
+	if _has_property(path, "max_pitch_delta_deg"):
+		max_pitch_delta = float(path.get("max_pitch_delta_deg"))
+	if _has_property(path, "min_segment_length"):
+		min_seg = float(path.get("min_segment_length"))
+	var prev_fwd := Vector3.ZERO
+	for i in range(path.curve.point_count - 1):
+		var a: Vector3 = path.curve.get_point_position(i)
+		var b: Vector3 = path.curve.get_point_position(i + 1)
+		var seg: Vector3 = b - a
+		var seg_len := seg.length()
+		var flag := false
+		if seg_len < min_seg:
+			flag = true
+		var h := Vector2(seg.x, seg.z).length()
+		var pitch_deg := 0.0 if h < 0.0001 else rad_to_deg(atan2(seg.y, h))
+		if absf(pitch_deg) > max_abs_pitch:
+			flag = true
+		if prev_fwd.length_squared() > 0.0001:
+			var ha := Vector3(prev_fwd.x, 0.0, prev_fwd.z)
+			var hb := Vector3(seg.x, 0.0, seg.z)
+			if ha.length_squared() > 0.0001 and hb.length_squared() > 0.0001:
+				var yaw := rad_to_deg(ha.normalized().angle_to(hb.normalized()))
+				if yaw > max_yaw:
+					flag = true
+			var prev_h := Vector2(prev_fwd.x, prev_fwd.z).length()
+			var prev_pitch := 0.0 if prev_h < 0.0001 else rad_to_deg(atan2(prev_fwd.y, prev_h))
+			if absf(pitch_deg - prev_pitch) > max_pitch_delta:
+				flag = true
+		if flag:
+			if not (i + 1) in out:
+				out.append(i + 1)
+		prev_fwd = seg
+	return out
 
 
 # ============================================================
