@@ -271,6 +271,25 @@ func replicate_spawn_wagon_frame(
 		)
 
 
+func broadcast_coupling(wagon_net_id: int, other_net_id: int, my_side: int, other_side: int, couple: bool) -> void:
+	if is_networked() and multiplayer.is_server():
+		_apply_coupling.rpc(wagon_net_id, other_net_id, my_side, other_side, couple)
+
+
+@rpc("authority", "reliable")
+func _apply_coupling(wagon_net_id: int, other_net_id: int, my_side: int, other_side: int, couple: bool) -> void:
+	if multiplayer.is_server():
+		return
+	var a := get_entity(wagon_net_id) as WagonFrame
+	var b := get_entity(other_net_id) as WagonFrame
+	if a == null or b == null:
+		return
+	if couple:
+		a.couple_to(b, my_side, other_side)
+	else:
+		a.uncouple(my_side)
+
+
 @rpc("any_peer", "reliable")
 func _request_select_hotbar(index: int) -> void:
 	if not multiplayer.is_server():

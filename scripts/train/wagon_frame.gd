@@ -35,6 +35,15 @@ var front_bogie: TrainChassis = null
 var rear_bogie: TrainChassis = null
 var is_on_rails: bool = false
 
+# Coupling: each side (0=front/+Z, 1=back/-Z) may link to another WagonFrame.
+# Chains pick an arbitrary leader; followers store _chain_leader + rail-progress
+# offset and skip their own physics — the leader drives everyone.
+const COUPLE_RANGE: float = 4.0
+var coupled_front: WagonFrame = null
+var coupled_back: WagonFrame = null
+var _chain_leader: WagonFrame = null
+var _chain_offset: float = 0.0
+
 # Grid: keyed by Vector3i(grid_x, grid_z, level). Level 0 = ground; each level is
 # CEILING_HEIGHT_OFFSET higher. A "ceiling" is just a floor at level+1.
 var grid_cells: Dictionary = {}  # Vector3i -> { "floor": bool, "item": Node3D, "edges": {}, "floor_node": Node3D }
@@ -100,6 +109,9 @@ func _setup_bogies() -> void:
 
 func _physics_process(delta: float) -> void:
 	if get_meta("is_preview", false):
+		return
+	# Followers: leader writes our transform directly each frame — skip self-sim.
+	if _chain_leader != null and is_instance_valid(_chain_leader):
 		return
 	var is_net_client := multiplayer.has_multiplayer_peer() and not multiplayer.is_server()
 	if front_bogie == null or rear_bogie == null:
@@ -304,11 +316,143 @@ func _physics_process(delta: float) -> void:
 		var actual_vel: Vector3 = (global_position - old_pos) / delta
 		_set_platform_velocity(actual_vel)
 
+	_update_followers(delta)
+
 	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
 		_network_snapshot_accum += delta
 		if _network_snapshot_accum >= NETWORK_SNAPSHOT_INTERVAL:
 			_network_snapshot_accum = 0.0
 			_broadcast_rail_snapshot()
+
+
+func _update_followers(delta: float) -> void:
+	if coupled_front == null and coupled_back == null:
+		return
+	if front_bogie == null or front_bogie.rail_curve == null:
+		return
+	var curve: Curve3D = front_bogie.rail_curve
+	var total: float = curve.get_baked_length()
+	for member in _collect_chain():
+		if member == self or member._chain_leader != self:
+			continue
+		if member.front_bogie == null or member.rear_bogie == null:
+			continue
+		var fp: float = clampf(front_bogie.rail_progress + member._chain_offset, 0.0, total)
+		member.front_bogie.rail_curve = curve
+		member.front_bogie.current_rail_path = front_bogie.current_rail_path
+		member.front_bogie.rail_progress = fp
+		member.front_bogie._curve_reversed = front_bogie._curve_reversed
+		member.rear_bogie.rail_curve = curve
+		member.rear_bogie.current_rail_path = front_bogie.current_rail_path
+		var m_spacing: float = float(member.wagon_length) * GRID_SIZE
+		var rear_prog: float
+		if member._front_entered_at_start:
+			rear_prog = clampf(fp - m_spacing, 0.0, total)
+		else:
+			rear_prog = clampf(fp + m_spacing, 0.0, total)
+		member.rear_bogie.rail_progress = rear_prog
+		var old_member_pos: Vector3 = member.global_position
+		var front_pos: Vector3 = curve.sample_baked(fp)
+		var rear_pos: Vector3 = curve.sample_baked(rear_prog)
+		member.global_position = (front_pos + rear_pos) * 0.5
+		var fwd: Vector3 = front_pos - rear_pos
+		if fwd.length_squared() > 0.001:
+			fwd = member._stabilize_frame_forward(fwd)
+			var rt: Vector3 = Vector3.UP.cross(fwd)
+			if rt.length_squared() < 0.0001:
+				rt = Vector3.RIGHT
+			rt = rt.normalized()
+			var up_v: Vector3 = fwd.cross(rt).normalized()
+			var tb := Basis(rt, up_v, fwd)
+			member.basis = member.basis.slerp(tb, minf(delta * 8.0, 1.0))
+		member.front_bogie.position = member.to_local(front_pos)
+		member.rear_bogie.position = member.to_local(rear_pos)
+		member.front_bogie.speed = front_bogie.speed
+		member.is_on_rails = true
+		if delta > 0.0001:
+			member._set_platform_velocity((member.global_position - old_member_pos) / delta)
+
+
+func _collect_chain() -> Array[WagonFrame]:
+	var out: Array[WagonFrame] = []
+	var seen: Dictionary = {}
+	var stack: Array[WagonFrame] = [self]
+	while not stack.is_empty():
+		var w: WagonFrame = stack.pop_back()
+		if w == null or not is_instance_valid(w) or seen.has(w):
+			continue
+		seen[w] = true
+		out.append(w)
+		if w.coupled_front != null and is_instance_valid(w.coupled_front):
+			stack.push_back(w.coupled_front)
+		if w.coupled_back != null and is_instance_valid(w.coupled_back):
+			stack.push_back(w.coupled_back)
+	return out
+
+
+func is_end_free(side: int) -> bool:
+	if side == 0:
+		return coupled_front == null
+	return coupled_back == null
+
+
+func couple_to(other: WagonFrame, my_side: int, other_side: int) -> bool:
+	if other == null or other == self or not is_instance_valid(other):
+		return false
+	if front_bogie == null or other.front_bogie == null:
+		return false
+	if front_bogie.current_rail_path != other.front_bogie.current_rail_path:
+		return false
+	if not is_end_free(my_side) or not other.is_end_free(other_side):
+		return false
+	if my_side == 0:
+		coupled_front = other
+	else:
+		coupled_back = other
+	if other_side == 0:
+		other.coupled_front = self
+	else:
+		other.coupled_back = self
+	_rebuild_chain()
+	return true
+
+
+func uncouple(side: int) -> WagonFrame:
+	var other: WagonFrame = coupled_front if side == 0 else coupled_back
+	if other == null:
+		return null
+	if side == 0:
+		coupled_front = null
+	else:
+		coupled_back = null
+	if is_instance_valid(other):
+		if other.coupled_front == self:
+			other.coupled_front = null
+		if other.coupled_back == self:
+			other.coupled_back = null
+	_rebuild_chain()
+	if is_instance_valid(other):
+		other._rebuild_chain()
+	return other
+
+
+func _rebuild_chain() -> void:
+	var members := _collect_chain()
+	if members.size() <= 1:
+		_chain_leader = null
+		_chain_offset = 0.0
+		return
+	var leader: WagonFrame = members[0]
+	leader._chain_leader = null
+	leader._chain_offset = 0.0
+	for m in members:
+		if m == leader:
+			continue
+		m._chain_leader = leader
+		if m.front_bogie and leader.front_bogie:
+			m._chain_offset = m.front_bogie.rail_progress - leader.front_bogie.rail_progress
+		else:
+			m._chain_offset = 0.0
 
 
 func _broadcast_rail_snapshot() -> void:
@@ -555,6 +699,9 @@ func snap_to_rails() -> void:
 
 
 func pump() -> void:
+	if _chain_leader != null and is_instance_valid(_chain_leader):
+		_chain_leader.pump()
+		return
 	if front_bogie:
 		front_bogie.speed = clampf(
 			front_bogie.speed + front_bogie.pump_impulse * front_bogie.travel_direction,
@@ -566,6 +713,9 @@ func pump() -> void:
 
 
 func set_direction(dir: float) -> void:
+	if _chain_leader != null and is_instance_valid(_chain_leader):
+		_chain_leader.set_direction(dir)
+		return
 	if front_bogie:
 		front_bogie.set_direction(dir)
 
