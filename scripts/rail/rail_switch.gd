@@ -8,7 +8,7 @@ class_name RailSwitch
 @export_enum("Start:0", "End:1") var endpoint: int = 1
 @export var switch_cooldown: float = 0.4
 
-const LEVER_TILT_DEG: float = 22.0
+const LEVER_TILT_DEG: float = 12.0
 const LEVER_TWEEN_TIME: float = 0.12
 
 var _path_node: Node = null

@@ -113,7 +113,6 @@ harvest_amount_min = 2
 harvest_amount_max = 4
 harvest_hits_to_harvest = 2
 harvest_interact_label = "Recolter"
-harvest_target_name = ""
 
 [sub_resource type="Resource" id="plant_plant99"]
 script = ExtResource("3_entry")
@@ -129,7 +128,6 @@ harvest_amount_min = 2
 harvest_amount_max = 4
 harvest_hits_to_harvest = 2
 harvest_interact_label = "Recolter"
-harvest_target_name = ""
 
 [sub_resource type="FastNoiseLite" id="FastNoiseLite_terrain"]
 noise_type = 3
