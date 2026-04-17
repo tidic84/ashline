@@ -15,6 +15,13 @@ var _path_node: Node = null
 var _can_switch: bool = true
 var _lever_tween: Tween = null
 
+func _get_lever_node() -> Node3D:
+	return (
+		get_node_or_null("Visuals/Lever") as Node3D
+		if has_node("Visuals/Lever")
+		else get_node_or_null("Lever") as Node3D
+	)
+
 func _ready() -> void:
 	collision_layer = 32  # Layer 6 = Interactable
 	collision_mask = 0
@@ -92,7 +99,7 @@ func _update_indicator(active_index: int) -> void:
 
 
 func _update_lever_visual(active_index: int, animate: bool) -> void:
-	var lever := get_node_or_null("Lever") as Node3D
+	var lever := _get_lever_node()
 	if lever == null:
 		return
 	var target_rot := lever.rotation_degrees

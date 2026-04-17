@@ -4,7 +4,7 @@
 [ext_resource type="PackedScene" uid="uid://1perf0s0ytkb" path="res://assets/models/building/wall-yellow.glb" id="2"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_wall_yellow"]
-size = Vector3(0.9308106, 2.1680665, 0.11569824)
+size = Vector3(0.9308106, 1.9556153, 0.11569824)
 
 [node name="PlaceableWallYellow" type="StaticBody3D" unique_id=1605861477]
 collision_layer = 16
@@ -13,8 +13,8 @@ script = ExtResource("1")
 max_health = 100.0
 
 [node name="Model" parent="." unique_id=1071610305 instance=ExtResource("2")]
-transform = Transform3D(1.1, 0, 0, 0, 1.1, 0, 0, 0, 1.1, 0, -0.05, 0)
+transform = Transform3D(1.05, 0, 0, 0, 1, 0, 0, 0, 1.1, 0, -0.05, 0)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=89265744]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0117919445, 1.0840333, 0.0022094734)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0117919445, 0.97780764, 0.0022094734)
 shape = SubResource("BoxShape3D_wall_yellow")

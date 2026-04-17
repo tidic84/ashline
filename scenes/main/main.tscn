@@ -245,7 +245,7 @@ rail_curve_influence = 2.6
 rail_pitch_influence = 2.0
 
 [node name="UP_FPSController_Prefab" parent="." unique_id=1209285326 instance=ExtResource("26_fps")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -38.93445, 4.8396044, 19.51786)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -38.93445, 4.8396044, -40.59617)
 floor_constant_speed = true
 hurry_factor = 0.1
 jump_factor = 0.9
