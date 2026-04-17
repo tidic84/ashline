@@ -38,6 +38,7 @@ var _basis_scale: Vector3 = Vector3.ONE  # preserved from tscn
 var _just_transitioned: bool = false  # skip velocity spike on path transition
 var _last_transition_target_end: int = -1  # which end of the active curve we entered (0=start, 1=end)
 var _curve_reversed: bool = false  # true when active curve traversal is reversed vs RailPath point order
+var _platform_velocity: Vector3 = Vector3.ZERO
 
 func _ready() -> void:
 	_basis_scale = basis.get_scale()
@@ -269,14 +270,17 @@ func _find_terrain() -> TerrainGenerator:
 	return null
 
 func _set_platform_velocity(vel: Vector3) -> void:
-	constant_linear_velocity = vel
+	_platform_velocity = vel
+	# Player carries along via explicit transform carry in its own physics step;
+	# zero Godot's built-in platform velocity to avoid double integration.
+	constant_linear_velocity = Vector3.ZERO
 	for child in get_children():
 		if child is StaticBody3D:
-			child.constant_linear_velocity = vel
+			child.constant_linear_velocity = Vector3.ZERO
 
 
 func get_platform_velocity() -> Vector3:
-	return constant_linear_velocity
+	return _platform_velocity
 
 
 func _map_active_end_to_path_end(active_end: int) -> int:

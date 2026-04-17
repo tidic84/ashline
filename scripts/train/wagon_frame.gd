@@ -405,18 +405,20 @@ func _stabilize_frame_forward(candidate: Vector3, reference: Vector3 = Vector3.Z
 
 func _set_platform_velocity(vel: Vector3) -> void:
 	_platform_velocity = vel
+	# Player carries along via explicit transform carry in its own physics step;
+	# zero Godot's built-in platform velocity to avoid double integration.
 	if front_bogie:
-		front_bogie.constant_linear_velocity = vel
+		front_bogie.constant_linear_velocity = Vector3.ZERO
 	if rear_bogie:
-		rear_bogie.constant_linear_velocity = vel
+		rear_bogie.constant_linear_velocity = Vector3.ZERO
 	if _build_surface and is_instance_valid(_build_surface):
-		_build_surface.constant_linear_velocity = vel
+		_build_surface.constant_linear_velocity = Vector3.ZERO
 	for child in get_children():
 		if child is StaticBody3D:
-			child.constant_linear_velocity = vel
+			child.constant_linear_velocity = Vector3.ZERO
 	for body in _floor_bodies:
 		if is_instance_valid(body):
-			body.constant_linear_velocity = vel
+			body.constant_linear_velocity = Vector3.ZERO
 
 
 func get_platform_velocity() -> Vector3:

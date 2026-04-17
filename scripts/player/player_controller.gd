@@ -51,6 +51,7 @@ var _camera_default_roll: float = 0.0
 var _camera_default_fov: float = 0.0
 var _wagon_platform: Node3D = null
 var _last_wagon_transform: Transform3D = Transform3D.IDENTITY
+var _platform_velocity_carry: Vector3 = Vector3.ZERO
 var _pitch: float = 0.0
 var _remote_target_position: Vector3 = Vector3.ZERO
 var _remote_target_head_yaw: float = 0.0
@@ -297,23 +298,45 @@ func _update_head_bob(delta: float, is_moving: bool) -> void:
 func _update_wagon_platform(delta: float) -> void:
 	var current_wagon := _find_wagon_underfoot()
 	if current_wagon != _wagon_platform:
+		if _wagon_platform != null and current_wagon == null:
+			# Just left the wagon — inherit horizontal motion as inertia.
+			velocity.x += _platform_velocity_carry.x
+			velocity.z += _platform_velocity_carry.z
 		_wagon_platform = current_wagon
-		if _wagon_platform:
+		_platform_velocity_carry = Vector3.ZERO
+		if _wagon_platform and is_instance_valid(_wagon_platform):
 			_last_wagon_transform = _wagon_platform.global_transform
-	if _wagon_platform and is_instance_valid(_wagon_platform):
-		var current_transform := _wagon_platform.global_transform
-		var previous_transform := _last_wagon_transform
-		var old_fwd := previous_transform.basis.orthonormalized().z
-		var new_fwd := current_transform.basis.orthonormalized().z
-		old_fwd.y = 0.0
-		new_fwd.y = 0.0
-		if old_fwd.length_squared() > 0.0001 and new_fwd.length_squared() > 0.0001:
-			var angle := old_fwd.signed_angle_to(new_fwd, Vector3.UP)
-			if absf(angle) > 0.0001:
-				rotate_y(angle)
-		_last_wagon_transform = current_transform
-	else:
+		else:
+			_last_wagon_transform = Transform3D.IDENTITY
+		return
+	if _wagon_platform == null:
 		_last_wagon_transform = Transform3D.IDENTITY
+		_platform_velocity_carry = Vector3.ZERO
+		return
+	if not is_instance_valid(_wagon_platform):
+		_wagon_platform = null
+		_last_wagon_transform = Transform3D.IDENTITY
+		_platform_velocity_carry = Vector3.ZERO
+		return
+	var current_transform: Transform3D = _wagon_platform.global_transform
+	var previous_transform: Transform3D = _last_wagon_transform
+	# Rigid transform carry: keep the player at the same local spot on the wagon
+	# by reprojecting their position through the wagon's frame-to-frame delta.
+	var local_pos: Vector3 = previous_transform.affine_inverse() * global_position
+	var target_pos: Vector3 = current_transform * local_pos
+	if delta > 0.0:
+		_platform_velocity_carry = (target_pos - global_position) / delta
+	global_position = target_pos
+	# Yaw-only rotation so the camera stays upright through banked curves.
+	var old_fwd: Vector3 = previous_transform.basis.orthonormalized().z
+	var new_fwd: Vector3 = current_transform.basis.orthonormalized().z
+	old_fwd.y = 0.0
+	new_fwd.y = 0.0
+	if old_fwd.length_squared() > 0.0001 and new_fwd.length_squared() > 0.0001:
+		var angle := old_fwd.signed_angle_to(new_fwd, Vector3.UP)
+		if absf(angle) > 0.0001:
+			rotate_y(angle)
+	_last_wagon_transform = current_transform
 
 func _find_wagon_underfoot() -> Node3D:
 	if not is_on_floor() and _wagon_platform == null:
@@ -356,6 +379,7 @@ func respawn_to_spawn() -> void:
 	global_position = spawn_position
 	_wagon_platform = null
 	_last_wagon_transform = Transform3D.IDENTITY
+	_platform_velocity_carry = Vector3.ZERO
 	_is_crouching = false
 	_update_crouch_state()
 	head.rotation = Vector3.ZERO
