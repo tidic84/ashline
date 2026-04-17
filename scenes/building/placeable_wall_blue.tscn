@@ -4,7 +4,7 @@
 [ext_resource type="PackedScene" uid="uid://c17whh0atbrkh" path="res://assets/models/building/wall-blue.glb" id="2"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_wall_blue"]
-size = Vector3(0.9463135, 2.1226563, 0.4)
+size = Vector3(0.9463135, 2.1226563, 0.103442386)
 
 [node name="PlaceableWallBlue" type="StaticBody3D" unique_id=1729667082]
 collision_layer = 16

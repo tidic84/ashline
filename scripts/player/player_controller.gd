@@ -369,7 +369,6 @@ func _update_wagon_platform(delta: float) -> void:
 	# Rigid transform carry: keep the player at the same local spot on the wagon
 	# by reprojecting their position through the wagon's frame-to-frame delta.
 	var local_pos: Vector3 = previous_transform.affine_inverse() * global_position
-	local_pos = _clamp_local_to_wagon_bounds(local_pos, _wagon_platform)
 	var target_pos: Vector3 = current_transform * local_pos
 	if delta > 0.0:
 		_platform_velocity_carry = (target_pos - global_position) / delta
@@ -384,28 +383,6 @@ func _update_wagon_platform(delta: float) -> void:
 		if absf(angle) > 0.0001:
 			rotate_y(angle)
 	_last_wagon_transform = current_transform
-
-func _clamp_local_to_wagon_bounds(local_pos: Vector3, wagon: Node3D) -> Vector3:
-	# Keep the player within the wagon footprint so fast train motion + wall
-	# hitboxes can't tunnel the capsule off the platform between physics frames.
-	var half_width: float = 1.5
-	var half_length: float = 2.5
-	if wagon is WagonFrame:
-		var wf := wagon as WagonFrame
-		half_width = float(wf.get_grid_width()) * WagonFrame.GRID_SIZE * 0.5
-		half_length = float(wf.get_grid_length()) * WagonFrame.GRID_SIZE * 0.5
-	elif wagon is TrainChassis:
-		var ch := wagon as TrainChassis
-		half_width = float(ch.max_width) * TrainChassis.GRID_SIZE * 0.5
-		half_length = float(ch.max_length) * TrainChassis.GRID_SIZE * 0.5
-	# Inset by capsule radius so the player body stays fully on-deck.
-	var margin: float = 0.35
-	var bound_x: float = maxf(half_width - margin, 0.1)
-	var bound_z: float = maxf(half_length - margin, 0.1)
-	local_pos.x = clampf(local_pos.x, -bound_x, bound_x)
-	local_pos.z = clampf(local_pos.z, -bound_z, bound_z)
-	return local_pos
-
 
 func _find_wagon_underfoot() -> Node3D:
 	if not is_on_floor() and _wagon_platform == null:
