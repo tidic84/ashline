@@ -7,7 +7,7 @@ signal speed_changed(speed: float)
 signal direction_changed(dir: float)
 
 const GRID_SIZE: float = 1.0
-const BUILD_SURFACE_LOCAL_Y: float = 0.22
+const BUILD_SURFACE_LOCAL_Y: float = 0.30
 const CEILING_HEIGHT_OFFSET: float = 2.05
 const EDGE_NORTH: int = 1
 const EDGE_SOUTH: int = 2
@@ -50,7 +50,7 @@ func _ready() -> void:
 		return
 	add_to_group("wagon")
 	add_to_group("chassis")
-	collision_layer = 8  # Layer 4 = Train
+	collision_layer = 128  # BuildDetect: targetable by build rays without blocking the player.
 	collision_mask = 1
 	# Run BEFORE the player (default=0) so constant_linear_velocity is set
 	# before CharacterBody3D.move_and_slide() reads get_platform_velocity().

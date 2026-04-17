@@ -1342,7 +1342,7 @@ func _update_demolish_preview(hit_point: Vector3, chassis: Node) -> void:
 func get_demolish_context_at(chassis: Node, hit_point: Vector3) -> Dictionary:
 	if chassis == null or not chassis.has_method("get_grid_position"):
 		return {}
-	var grid_pos: Vector2i = chassis.get_grid_position(hit_point)
+	var grid_pos: Vector3i = chassis.get_grid_position(hit_point)
 	if not _is_grid_cell_available(chassis, grid_pos):
 		return {}
 	var edge: int = _get_closest_demolishable_edge(chassis, grid_pos, hit_point)
@@ -1373,7 +1373,7 @@ func show_batch_demolish_preview(chassis: Node, entries: Array[Dictionary]) -> v
 
 	var seen_nodes: Dictionary = {}
 	for entry in entries:
-		var grid_pos: Vector2i = entry.get("grid_pos", Vector2i.ZERO)
+		var grid_pos: Vector3i = entry.get("grid_pos", Vector3i.ZERO)
 		var edge: int = int(entry.get("edge", DEMOLISH_FLOOR_EDGE))
 		var target: Node3D = _get_demolish_node_for_entry(chassis, grid_pos, edge)
 		if target == null or not is_instance_valid(target):
@@ -1387,13 +1387,13 @@ func show_batch_demolish_preview(chassis: Node, entries: Array[Dictionary]) -> v
 	can_place = not batch_demolish_targets.is_empty()
 
 
-func try_demolish_entry(chassis: Node, grid_pos: Vector2i, edge: int, actor_peer_id: int = -1, replicate: bool = true, refund: bool = true) -> bool:
+func try_demolish_entry(chassis: Node, grid_pos: Vector3i, edge: int, actor_peer_id: int = -1, replicate: bool = true, refund: bool = true) -> bool:
 	if edge == DEMOLISH_FLOOR_EDGE:
 		return try_demolish_floor_at(chassis, grid_pos, actor_peer_id, replicate, refund)
 	return try_demolish_edge_at(chassis, grid_pos, edge, actor_peer_id, replicate, refund)
 
 
-func try_demolish_floor_at(chassis: Node, grid_pos: Vector2i, actor_peer_id: int = -1, replicate: bool = true, refund: bool = true) -> bool:
+func try_demolish_floor_at(chassis: Node, grid_pos: Vector3i, actor_peer_id: int = -1, replicate: bool = true, refund: bool = true) -> bool:
 	if WorldSync.should_request_host():
 		WorldSync.request_demolish(WorldSync.get_net_id(chassis), grid_pos, DEMOLISH_FLOOR_EDGE)
 		return false
@@ -1418,7 +1418,7 @@ func try_demolish_floor_at(chassis: Node, grid_pos: Vector2i, actor_peer_id: int
 	return true
 
 
-func try_demolish_edge_at(chassis: Node, grid_pos: Vector2i, edge: int, actor_peer_id: int = -1, replicate: bool = true, refund: bool = true) -> bool:
+func try_demolish_edge_at(chassis: Node, grid_pos: Vector3i, edge: int, actor_peer_id: int = -1, replicate: bool = true, refund: bool = true) -> bool:
 	if WorldSync.should_request_host():
 		WorldSync.request_demolish(WorldSync.get_net_id(chassis), grid_pos, edge)
 		return false
@@ -1516,7 +1516,7 @@ func _restore_temp_material(node: Node3D) -> void:
 func _find_floor_mesh(chassis: Node, grid_pos: Vector3i) -> Node3D:
 	return chassis.get_floor_node(grid_pos)
 
-func _is_grid_cell_available(chassis: Node, grid_pos: Vector2i) -> bool:
+func _is_grid_cell_available(chassis: Node, grid_pos: Vector3i) -> bool:
 	if chassis == null or not chassis.has_method("is_grid_in_bounds"):
 		return false
 	if not (chassis is TrainChassis or chassis is WagonFrame):
@@ -1526,7 +1526,7 @@ func _is_grid_cell_available(chassis: Node, grid_pos: Vector2i) -> bool:
 	return chassis.grid_cells.has(grid_pos)
 
 
-func _get_closest_demolishable_edge(chassis: Node, grid_pos: Vector2i, hit_point: Vector3) -> int:
+func _get_closest_demolishable_edge(chassis: Node, grid_pos: Vector3i, hit_point: Vector3) -> int:
 	if not _is_grid_cell_available(chassis, grid_pos):
 		return EdgeSide.NONE
 	var cell: Dictionary = chassis.grid_cells[grid_pos]
@@ -1547,7 +1547,7 @@ func _get_closest_demolishable_edge(chassis: Node, grid_pos: Vector2i, hit_point
 	return EdgeSide.NONE
 
 
-func _get_edge_item_at(chassis: Node, grid_pos: Vector2i, edge: int) -> Node3D:
+func _get_edge_item_at(chassis: Node, grid_pos: Vector3i, edge: int) -> Node3D:
 	if not _is_grid_cell_available(chassis, grid_pos):
 		return null
 	var cell: Dictionary = chassis.grid_cells[grid_pos]
@@ -1569,7 +1569,7 @@ func _cell_has_valid_edge_item(cell: Dictionary) -> bool:
 	return false
 
 
-func _is_demolishable_floor_at(chassis: Node, grid_pos: Vector2i) -> bool:
+func _is_demolishable_floor_at(chassis: Node, grid_pos: Vector3i) -> bool:
 	if not _is_grid_cell_available(chassis, grid_pos):
 		return false
 	var cell: Dictionary = chassis.grid_cells[grid_pos]
@@ -1580,7 +1580,7 @@ func _is_demolishable_floor_at(chassis: Node, grid_pos: Vector2i) -> bool:
 	return not _cell_has_valid_edge_item(cell)
 
 
-func _get_demolish_node_for_entry(chassis: Node, grid_pos: Vector2i, edge: int) -> Node3D:
+func _get_demolish_node_for_entry(chassis: Node, grid_pos: Vector3i, edge: int) -> Node3D:
 	if edge == DEMOLISH_FLOOR_EDGE:
 		if not _is_demolishable_floor_at(chassis, grid_pos):
 			return null
@@ -1741,9 +1741,9 @@ func apply_network_demolish(target_net_id: int, grid_pos: Vector3i, edge: int) -
 	if target == null or not target.has_method("grid_to_world"):
 		return false
 	if edge == DEMOLISH_FLOOR_EDGE:
-		return try_demolish_floor_at(target, Vector2i(grid_pos.x, grid_pos.y), -1, false, false)
+		return try_demolish_floor_at(target, grid_pos, -1, false, false)
 	if edge != -1:
-		return try_demolish_edge_at(target, Vector2i(grid_pos.x, grid_pos.y), edge, -1, false, false)
+		return try_demolish_edge_at(target, grid_pos, edge, -1, false, false)
 	var hit_point: Vector3 = target.grid_to_world(grid_pos)
 	return try_demolish(hit_point, target, -1, false, false)
 
