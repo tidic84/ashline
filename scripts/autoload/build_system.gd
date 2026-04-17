@@ -92,6 +92,12 @@ func _ready() -> void:
 	wagon_frame_scene = preload("res://scenes/train/wagon_frame.tscn")
 	floor_scene = preload("res://scenes/building/floor_piece.tscn")
 	_load_buildables()
+	item_placed.connect(_play_blueprint_anim)
+
+func _play_blueprint_anim(node: Node3D) -> void:
+	if node == null or not is_instance_valid(node):
+		return
+	BlueprintAnimator.animate(node)
 
 func _load_buildables() -> void:
 	var dir := DirAccess.open("res://resources/buildables/")
@@ -472,6 +478,7 @@ func try_place_chassis(hit_point: Vector3, actor_peer_id: int = -1, replicate: b
 	_first_bogie_rail_path = best_rp
 	# Hide step 1 preview
 	_clear_preview()
+	item_placed.emit(instance)
 	return instance
 
 
