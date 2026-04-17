@@ -1,38 +1,31 @@
-[gd_scene load_steps=4 format=3 uid="uid://railswitch001"]
+[gd_scene format=3 uid="uid://bsu4gots2oiyy"]
 
-[ext_resource type="Script" path="res://scripts/rail/rail_switch.gd" id="1"]
-
-[sub_resource type="StandardMaterial3D" id="mat_metal"]
-albedo_color = Color(0.35, 0.32, 0.28, 1)
-metallic = 0.85
-roughness = 0.4
+[ext_resource type="Script" uid="uid://bhimv6olc15ri" path="res://scripts/rail/rail_switch.gd" id="1"]
+[ext_resource type="PackedScene" uid="uid://c1xnaqdk5ro46" path="res://assets/models/train/aiguillage_lever_socle.glb" id="2"]
+[ext_resource type="PackedScene" uid="uid://dypsrc4uof7sw" path="res://assets/models/train/aiguillage_lever.glb" id="3"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_switch"]
-size = Vector3(0.8, 1.0, 0.8)
+size = Vector3(0.8, 1, 0.8)
 
-[node name="RailSwitch" type="StaticBody3D"]
-script = ExtResource("1")
+[node name="RailSwitch" type="StaticBody3D" unique_id=1417455685]
 collision_layer = 32
 collision_mask = 0
+script = ExtResource("1")
 
-[node name="Base" type="CSGBox3D" parent="."]
-size = Vector3(0.5, 0.4, 0.5)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, 0)
-material = SubResource("mat_metal")
+[node name="Visuals" type="Node3D" parent="." unique_id=1460023876]
+transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0.5, 0)
 
-[node name="Lever" type="CSGBox3D" parent="."]
-size = Vector3(0.08, 0.6, 0.08)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.7, 0)
-material = SubResource("mat_metal")
+[node name="Base" parent="Visuals" unique_id=2115096957 instance=ExtResource("2")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.34826612, 0.059916973, -0.09229839)
 
-[node name="Arrow" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, 0)
+[node name="Lever" type="Node3D" parent="Visuals" unique_id=117474097]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.7, -0.1)
 
-[node name="Pointer" type="CSGBox3D" parent="Arrow"]
-size = Vector3(0.06, 0.06, 0.4)
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.2)
-material = SubResource("mat_metal")
+[node name="LeverModel" parent="Visuals/Lever" unique_id=738830550 instance=ExtResource("3")]
+transform = Transform3D(-1, 0, -8.742278e-08, 0, 1, 0, 8.742278e-08, 0, -1, 0.46, 0.7, 0)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-shape = SubResource("BoxShape3D_switch")
+[node name="Arrow" type="Node3D" parent="." unique_id=180100001]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1007503197]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+shape = SubResource("BoxShape3D_switch")

@@ -30,6 +30,7 @@ var _batch_build_target: Node = null
 var _batch_build_start_grid: Vector3i = Vector3i.ZERO
 var _batch_build_end_grid: Vector3i = Vector3i.ZERO
 var _batch_build_edge: int = BuildSystem.EdgeSide.NONE
+var _hovered_switch: RailSwitch = null
 const BUILD_RAY_LENGTH: float = 8.0
 const INTERACT_RAY_LENGTH: float = 4.0
 const BUILD_COLLISION_MASK: int = 137  # World (1) + Train (8) + BuildDetect (128)
@@ -164,7 +165,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if BuildSystem.is_building:
 			if _can_batch_build_current_mode():
-				_begin_batch_build()
+				if not _begin_batch_build():
+					_cancel_batch_build()
+					_try_build()
 			else:
 				_cancel_batch_build()
 				_try_build()
@@ -193,11 +196,13 @@ func _physics_process(delta: float) -> void:
 	if _camera == null:
 		return
 	if _apply_blocked_controls():
+		_clear_hovered_switch()
 		_cancel_batch_build()
 		BuildSystem.hide_preview()
 		return
 	if BuildSystem.is_building:
 		if _is_inventory_open():
+			_clear_hovered_switch()
 			_cancel_batch_build()
 			BuildSystem.hide_preview()
 			return
@@ -314,7 +319,7 @@ func _try_build() -> void:
 
 
 func _can_batch_build_current_mode() -> bool:
-	return BuildSystem.mode == BuildSystem.BuildMode.FLOOR or BuildSystem.mode == BuildSystem.BuildMode.CEILING or _is_wall_batch_mode()
+	return BuildSystem.mode == BuildSystem.BuildMode.FLOOR or BuildSystem.mode == BuildSystem.BuildMode.CEILING or _is_wall_batch_mode() or BuildSystem.mode == BuildSystem.BuildMode.DEMOLISH
 
 
 func _is_wall_batch_mode() -> bool:
@@ -326,10 +331,10 @@ func _is_wall_batch_mode() -> bool:
 	]
 
 
-func _begin_batch_build() -> void:
+func _begin_batch_build() -> bool:
 	var context: Dictionary = _get_batch_build_context()
 	if context.is_empty():
-		return
+		return false
 	_batch_build_active = true
 	_batch_build_mode = BuildSystem.mode
 	_batch_build_target = context["target"] as Node
@@ -337,6 +342,7 @@ func _begin_batch_build() -> void:
 	_batch_build_end_grid = _batch_build_start_grid
 	_batch_build_edge = int(context.get("edge", BuildSystem.EdgeSide.NONE))
 	_update_batch_build_text()
+	return true
 
 
 func _update_batch_build() -> void:
@@ -369,6 +375,11 @@ func _commit_batch_build() -> void:
 	elif _batch_build_mode == BuildSystem.BuildMode.ITEM and _batch_build_edge != BuildSystem.EdgeSide.NONE:
 		for grid_pos in _get_wall_batch_positions():
 			BuildSystem.try_place_item(_edge_hit_point(_batch_build_target, grid_pos, _batch_build_edge), _batch_build_target)
+	elif _batch_build_mode == BuildSystem.BuildMode.DEMOLISH:
+		for entry in _get_demolish_batch_entries():
+			var demolish_grid_pos: Vector2i = entry["grid_pos"]
+			var edge: int = int(entry["edge"])
+			BuildSystem.try_demolish_entry(_batch_build_target, demolish_grid_pos, edge)
 
 
 func _get_batch_build_context() -> Dictionary:
@@ -378,6 +389,8 @@ func _get_batch_build_context() -> Dictionary:
 		return _get_floor_build_context()
 	if _is_wall_batch_mode():
 		return _get_wall_build_context()
+	if BuildSystem.mode == BuildSystem.BuildMode.DEMOLISH:
+		return _get_demolish_build_context()
 	return {}
 
 
@@ -431,6 +444,23 @@ func _get_wall_build_context() -> Dictionary:
 	}
 
 
+func _get_demolish_build_context() -> Dictionary:
+	var hit: Dictionary = _camera_ray(BUILD_RAY_LENGTH, BUILD_COLLISION_MASK)
+	if hit.is_empty():
+		return {}
+	var hit_point: Vector3 = hit["position"]
+	var collider: Object = hit["collider"]
+	if collider == null:
+		return {}
+	var target: Node = _find_build_target(collider as Node)
+	if target == null:
+		return {}
+	var p: Variant = _get_build_point_on_target(target)
+	if p is Vector3:
+		hit_point = p
+	return BuildSystem.get_demolish_context_at(target, hit_point)
+
+
 func _get_floor_batch_positions() -> Array[Vector3i]:
 	var positions: Array[Vector3i] = []
 	var level: int = _batch_build_start_grid.z
@@ -456,6 +486,23 @@ func _get_wall_batch_positions() -> Array[Vector3i]:
 	return positions
 
 
+func _get_demolish_batch_entries() -> Array[Dictionary]:
+	var entries: Array[Dictionary] = []
+	if _batch_build_edge == BuildSystem.DEMOLISH_FLOOR_EDGE:
+		for grid_pos in _get_floor_batch_positions():
+			entries.append({
+				"grid_pos": Vector2i(grid_pos.x, grid_pos.y),
+				"edge": BuildSystem.DEMOLISH_FLOOR_EDGE,
+			})
+	else:
+		for grid_pos in _get_wall_batch_positions():
+			entries.append({
+				"grid_pos": Vector2i(grid_pos.x, grid_pos.y),
+				"edge": _batch_build_edge,
+			})
+	return entries
+
+
 func _update_batch_build_text() -> void:
 	if _batch_build_mode == BuildSystem.BuildMode.FLOOR:
 		var width: int = absi(_batch_build_end_grid.x - _batch_build_start_grid.x) + 1
@@ -474,6 +521,16 @@ func _update_batch_build_text() -> void:
 		if _hud != null and _hud.has_method("show_build_drag_info"):
 			_hud.show_build_drag_info("Walls: 1x%d - relache pour construire" % count)
 		BuildSystem.show_batch_wall_preview(_batch_build_target, _get_wall_batch_positions(), _batch_build_edge)
+	elif _batch_build_mode == BuildSystem.BuildMode.DEMOLISH:
+		var demolish_entries: Array[Dictionary] = _get_demolish_batch_entries()
+		if _hud != null and _hud.has_method("show_build_drag_info"):
+			if _batch_build_edge == BuildSystem.DEMOLISH_FLOOR_EDGE:
+				var demolish_width: int = absi(_batch_build_end_grid.x - _batch_build_start_grid.x) + 1
+				var demolish_length: int = absi(_batch_build_end_grid.y - _batch_build_start_grid.y) + 1
+				_hud.show_build_drag_info("Demolish floors: %dx%d (%d) - relache pour casser" % [demolish_width, demolish_length, demolish_entries.size()])
+			else:
+				_hud.show_build_drag_info("Demolish walls: %d - relache pour casser" % demolish_entries.size())
+		BuildSystem.show_batch_demolish_preview(_batch_build_target, demolish_entries)
 
 
 func _cancel_batch_build() -> void:
@@ -674,6 +731,7 @@ func _ray_plane_intersection(
 
 func _update_interact_hint() -> void:
 	if _is_inventory_open():
+		_clear_hovered_switch()
 		_hud.hide_interact_hint()
 		_hud.hide_target_name()
 		return
@@ -690,6 +748,10 @@ func _update_interact_hint() -> void:
 	if not hit.is_empty():
 		var collider: Object = hit.get("collider")
 		if collider and (collider.has_method("interact_at") or collider.has_method("interact")):
+			if collider is RailSwitch:
+				_set_hovered_switch(collider as RailSwitch)
+			else:
+				_clear_hovered_switch()
 			var text := "[E] Interact"
 			if collider is PumpLever:
 				text = "[E] Pump"
@@ -705,7 +767,27 @@ func _update_interact_hint() -> void:
 				text = "[E] Harvest"
 			_hud.show_interact_hint(text)
 			return
+	_clear_hovered_switch()
 	_hud.hide_interact_hint()
+
+
+func _exit_tree() -> void:
+	_clear_hovered_switch()
+
+
+func _set_hovered_switch(rail_switch: RailSwitch) -> void:
+	if _hovered_switch == rail_switch:
+		return
+	_clear_hovered_switch()
+	_hovered_switch = rail_switch
+	if _hovered_switch != null and is_instance_valid(_hovered_switch):
+		_hovered_switch.set_hovered(true)
+
+
+func _clear_hovered_switch() -> void:
+	if _hovered_switch != null and is_instance_valid(_hovered_switch):
+		_hovered_switch.set_hovered(false)
+	_hovered_switch = null
 
 func _get_target_display_name(hit: Dictionary) -> String:
 	var collider: Object = hit.get("collider")
@@ -715,6 +797,7 @@ func _get_target_display_name(hit: Dictionary) -> String:
 		var target_name: String = collider.get_target_name_at(hit)
 		if not target_name.is_empty():
 			return target_name
+		return ""
 	var node := collider as Node
 	var current: Node = node
 	while current:
