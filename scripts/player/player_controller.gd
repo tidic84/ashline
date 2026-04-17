@@ -20,6 +20,7 @@ const BOB_CROUCH_FREQ: float = 6.0
 const BOB_IDLE_STRENGTH: float = 0.003
 const BOB_IDLE_FREQ: float = 1.5
 const PLAYER_SYNC_INTERVAL: float = 0.033
+const BUILD_COLLISION_MASK: int = 137  # World (1) + Train (8) + BuildDetect (128)
 const PLAYER_REMOTE_EXTRAPOLATION: float = 0.12
 const PLAYER_ANIM_IDLE: String = "idle"
 const PLAYER_ANIM_WALK: String = "walk"
@@ -98,8 +99,8 @@ var _ignore_shoot_until_msec: int = 0
 var _batch_build_active: bool = false
 var _batch_build_mode: int = BuildSystem.BuildMode.OFF
 var _batch_build_target: Node = null
-var _batch_build_start_grid: Vector2i = Vector2i.ZERO
-var _batch_build_end_grid: Vector2i = Vector2i.ZERO
+var _batch_build_start_grid: Vector3i = Vector3i.ZERO
+var _batch_build_end_grid: Vector3i = Vector3i.ZERO
 var _batch_build_edge: int = BuildSystem.EdgeSide.NONE
 
 func _enter_tree() -> void:
@@ -408,17 +409,33 @@ func _update_wagon_platform(delta: float) -> void:
 
 func _find_wagon_underfoot() -> Node3D:
 	if not is_on_floor() and _wagon_platform == null:
-		return null
+		return _find_wagon_below_player()
 	var from := global_position + Vector3.UP * 0.3
 	var to := global_position + Vector3.DOWN * 1.8
-	var query := PhysicsRayQueryParameters3D.create(from, to)
+	var query := PhysicsRayQueryParameters3D.create(from, to, BUILD_COLLISION_MASK)
+	query.exclude = [self]
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	if hit.is_empty():
+		return _wagon_platform if _wagon_platform != null and is_instance_valid(_wagon_platform) else _find_wagon_below_player()
+	var collider: Variant = hit.get("collider", null)
+	if collider == null or not (collider is Node):
+		return _wagon_platform if _wagon_platform != null and is_instance_valid(_wagon_platform) else _find_wagon_below_player()
+	var found := _find_wagon_parent(collider as Node)
+	if found != null:
+		return found
+	return _find_wagon_below_player()
+
+func _find_wagon_below_player() -> Node3D:
+	var from := global_position + Vector3.UP * 0.5
+	var to := global_position + Vector3.DOWN * 4.0
+	var query := PhysicsRayQueryParameters3D.create(from, to, BUILD_COLLISION_MASK)
 	query.exclude = [self]
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty():
 		return null
 	var collider: Variant = hit.get("collider", null)
 	if collider == null or not (collider is Node):
-		return _wagon_platform if _wagon_platform != null and is_instance_valid(_wagon_platform) else null
+		return null
 	return _find_wagon_parent(collider as Node)
 
 
@@ -492,10 +509,23 @@ func _try_shoot() -> void:
 		current_weapon.shoot()
 
 func _try_build() -> void:
-	if not build_ray.is_colliding():
+	var hit_point: Vector3 = Vector3.ZERO
+	var collider: Object = null
+	if build_ray.is_colliding():
+		hit_point = build_ray.get_collision_point()
+		collider = build_ray.get_collider()
+
+	if BuildSystem.mode == BuildSystem.BuildMode.CEILING:
+		var ceil_target: Node = _find_build_target(collider as Node) if collider != null else null
+		if ceil_target == null:
+			ceil_target = _find_wagon_underfoot()
+		if ceil_target != null and ceil_target.has_method("get_ceiling_surface_local_y"):
+			var ref_point: Variant = hit_point if collider != null else null
+			var p_ceil: Variant = _get_build_point_on_target(ceil_target, ref_point, 1)
+			if p_ceil is Vector3:
+				BuildSystem.try_place_ceiling(p_ceil, ceil_target)
 		return
-	var hit_point := build_ray.get_collision_point()
-	var collider: Object = build_ray.get_collider()
+
 	if collider == null:
 		return
 
@@ -505,14 +535,14 @@ func _try_build() -> void:
 		BuildSystem.BuildMode.FLOOR:
 			var target := _find_build_target(collider as Node)
 			if target:
-				var p: Variant = _get_build_point_on_target(target)
+				var p: Variant = _get_build_point_on_target(target, hit_point)
 				if p is Vector3:
 					hit_point = p
 				BuildSystem.try_place_floor(hit_point, target)
 		BuildSystem.BuildMode.ITEM:
 			var target := _find_build_target(collider as Node)
 			if target:
-				var p: Variant = _get_build_point_on_target(target)
+				var p: Variant = _get_build_point_on_target(target, hit_point)
 				if p is Vector3:
 					hit_point = p
 				BuildSystem.try_place_item(hit_point, target)
@@ -523,13 +553,13 @@ func _try_build() -> void:
 				return
 			var target := _find_build_target(collider as Node)
 			if target:
-				var p: Variant = _get_build_point_on_target(target)
+				var p: Variant = _get_build_point_on_target(target, hit_point)
 				if p is Vector3:
 					hit_point = p
 				BuildSystem.try_demolish(hit_point, target)
 
 func _can_batch_build_current_mode() -> bool:
-	return BuildSystem.mode == BuildSystem.BuildMode.FLOOR or _is_wall_batch_mode()
+	return BuildSystem.mode == BuildSystem.BuildMode.FLOOR or BuildSystem.mode == BuildSystem.BuildMode.CEILING or _is_wall_batch_mode()
 
 func _is_wall_batch_mode() -> bool:
 	if BuildSystem.mode != BuildSystem.BuildMode.ITEM or BuildSystem.current_buildable_data == null:
@@ -574,6 +604,9 @@ func _commit_batch_build() -> void:
 	if _batch_build_mode == BuildSystem.BuildMode.FLOOR:
 		for grid_pos in BuildSystem.get_batch_floor_order(_batch_build_target, _get_floor_batch_positions()):
 			BuildSystem.try_place_floor(_batch_build_target.grid_to_world(grid_pos), _batch_build_target)
+	elif _batch_build_mode == BuildSystem.BuildMode.CEILING:
+		for grid_pos in BuildSystem.get_batch_ceiling_order(_batch_build_target, _get_floor_batch_positions()):
+			BuildSystem.try_place_ceiling(_batch_build_target.grid_to_world(grid_pos), _batch_build_target)
 	elif _batch_build_mode == BuildSystem.BuildMode.ITEM and _batch_build_edge != BuildSystem.EdgeSide.NONE:
 		for grid_pos in _get_wall_batch_positions():
 			BuildSystem.try_place_item(_edge_hit_point(_batch_build_target, grid_pos, _batch_build_edge), _batch_build_target)
@@ -581,24 +614,32 @@ func _commit_batch_build() -> void:
 func _get_batch_build_context() -> Dictionary:
 	if BuildSystem.mode == BuildSystem.BuildMode.FLOOR:
 		return _get_floor_build_context()
+	if BuildSystem.mode == BuildSystem.BuildMode.CEILING:
+		return _get_floor_build_context()
 	if _is_wall_batch_mode():
 		return _get_wall_build_context()
 	return {}
 
 func _get_floor_build_context() -> Dictionary:
-	if not build_ray.is_colliding():
-		return {}
-	var hit_point: Vector3 = build_ray.get_collision_point()
-	var collider: Object = build_ray.get_collider()
-	if collider == null:
-		return {}
-	var target: Node = _find_build_target(collider as Node)
+	var hit_point: Vector3 = Vector3.ZERO
+	var collider: Object = null
+	var has_hit: bool = build_ray.is_colliding()
+	if has_hit:
+		hit_point = build_ray.get_collision_point()
+		collider = build_ray.get_collider()
+	var target: Node = _find_build_target(collider as Node) if collider != null else null
+	if target == null and BuildSystem.mode == BuildSystem.BuildMode.CEILING:
+		target = _find_wagon_underfoot()
 	if target == null:
 		return {}
-	var p: Variant = _get_build_point_on_target(target)
+	var ref_point: Variant = hit_point if has_hit else null
+	var level_offset: int = 1 if BuildSystem.mode == BuildSystem.BuildMode.CEILING else 0
+	var p: Variant = _get_build_point_on_target(target, ref_point, level_offset)
 	if p is Vector3:
 		hit_point = p
-	var grid_pos: Vector2i = target.get_grid_position(hit_point)
+	elif not has_hit:
+		return {}
+	var grid_pos: Vector3i = target.get_grid_position(hit_point)
 	return {
 		"hit_point": hit_point,
 		"target": target,
@@ -615,10 +656,10 @@ func _get_wall_build_context() -> Dictionary:
 	var target: Node = _find_build_target(collider as Node)
 	if target == null:
 		return {}
-	var p: Variant = _get_build_point_on_target(target)
+	var p: Variant = _get_build_point_on_target(target, hit_point)
 	if p is Vector3:
 		hit_point = p
-	var grid_pos: Vector2i = target.get_grid_position(hit_point)
+	var grid_pos: Vector3i = target.get_grid_position(hit_point)
 	return {
 		"hit_point": hit_point,
 		"target": target,
@@ -626,25 +667,27 @@ func _get_wall_build_context() -> Dictionary:
 		"edge": _detect_edge_from_hit_for_batch(target, hit_point, grid_pos),
 	}
 
-func _get_floor_batch_positions() -> Array[Vector2i]:
-	var positions: Array[Vector2i] = []
+func _get_floor_batch_positions() -> Array[Vector3i]:
+	var positions: Array[Vector3i] = []
+	var level: int = _batch_build_start_grid.z
 	var step_x: int = 1 if _batch_build_end_grid.x >= _batch_build_start_grid.x else -1
 	var step_y: int = 1 if _batch_build_end_grid.y >= _batch_build_start_grid.y else -1
 	for y in range(_batch_build_start_grid.y, _batch_build_end_grid.y + step_y, step_y):
 		for x in range(_batch_build_start_grid.x, _batch_build_end_grid.x + step_x, step_x):
-			positions.append(Vector2i(x, y))
+			positions.append(Vector3i(x, y, level))
 	return positions
 
-func _get_wall_batch_positions() -> Array[Vector2i]:
-	var positions: Array[Vector2i] = []
+func _get_wall_batch_positions() -> Array[Vector3i]:
+	var positions: Array[Vector3i] = []
+	var level: int = _batch_build_start_grid.z
 	if _batch_build_edge == BuildSystem.EdgeSide.NORTH or _batch_build_edge == BuildSystem.EdgeSide.SOUTH:
 		var step_x: int = 1 if _batch_build_end_grid.x >= _batch_build_start_grid.x else -1
 		for x in range(_batch_build_start_grid.x, _batch_build_end_grid.x + step_x, step_x):
-			positions.append(Vector2i(x, _batch_build_start_grid.y))
+			positions.append(Vector3i(x, _batch_build_start_grid.y, level))
 	else:
 		var step_y: int = 1 if _batch_build_end_grid.y >= _batch_build_start_grid.y else -1
 		for y in range(_batch_build_start_grid.y, _batch_build_end_grid.y + step_y, step_y):
-			positions.append(Vector2i(_batch_build_start_grid.x, y))
+			positions.append(Vector3i(_batch_build_start_grid.x, y, level))
 	return positions
 
 func _update_batch_build_text() -> void:
@@ -654,6 +697,12 @@ func _update_batch_build_text() -> void:
 		if hud != null and hud.has_method("show_build_drag_info"):
 			hud.show_build_drag_info("Floors: %dx%d (%d) - relache pour construire" % [width, length, width * length])
 		BuildSystem.show_batch_floor_preview(_batch_build_target, _get_floor_batch_positions())
+	elif _batch_build_mode == BuildSystem.BuildMode.CEILING:
+		var cwidth: int = absi(_batch_build_end_grid.x - _batch_build_start_grid.x) + 1
+		var clength: int = absi(_batch_build_end_grid.y - _batch_build_start_grid.y) + 1
+		if hud != null and hud.has_method("show_build_drag_info"):
+			hud.show_build_drag_info("Plafonds: %dx%d (%d) - relache pour construire" % [cwidth, clength, cwidth * clength])
+		BuildSystem.show_batch_ceiling_preview(_batch_build_target, _get_floor_batch_positions())
 	elif _batch_build_mode == BuildSystem.BuildMode.ITEM:
 		var count: int = _get_wall_batch_positions().size()
 		if hud != null and hud.has_method("show_build_drag_info"):
@@ -664,14 +713,14 @@ func _cancel_batch_build() -> void:
 	_batch_build_active = false
 	_batch_build_mode = BuildSystem.BuildMode.OFF
 	_batch_build_target = null
-	_batch_build_start_grid = Vector2i.ZERO
-	_batch_build_end_grid = Vector2i.ZERO
+	_batch_build_start_grid = Vector3i.ZERO
+	_batch_build_end_grid = Vector3i.ZERO
 	_batch_build_edge = BuildSystem.EdgeSide.NONE
 	BuildSystem.clear_batch_preview()
 	if hud != null and hud.has_method("hide_build_drag_info"):
 		hud.hide_build_drag_info()
 
-func _detect_edge_from_hit_for_batch(target: Node, hit_point: Vector3, grid_pos: Vector2i) -> int:
+func _detect_edge_from_hit_for_batch(target: Node, hit_point: Vector3, grid_pos: Vector3i) -> int:
 	var hit_local: Vector3 = target.to_local(hit_point)
 	var cell_center: Vector3 = target.grid_to_local(grid_pos)
 	var local_offset: Vector3 = hit_local - cell_center
@@ -682,7 +731,7 @@ func _detect_edge_from_hit_for_batch(target: Node, hit_point: Vector3, grid_pos:
 		return BuildSystem.EdgeSide.EAST if local_offset.x > 0.0 else BuildSystem.EdgeSide.WEST
 	return BuildSystem.EdgeSide.SOUTH if local_offset.z > 0.0 else BuildSystem.EdgeSide.NORTH
 
-func _edge_hit_point(target: Node, grid_pos: Vector2i, edge: int) -> Vector3:
+func _edge_hit_point(target: Node, grid_pos: Vector3i, edge: int) -> Vector3:
 	var local_pos: Vector3 = target.grid_to_local(grid_pos)
 	match edge:
 		BuildSystem.EdgeSide.NORTH:
@@ -693,17 +742,32 @@ func _edge_hit_point(target: Node, grid_pos: Vector2i, edge: int) -> Vector3:
 			local_pos.x += 0.45
 		BuildSystem.EdgeSide.WEST:
 			local_pos.x -= 0.45
-	local_pos.y = target.get_build_surface_local_y()
 	return target.to_global(local_pos)
 
 func _update_build_preview() -> void:
-	if not build_ray.is_colliding():
+	var has_hit: bool = build_ray.is_colliding()
+	var hit_point: Vector3 = Vector3.ZERO
+	var hit_normal: Vector3 = Vector3.UP
+	var collider: Object = null
+	if has_hit:
+		hit_point = build_ray.get_collision_point()
+		hit_normal = build_ray.get_collision_normal()
+		collider = build_ray.get_collider()
+
+	if BuildSystem.mode == BuildSystem.BuildMode.CEILING:
+		var ceil_target: Node = _find_build_target(collider as Node) if collider != null else null
+		if ceil_target == null:
+			ceil_target = _find_wagon_underfoot()
+		if ceil_target != null and ceil_target.has_method("get_ceiling_surface_local_y"):
+			var ref_point: Variant = hit_point if has_hit else null
+			var p_ceil: Variant = _get_build_point_on_target(ceil_target, ref_point, 1)
+			if p_ceil is Vector3:
+				BuildSystem.update_preview_on_target(p_ceil, ceil_target.get_build_surface_normal_world(), ceil_target)
+				return
 		BuildSystem.hide_preview()
 		return
-	var hit_point: Vector3 = build_ray.get_collision_point()
-	var hit_normal: Vector3 = build_ray.get_collision_normal()
-	var collider: Object = build_ray.get_collider()
-	if collider == null:
+
+	if not has_hit or collider == null:
 		BuildSystem.hide_preview()
 		return
 
@@ -716,7 +780,7 @@ func _update_build_preview() -> void:
 		BuildSystem.BuildMode.FLOOR, BuildSystem.BuildMode.ITEM:
 			var target := _find_build_target(collider as Node)
 			if target:
-				var p: Variant = _get_build_point_on_target(target)
+				var p: Variant = _get_build_point_on_target(target, hit_point)
 				if p is Vector3:
 					hit_point = p
 					hit_normal = target.get_build_surface_normal_world()
@@ -730,7 +794,7 @@ func _update_build_preview() -> void:
 				return
 			var target := _find_build_target(collider as Node)
 			if target:
-				var p: Variant = _get_build_point_on_target(target)
+				var p: Variant = _get_build_point_on_target(target, hit_point)
 				if p is Vector3:
 					hit_point = p
 					hit_normal = target.get_build_surface_normal_world()
@@ -770,23 +834,25 @@ func _on_game_state_changed(new_state: int) -> void:
 		else:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
-func _get_build_point_on_target(target: Node) -> Variant:
+func _get_build_point_on_target(target: Node, reference_world_point: Variant = null, level_offset: int = 0) -> Variant:
 	var origin: Vector3 = build_ray.global_transform.origin
 	var dir: Vector3 = -build_ray.global_transform.basis.z
 	if dir.length_squared() < 0.0001:
 		return null
 	dir = dir.normalized()
-	var plane_point: Vector3
-	var plane_normal: Vector3
-	if target is WagonFrame:
-		var wf := target as WagonFrame
-		plane_point = wf.to_global(Vector3(0.0, WagonFrame.BUILD_SURFACE_LOCAL_Y, 0.0))
-		plane_normal = wf.get_build_surface_normal_world()
-	elif target is TrainChassis:
-		plane_point = (target as TrainChassis).get_build_surface_point_world()
-		plane_normal = (target as TrainChassis).get_build_surface_normal_world()
-	else:
+	if not (target is WagonFrame or target is TrainChassis):
 		return null
+	var ref_local: Vector3
+	if reference_world_point is Vector3:
+		ref_local = target.to_local(reference_world_point)
+	else:
+		ref_local = target.to_local(global_position)
+	var level: int = target.detect_level_from_local_y(ref_local.y) + level_offset
+	if level < 0:
+		level = 0
+	var surface_y: float = target.get_surface_local_y(level)
+	var plane_point: Vector3 = target.to_global(Vector3(0.0, surface_y, 0.0))
+	var plane_normal: Vector3 = target.get_build_surface_normal_world()
 	return _ray_plane_intersection(origin, dir, plane_point, plane_normal, build_ray.target_position.length() + 0.25)
 
 func _ray_plane_intersection(

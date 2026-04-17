@@ -24,6 +24,7 @@ func _populate() -> void:
 	_add_section("Structure")
 	_add_mode_button("Chassis", BuildSystem.CHASSIS_COST, BuildSystem.BuildMode.CHASSIS)
 	_add_mode_button("Floor", BuildSystem.FLOOR_COST, BuildSystem.BuildMode.FLOOR)
+	_add_mode_button("Ceiling", BuildSystem.CEILING_COST, BuildSystem.BuildMode.CEILING)
 
 	# Demolish
 	_add_section("Tools")
