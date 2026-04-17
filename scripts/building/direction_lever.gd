@@ -60,7 +60,7 @@ func get_interact_text() -> String:
 	return "[E] Direction"
 
 func _animate_switch(dir: float) -> void:
-	var handle: Node3D = get_node_or_null("Handle") as Node3D
+	var handle: Node3D = get_node_or_null("Visuals/Handle") as Node3D
 	if handle == null:
 		return
 	var target_angle: float = deg_to_rad(30.0) if dir > 0.0 else deg_to_rad(-30.0)

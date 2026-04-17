@@ -16,6 +16,7 @@ class_name PumpLever
 @export var handle_model_rotation_deg: Vector3 = Vector3.ZERO
 @export var handle_model_scale: Vector3 = Vector3.ONE
 
+
 @export_group("Animation")
 @export var pump_angle_deg: float = 20.0
 ## Axe de rotation du bras. "x" = tangage (penche vers nous / arriere).
@@ -49,13 +50,13 @@ func _apply_transforms() -> void:
 	# Les exports de ce script sont la source de verite. Ils ecrasent toujours les
 	# transformations stockees dans la .tscn pour que l'inspecteur puisse piloter
 	# la taille/position du modele sans conflit.
-	var base: Node3D = get_node_or_null("Base") as Node3D
+	var base: Node3D = get_node_or_null("Visuals/Base") as Node3D
 	if base:
 		base.transform = _make_transform(base_position, base_rotation_deg, base_scale)
-	var handle_pivot: Node3D = get_node_or_null("Handle") as Node3D
+	var handle_pivot: Node3D = get_node_or_null("Visuals/Handle") as Node3D
 	if handle_pivot:
 		handle_pivot.position = handle_pivot_position
-	var handle_model: Node3D = get_node_or_null("Handle/HandleModel") as Node3D
+	var handle_model: Node3D = get_node_or_null("Visuals/Handle/HandleModel") as Node3D
 	if handle_model:
 		handle_model.transform = _make_transform(handle_model_position, handle_model_rotation_deg, handle_model_scale)
 
@@ -94,7 +95,7 @@ func _perform_pump(replicate: bool, affect_train: bool) -> void:
 var _pump_down: bool = false
 
 func _animate_pump() -> void:
-	var handle: Node3D = get_node_or_null("Handle") as Node3D
+	var handle: Node3D = get_node_or_null("Visuals/Handle") as Node3D
 	if handle == null:
 		return
 	_pump_down = not _pump_down

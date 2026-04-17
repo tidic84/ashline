@@ -8,19 +8,22 @@
 size = Vector3(2.0332031, 1.2, 1.0888672)
 
 [node name="PumpLever" type="StaticBody3D" unique_id=1582796707]
-transform = Transform3D(0.75, 0, 0, 0, 0.75, 0, 0, 0, 0.75, 0, 0, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.22230013, 0)
 collision_layer = 32
 collision_mask = 0
 script = ExtResource("1")
 
-[node name="Base" parent="." unique_id=811257626 instance=ExtResource("2_base")]
+[node name="Visuals" type="Node3D" parent="." unique_id=1500000001]
+transform = Transform3D(0.5, 0, 0, 0, 0.5, 0, 0, 0, 0.5, 0, 0.21760087, 0)
+
+[node name="Base" parent="Visuals" unique_id=811257626 instance=ExtResource("2_base")]
 transform = Transform3D(0.7, 0, 0, 0, 0.7, 0, 0, 0, 0.7, 0, 0.285, 0)
 
-[node name="Handle" type="Node3D" parent="." unique_id=1576412894]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+[node name="Handle" type="Node3D" parent="Visuals" unique_id=1576412894]
+transform = Transform3D(1.1474432, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.89999986, 0)
 
-[node name="HandleModel" parent="Handle" unique_id=1928757092 instance=ExtResource("3_handle")]
+[node name="HandleModel" parent="Visuals/Handle" unique_id=1928757092 instance=ExtResource("3_handle")]
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1222651610]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 0)
+transform = Transform3D(0.6375, 0, 0, 0, 0.6375, 0, 0, 0, 0.6375, 0, 0.3825, 0)
 shape = SubResource("BoxShape3D_pump")
