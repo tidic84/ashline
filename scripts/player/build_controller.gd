@@ -297,7 +297,7 @@ func _update_build_preview() -> void:
 		BuildSystem.BuildMode.DEMOLISH:
 			var hit_chassis := _find_chassis(collider as Node)
 			if hit_chassis != null:
-				BuildSystem.update_preview_on_target(hit_point, hit_normal, hit_chassis)
+				BuildSystem.update_train_demolish_preview(hit_chassis)
 				return
 			var target2 := _find_build_target(collider as Node)
 			if target2:

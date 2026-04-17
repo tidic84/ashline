@@ -640,11 +640,8 @@ func _build_world_curve(path_node: Node) -> Curve3D:
 
 
 func _cancel_chassis_placement() -> void:
-	# If first bogie was placed but not yet coupled, remove it and refund
-	if _first_bogie and is_instance_valid(_first_bogie):
-		_first_bogie.queue_free()
-		Inventory.add_resource("wood", CHASSIS_COST.get("wood", 0))
-		Inventory.add_resource("metal", CHASSIS_COST.get("metal", 0))
+	# A first bogie is already paid and placed in the world. Changing modes
+	# should only stop the two-step coupling flow, not delete the chassis.
 	_first_bogie = null
 	_first_bogie_progress = 0.0
 	_first_bogie_curve = null
@@ -929,6 +926,22 @@ func _update_demolish_preview(hit_point: Vector3, chassis: Node) -> void:
 		return
 	_clear_demolish_highlight()
 	demolish_target = target
+	_apply_temp_material(demolish_target, preview_material_demolish)
+	can_place = true
+
+func update_train_demolish_preview(part: Node) -> void:
+	_clear_preview()
+	var target := _get_train_demolish_root(part)
+	if target == null or not is_instance_valid(target) or not (target is Node3D):
+		_clear_demolish_highlight()
+		can_place = false
+		return
+	var target_3d := target as Node3D
+	if demolish_target == target_3d:
+		can_place = true
+		return
+	_clear_demolish_highlight()
+	demolish_target = target_3d
 	_apply_temp_material(demolish_target, preview_material_demolish)
 	can_place = true
 
