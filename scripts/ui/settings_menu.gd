@@ -12,6 +12,7 @@ const FPS_LIMITS: Array[int] = [30, 60, 90, 120, 240]
 @onready var _glow_check: CheckButton = $Margin/VBox/Grid/GlowCheck
 @onready var _vsync_check: CheckButton = $Margin/VBox/Grid/VsyncCheck
 @onready var _fullscreen_check: CheckButton = $Margin/VBox/Grid/FullscreenCheck
+@onready var _resolution_option: OptionButton = $Margin/VBox/Grid/ResolutionOption
 @onready var _scale_label: Label = $Margin/VBox/Grid/ScaleLabel
 @onready var _scale_slider: HSlider = $Margin/VBox/Grid/ScaleSlider
 @onready var _fov_label: Label = $Margin/VBox/Grid/FovLabel
@@ -36,6 +37,9 @@ func _ready() -> void:
 	_msaa_option.add_item("8x", 3)
 	for fps in FPS_LIMITS:
 		_fps_limit_option.add_item("%d FPS" % fps, fps)
+	for i in range(GraphicsSettings.RESOLUTIONS.size()):
+		var resolution: Vector2i = GraphicsSettings.RESOLUTIONS[i]
+		_resolution_option.add_item(GraphicsSettings.get_resolution_label(resolution), i)
 
 	_shadow_option.item_selected.connect(func(idx: int): GraphicsSettings.shadow_quality = idx; _apply())
 	_msaa_option.item_selected.connect(func(idx: int): GraphicsSettings.msaa = idx; _apply())
@@ -44,6 +48,7 @@ func _ready() -> void:
 	_glow_check.toggled.connect(func(on: bool): GraphicsSettings.glow_enabled = on; _apply())
 	_vsync_check.toggled.connect(func(on: bool): GraphicsSettings.vsync = on; _apply())
 	_fullscreen_check.toggled.connect(func(on: bool): GraphicsSettings.fullscreen = on; _apply())
+	_resolution_option.item_selected.connect(_on_resolution_selected)
 	_scale_slider.value_changed.connect(func(v: float):
 		GraphicsSettings.render_scale = v
 		_scale_label.text = "Render Scale (%.2f)" % v
@@ -67,6 +72,7 @@ func _refresh() -> void:
 	_glow_check.button_pressed = GraphicsSettings.glow_enabled
 	_vsync_check.button_pressed = GraphicsSettings.vsync
 	_fullscreen_check.button_pressed = GraphicsSettings.fullscreen
+	_resolution_option.select(GraphicsSettings.get_resolution_index(GraphicsSettings.resolution))
 	_scale_slider.value = GraphicsSettings.render_scale
 	_scale_label.text = "Render Scale (%.2f)" % GraphicsSettings.render_scale
 	_fov_slider.value = GraphicsSettings.fov
@@ -86,6 +92,10 @@ func _on_master_volume_changed(value: float) -> void:
 
 func _on_fps_limit_selected(index: int) -> void:
 	GraphicsSettings.fps_limit = _fps_limit_option.get_item_id(index)
+	_apply()
+
+func _on_resolution_selected(index: int) -> void:
+	GraphicsSettings.set_resolution_by_index(_resolution_option.get_item_id(index))
 	_apply()
 
 func _update_volume_label(value: float) -> void:

@@ -1,10 +1,10 @@
 extends CharacterBody3D
 
-const WALK_SPEED: float = 5.0
-const SPRINT_SPEED: float = 8.0
-const CROUCH_SPEED: float = 2.5
-const JUMP_VELOCITY: float = 5.0
-const JUMP_VELOCITY_SPRINT: float = 5.5
+const WALK_SPEED: float = 3.4
+const SPRINT_SPEED: float = 5.4
+const CROUCH_SPEED: float = 1.8
+const JUMP_VELOCITY: float = 4.0
+const JUMP_VELOCITY_SPRINT: float = 4.3
 const MOUSE_SENSITIVITY: float = 0.002
 const ACCEL: float = 0.8
 const FRICTION: float = 0.2
@@ -21,6 +21,37 @@ const BOB_IDLE_STRENGTH: float = 0.003
 const BOB_IDLE_FREQ: float = 1.5
 const PLAYER_SYNC_INTERVAL: float = 0.033
 const PLAYER_REMOTE_EXTRAPOLATION: float = 0.12
+const PLAYER_ANIM_IDLE: String = "idle"
+const PLAYER_ANIM_WALK: String = "walk"
+const PLAYER_ANIM_RUN: String = "run"
+const PLAYER_ANIM_JUMP: String = "jump"
+const PLAYER_ANIM_CROUCH: String = "crouch"
+const PLAYER_ANIM_BLEND: float = 0.16
+const PLAYER_ANIM_WALK_SPEED: float = 0.35
+const PLAYER_ANIM_RUN_SPEED: float = 4.4
+const PLAYER_ANIM_AIR_SPEED: float = 0.45
+const PLAYER_ANIMATION_SOURCES: Dictionary = {
+	PLAYER_ANIM_IDLE: {
+		"path": "res://assets/models/player/animations/Idle.glb",
+		"loop": true,
+	},
+	PLAYER_ANIM_WALK: {
+		"path": "res://assets/models/player/animations/Walking.glb",
+		"loop": true,
+	},
+	PLAYER_ANIM_RUN: {
+		"path": "res://assets/models/player/animations/Run3.glb",
+		"loop": true,
+	},
+	PLAYER_ANIM_JUMP: {
+		"path": "res://assets/models/player/animations/JumpRegular.glb",
+		"loop": false,
+	},
+	PLAYER_ANIM_CROUCH: {
+		"path": "res://assets/models/player/animations/Crouch.glb",
+		"loop": true,
+	},
+}
 
 @onready var camera: Camera3D = $Head/Camera3D
 @onready var head: Node3D = $Head
@@ -56,8 +87,12 @@ var _remote_target_position: Vector3 = Vector3.ZERO
 var _remote_target_head_yaw: float = 0.0
 var _remote_target_camera_pitch: float = 0.0
 var _remote_velocity: Vector3 = Vector3.ZERO
+var _remote_is_crouching: bool = false
 var _network_sync_accum: float = 0.0
 var _remote_state_initialized: bool = false
+var _model_animation_player: AnimationPlayer = null
+var _model_animation_library: AnimationLibrary = null
+var _current_model_animation: String = ""
 
 func _enter_tree() -> void:
 	is_local = not multiplayer.has_multiplayer_peer() or get_multiplayer_authority() == multiplayer.get_unique_id()
@@ -69,6 +104,7 @@ func _ready() -> void:
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_apply_display_name()
 	_update_visual_visibility()
+	_setup_player_model_animation()
 
 	if not is_local:
 		camera.current = false
@@ -117,6 +153,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 	if event is InputEventMouseButton and event.pressed:
+		if _is_build_menu_open() and (
+			event.button_index == MOUSE_BUTTON_WHEEL_UP
+			or event.button_index == MOUSE_BUTTON_WHEEL_DOWN
+		):
+			return
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			Inventory.cycle_hotbar(-1)
 			return
@@ -202,6 +243,7 @@ func _physics_process(delta: float) -> void:
 			global_position = global_position.lerp(predicted_position, clampf(delta * 18.0, 0.0, 1.0))
 			head.rotation.y = lerp_angle(head.rotation.y, _remote_target_head_yaw, clampf(delta * 18.0, 0.0, 1.0))
 			camera.rotation.x = lerp_angle(camera.rotation.x, _remote_target_camera_pitch, clampf(delta * 18.0, 0.0, 1.0))
+			_update_player_model_animation()
 		return
 	if _apply_blocked_movement(delta):
 		return
@@ -252,6 +294,7 @@ func _physics_process(delta: float) -> void:
 	if BuildSystem.is_building:
 		_update_build_preview()
 
+	_update_player_model_animation()
 	_update_interact_hint()
 	_update_ambient()
 
@@ -344,7 +387,7 @@ func _update_ambient() -> void:
 func _broadcast_network_state() -> void:
 	if not is_local or not multiplayer.has_multiplayer_peer():
 		return
-	_receive_network_state.rpc(global_position, head.rotation.y, _pitch, velocity)
+	_receive_network_state.rpc(global_position, head.rotation.y, _pitch, velocity, _is_crouching)
 
 
 func respawn_to_spawn() -> void:
@@ -368,13 +411,20 @@ func respawn_to_spawn() -> void:
 
 
 @rpc("any_peer", "unreliable")
-func _receive_network_state(pos: Vector3, head_yaw: float, camera_pitch: float, linear_velocity: Vector3) -> void:
+func _receive_network_state(
+	pos: Vector3,
+	head_yaw: float,
+	camera_pitch: float,
+	linear_velocity: Vector3,
+	is_crouching_remote: bool = false
+) -> void:
 	if is_local:
 		return
 	_remote_target_position = pos
 	_remote_target_head_yaw = head_yaw
 	_remote_target_camera_pitch = camera_pitch
 	_remote_velocity = linear_velocity
+	_remote_is_crouching = is_crouching_remote
 	if not _remote_state_initialized:
 		_remote_state_initialized = true
 		global_position = pos
@@ -556,19 +606,28 @@ func _is_inventory_open() -> bool:
 func _is_chat_open() -> bool:
 	return hud != null and hud.has_method("is_chat_open") and hud.is_chat_open()
 
+func _is_build_menu_open() -> bool:
+	return hud != null and hud.build_menu != null and hud.build_menu.visible
+
 func _controls_blocked() -> bool:
 	return GameManager.current_state == GameManager.GameState.PAUSED or _is_chat_open()
 
 func _apply_blocked_movement(delta: float) -> bool:
 	if not _controls_blocked():
 		return false
-	velocity.x = move_toward(velocity.x, 0.0, current_speed)
-	velocity.z = move_toward(velocity.z, 0.0, current_speed)
-	if not is_on_floor():
+	if is_on_floor() and velocity.y <= 0.0:
+		velocity.x = move_toward(velocity.x, 0.0, current_speed)
+		velocity.z = move_toward(velocity.z, 0.0, current_speed)
+	if not is_on_floor() or velocity.y > 0.0:
 		velocity.y -= gravity * delta
 	else:
 		velocity.y = minf(velocity.y, 0.0)
 	move_and_slide()
+	_update_player_model_animation()
+	_network_sync_accum += delta
+	if _network_sync_accum >= PLAYER_SYNC_INTERVAL:
+		_network_sync_accum = 0.0
+		_broadcast_network_state()
 	BuildSystem.hide_preview()
 	return true
 
@@ -604,6 +663,103 @@ func _update_visual_rotation() -> void:
 	if visual_root == null or head == null:
 		return
 	visual_root.rotation.y = head.rotation.y
+
+func _setup_player_model_animation() -> void:
+	_model_animation_player = _find_animation_player(visual_root)
+	if _model_animation_player == null:
+		push_warning("PlayerController: aucun AnimationPlayer trouve sur le modele joueur.")
+		return
+	_model_animation_player.playback_default_blend_time = PLAYER_ANIM_BLEND
+	_model_animation_library = _get_or_create_animation_library(_model_animation_player)
+	for animation_id in PLAYER_ANIMATION_SOURCES.keys():
+		var config: Dictionary = PLAYER_ANIMATION_SOURCES[animation_id]
+		_load_model_animation(String(animation_id), String(config.get("path", "")), bool(config.get("loop", true)))
+	_play_player_model_animation(PLAYER_ANIM_IDLE)
+
+func _get_or_create_animation_library(player: AnimationPlayer) -> AnimationLibrary:
+	var library_name := StringName("")
+	if player.has_animation_library(library_name):
+		return player.get_animation_library(library_name)
+	var library := AnimationLibrary.new()
+	player.add_animation_library(library_name, library)
+	return library
+
+func _load_model_animation(animation_id: String, source_path: String, should_loop: bool) -> void:
+	if source_path.is_empty() or _model_animation_library == null:
+		return
+	var source_scene := load(source_path) as PackedScene
+	if source_scene == null:
+		push_warning("PlayerController: animation introuvable: %s" % source_path)
+		return
+	var source_root := source_scene.instantiate()
+	var source_player := _find_animation_player(source_root)
+	if source_player == null:
+		push_warning("PlayerController: aucun AnimationPlayer dans %s" % source_path)
+		source_root.free()
+		return
+	var animation_names := source_player.get_animation_list()
+	if animation_names.is_empty():
+		push_warning("PlayerController: aucune animation dans %s" % source_path)
+		source_root.free()
+		return
+	var source_animation := source_player.get_animation(animation_names[0])
+	if source_animation == null:
+		source_root.free()
+		return
+	var copied_animation := source_animation.duplicate(true) as Animation
+	copied_animation.loop_mode = Animation.LOOP_LINEAR if should_loop else Animation.LOOP_NONE
+	if _model_animation_library.has_animation(animation_id):
+		_model_animation_library.remove_animation(animation_id)
+	_model_animation_library.add_animation(animation_id, copied_animation)
+	source_root.free()
+
+func _find_animation_player(node: Node) -> AnimationPlayer:
+	if node == null:
+		return null
+	if node is AnimationPlayer:
+		return node as AnimationPlayer
+	for child in node.get_children():
+		var found := _find_animation_player(child)
+		if found != null:
+			return found
+	return null
+
+func _update_player_model_animation() -> void:
+	if _model_animation_player == null:
+		return
+	var animation_velocity := _remote_velocity if not is_local else velocity
+	var horizontal_speed := Vector2(animation_velocity.x, animation_velocity.z).length()
+	var target_animation := PLAYER_ANIM_IDLE
+	var target_speed_scale := 1.0
+	if _should_play_jump_animation(animation_velocity):
+		target_animation = PLAYER_ANIM_JUMP
+	elif _is_animation_crouching():
+		target_animation = PLAYER_ANIM_CROUCH
+		target_speed_scale = clampf(maxf(horizontal_speed, CROUCH_SPEED) / CROUCH_SPEED, 0.75, 1.15)
+	elif horizontal_speed >= PLAYER_ANIM_RUN_SPEED:
+		target_animation = PLAYER_ANIM_RUN
+		target_speed_scale = clampf(horizontal_speed / SPRINT_SPEED, 0.85, 1.35)
+	elif horizontal_speed >= PLAYER_ANIM_WALK_SPEED:
+		target_animation = PLAYER_ANIM_WALK
+		target_speed_scale = clampf(horizontal_speed / WALK_SPEED, 0.75, 1.25)
+	_play_player_model_animation(target_animation, target_speed_scale)
+
+func _should_play_jump_animation(animation_velocity: Vector3) -> bool:
+	if is_local:
+		return not is_on_floor()
+	return absf(animation_velocity.y) >= PLAYER_ANIM_AIR_SPEED
+
+func _is_animation_crouching() -> bool:
+	return _is_crouching if is_local else _remote_is_crouching
+
+func _play_player_model_animation(animation_name: String, speed_scale: float = 1.0) -> void:
+	if _model_animation_player == null or not _model_animation_player.has_animation(animation_name):
+		return
+	_model_animation_player.speed_scale = speed_scale
+	if _current_model_animation == animation_name and _model_animation_player.is_playing():
+		return
+	_current_model_animation = animation_name
+	_model_animation_player.play(animation_name, PLAYER_ANIM_BLEND)
 
 func _toggle_inventory_panel() -> void:
 	if hud == null or not hud.has_method("toggle_inventory_panel"):

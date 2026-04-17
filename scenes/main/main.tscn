@@ -261,9 +261,9 @@ rail_pitch_influence = 2.0
 [node name="UP_FPSController_Prefab" parent="." unique_id=1209285326 instance=ExtResource("26_fps")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -38.93445, 4.8396044, 19.51786)
 floor_constant_speed = true
-speed_factor = 1.4
+speed_factor = 1.0
 hurry_factor = 0.1
-jump_factor = 1.18
+jump_factor = 0.9
 footstep_time_factor = 1.1
 bob_strength_factor = 0.3
 nervous = 0.3
