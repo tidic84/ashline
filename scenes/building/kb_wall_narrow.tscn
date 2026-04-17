@@ -4,7 +4,7 @@
 [ext_resource type="PackedScene" path="res://assets/models/kitbash/wall/wall_012.glb" id="2_model"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_col"]
-size = Vector3(0.86, 2.00, 0.10)
+size = Vector3(0.86, 2.00, 0.4)
 
 [node name="KbWallNarrow" type="StaticBody3D"]
 collision_layer = 16
