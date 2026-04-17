@@ -27,6 +27,12 @@ var _grass_dirty := true
 @export_storage var _rail_sculpt_points: PackedVector3Array = PackedVector3Array()  # local-space
 @export_storage var _rail_sculpt_half_width: float = 2.5
 @export_storage var _rail_sculpt_blend_width: float = 3.5
+@export_storage var _lake_centers: PackedVector3Array = PackedVector3Array()  # local-space
+@export_storage var _lake_radii: PackedFloat32Array = PackedFloat32Array()
+@export_storage var _lake_inner_radii: PackedFloat32Array = PackedFloat32Array()
+@export_storage var _lake_outer_radii: PackedFloat32Array = PackedFloat32Array()
+@export_storage var _lake_bed_depths: PackedFloat32Array = PackedFloat32Array()
+@export_storage var _lake_surface_heights: PackedFloat32Array = PackedFloat32Array()
 var _editor_rail_signature: String = ""
 var _editor_rail_check_msec: int = 0
 var _grass_last_camera_local := Vector3.INF
@@ -278,6 +284,7 @@ func _deferred_regenerate() -> void:
 		return
 	if Engine.is_editor_hint() and (editor_follow_rail_changes or _rail_sculpt_points.is_empty()):
 		scan_rail_paths_for_sculpt()
+	scan_lake_nodes_for_sculpt()
 	_generate()
 
 
@@ -379,12 +386,18 @@ func _append_triangle(indices: PackedInt32Array, normals_accum: Array[Vector3], 
 
 
 func _sample_height(local_x: float, local_z: float) -> float:
-	var base_h := 0.0
-	if noise != null and height_scale != 0.0:
-		base_h = noise.get_noise_2d(local_x, local_z) * height_scale
-	if _rail_sculpt_points.size() < 2:
-		return base_h
-	return _sculpted_height(local_x, local_z, base_h)
+	var height := sample_base_height(local_x, local_z)
+	if _lake_centers.size() > 0:
+		height = _lake_sculpted_height(local_x, local_z, height)
+	if _rail_sculpt_points.size() >= 2:
+		height = _sculpted_height(local_x, local_z, height)
+	return height
+
+
+func sample_base_height(local_x: float, local_z: float) -> float:
+	if noise == null or height_scale == 0.0:
+		return 0.0
+	return noise.get_noise_2d(local_x, local_z) * height_scale
 
 
 func _sculpted_height(local_x: float, local_z: float, base_h: float) -> float:
@@ -418,6 +431,46 @@ func sculpt_terrain_for_rails(world_points: Array[Vector3], half_width: float, b
 	_generate()
 
 
+func _lake_sculpted_height(local_x: float, local_z: float, current_h: float) -> float:
+	var result: float = current_h
+	var lake_count: int = mini(
+		_lake_centers.size(),
+		mini(
+			_lake_radii.size(),
+			mini(
+				_lake_inner_radii.size(),
+				mini(_lake_outer_radii.size(), mini(_lake_bed_depths.size(), _lake_surface_heights.size()))
+			)
+		)
+	)
+	for i in range(lake_count):
+		var center := _lake_centers[i]
+		var dx := local_x - center.x
+		var dz := local_z - center.z
+		var dist := sqrt((dx * dx) + (dz * dz))
+		var radius := maxf(_lake_radii[i], 0.01)
+		var inner_radius := clampf(_lake_inner_radii[i], 0.0, radius)
+		var outer_radius := maxf(_lake_outer_radii[i], radius)
+		if dist >= outer_radius:
+			continue
+		var surface_h := _lake_surface_heights[i]
+		var bed_h := surface_h - maxf(_lake_bed_depths[i], 0.0)
+		if dist <= inner_radius:
+			result = minf(result, bed_h)
+			continue
+		if dist <= radius:
+			var shore_t := 0.0 if radius <= inner_radius else inverse_lerp(inner_radius, radius, dist)
+			shore_t = shore_t * shore_t * (3.0 - (2.0 * shore_t))
+			var target_h := lerpf(bed_h, surface_h, shore_t)
+			result = minf(result, target_h)
+			continue
+		var blend_t := inverse_lerp(radius, outer_radius, dist)
+		blend_t = blend_t * blend_t * (3.0 - (2.0 * blend_t))
+		var blended_h := lerpf(surface_h, result, blend_t)
+		result = minf(result, blended_h)
+	return result
+
+
 func scan_rail_paths_for_sculpt() -> void:
 	var tree := get_tree()
 	if tree == null:
@@ -444,6 +497,42 @@ func scan_rail_paths_for_sculpt() -> void:
 		_rail_sculpt_points.append(to_local(last))
 
 
+func scan_lake_nodes_for_sculpt() -> void:
+	var tree := get_tree()
+	if tree == null:
+		return
+	var root: Node = tree.edited_scene_root if Engine.is_editor_hint() else tree.current_scene
+	if root == null:
+		return
+	var lake_nodes: Array[Node3D] = []
+	_collect_lake_nodes(root, lake_nodes)
+	_lake_centers.clear()
+	_lake_radii.clear()
+	_lake_inner_radii.clear()
+	_lake_outer_radii.clear()
+	_lake_bed_depths.clear()
+	_lake_surface_heights.clear()
+	for lake in lake_nodes:
+		if not lake.has_method("get_lake_sculpt_data"):
+			continue
+		var data_variant: Variant = lake.call("get_lake_sculpt_data")
+		if typeof(data_variant) != TYPE_DICTIONARY:
+			continue
+		var data := data_variant as Dictionary
+		var world_center: Vector3 = data.get("center", lake.global_position)
+		var radius := maxf(float(data.get("radius", 0.0)), 0.1)
+		var shore_width := clampf(float(data.get("shore_width", 0.0)), 0.0, radius)
+		var blend_width := maxf(float(data.get("blend_width", 0.0)), 0.0)
+		var bed_depth := maxf(float(data.get("depth", 0.0)), 0.0)
+		var local_center := to_local(world_center)
+		_lake_centers.append(local_center)
+		_lake_radii.push_back(radius)
+		_lake_inner_radii.push_back(maxf(radius - shore_width, 0.0))
+		_lake_outer_radii.push_back(radius + blend_width)
+		_lake_bed_depths.push_back(bed_depth)
+		_lake_surface_heights.push_back(local_center.y)
+
+
 func distance_to_rails_xz(world_pos: Vector3) -> float:
 	if _rail_sculpt_points.size() < 2:
 		return INF
@@ -468,6 +557,13 @@ func _collect_rail_paths(node: Node, out: Array[Path3D]) -> void:
 		out.append(node as Path3D)
 	for c in node.get_children():
 		_collect_rail_paths(c, out)
+
+
+func _collect_lake_nodes(node: Node, out: Array[Node3D]) -> void:
+	if node is Node3D and node.is_in_group("terrain_lake"):
+		out.append(node as Node3D)
+	for c in node.get_children():
+		_collect_lake_nodes(c, out)
 
 
 func _editor_check_rail_changes() -> void:
@@ -626,7 +722,9 @@ func _start_grass_build(camera_local: Vector3) -> void:
 		"grass_mask_affects_scale": grass_mask_affects_scale,
 		"grass_mask_min_scale_factor": grass_mask_min_scale_factor,
 		"rail_sculpt_points": _rail_sculpt_points.duplicate(),
-		"rail_exclusion_radius_sq": (_rail_sculpt_half_width + _rail_sculpt_blend_width) * (_rail_sculpt_half_width + _rail_sculpt_blend_width)
+		"rail_exclusion_radius_sq": (_rail_sculpt_half_width + _rail_sculpt_blend_width) * (_rail_sculpt_half_width + _rail_sculpt_blend_width),
+		"lake_centers": _lake_centers.duplicate(),
+		"lake_outer_radii_sq": _duplicate_squared_float_array(_lake_outer_radii)
 	}
 	_grass_build_thread.start(_build_grass_transforms.bind(payload))
 
@@ -688,8 +786,12 @@ func _build_grass_transforms(payload: Dictionary) -> Dictionary:
 
 	var rail_points: PackedVector3Array = payload["rail_sculpt_points"]
 	var rail_excl_sq: float = payload["rail_exclusion_radius_sq"]
-	var has_rail_exclusion := rail_points.size() >= 2
-	var rail_count := rail_points.size()
+	var has_rail_exclusion: bool = rail_points.size() >= 2
+	var rail_count: int = rail_points.size()
+	var lake_centers: PackedVector3Array = payload.get("lake_centers", PackedVector3Array())
+	var lake_outer_radii_sq: PackedFloat32Array = payload.get("lake_outer_radii_sq", PackedFloat32Array())
+	var lake_count: int = mini(lake_centers.size(), lake_outer_radii_sq.size())
+	var has_lake_exclusion: bool = lake_count > 0
 
 	for cell_z in range(min_z, max_z + 1):
 		for cell_x in range(min_x, max_x + 1):
@@ -714,6 +816,16 @@ func _build_grass_transforms(payload: Dictionary) -> Dictionary:
 						near_rail = true
 						break
 				if near_rail:
+					continue
+			if has_lake_exclusion:
+				var inside_lake := false
+				for li in range(lake_count):
+					var ldx := local_x - lake_centers[li].x
+					var ldz := local_z - lake_centers[li].z
+					if ldx * ldx + ldz * ldz < lake_outer_radii_sq[li]:
+						inside_lake = true
+						break
+				if inside_lake:
 					continue
 			var mask_density := 1.0
 			var mask_scale := 1.0
@@ -1006,6 +1118,15 @@ func _resource_id(resource: Resource) -> String:
 	if resource.resource_path != "":
 		return resource.resource_path
 	return str(resource.get_instance_id())
+
+
+func _duplicate_squared_float_array(values: PackedFloat32Array) -> PackedFloat32Array:
+	var squared := PackedFloat32Array()
+	squared.resize(values.size())
+	for i in range(values.size()):
+		var value := maxf(values[i], 0.0)
+		squared[i] = value * value
+	return squared
 
 
 func _get_active_camera() -> Camera3D:

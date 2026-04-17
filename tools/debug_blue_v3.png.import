@@ -2,12 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c5iq0n84k85l1"
-valid=false
+uid="uid://0mnhb25g2lmc"
+path="res://.godot/imported/debug_blue_v3.png-844896c85c7243951a66c2e3d1314b7b.ctex"
+metadata={
+"vram_texture": false
+}
 
 [deps]
 
-source_file="res://scenes/building/Meshy_AI__0417145020_texture.png"
+source_file="res://tools/debug_blue_v3.png"
+dest_files=["res://.godot/imported/debug_blue_v3.png-844896c85c7243951a66c2e3d1314b7b.ctex"]
 
 [params]
 

@@ -1,10 +1,12 @@
 extends Node3D
 class_name WagonFrame
 
-signal floor_placed(grid_pos: Vector2i)
+signal floor_placed(grid_pos: Vector3i)
+signal ceiling_placed(grid_pos: Vector3i)
 
 const GRID_SIZE: float = 1.0
 const BUILD_SURFACE_LOCAL_Y: float = 0.4
+const CEILING_HEIGHT_OFFSET: float = 2.05
 const EDGE_NORTH: int = 1
 const EDGE_SOUTH: int = 2
 const EDGE_EAST: int = 3
@@ -33,9 +35,10 @@ var front_bogie: TrainChassis = null
 var rear_bogie: TrainChassis = null
 var is_on_rails: bool = false
 
-# Grid: width = bogie_width (3) + extra_width * 2, length = wagon_length
-var grid_cells: Dictionary = {}  # Vector2i -> { "floor": bool, "item": Node3D, "edges": {}, "floor_node": Node3D }
-var floor_count: int = 0
+# Grid: keyed by Vector3i(grid_x, grid_z, level). Level 0 = ground; each level is
+# CEILING_HEIGHT_OFFSET higher. A "ceiling" is just a floor at level+1.
+var grid_cells: Dictionary = {}  # Vector3i -> { "floor": bool, "item": Node3D, "edges": {}, "floor_node": Node3D }
+var floor_count_by_level: Dictionary = {}  # int level -> int count
 
 var _frame_visuals: Array[Node3D] = []
 var _build_surface: StaticBody3D = null
@@ -607,60 +610,82 @@ func _grid_min_z() -> int:
 func _grid_max_z() -> int:
 	return int(wagon_length / 2)
 
-func is_grid_in_bounds(grid_pos: Vector2i) -> bool:
+func is_grid_in_bounds(grid_pos: Vector3i) -> bool:
 	return (
 		grid_pos.x >= _grid_min_x() and grid_pos.x <= _grid_max_x()
 		and grid_pos.y >= _grid_min_z() and grid_pos.y <= _grid_max_z()
+		and grid_pos.z >= 0
 	)
 
-func get_grid_position(world_pos: Vector3) -> Vector2i:
+func get_grid_position(world_pos: Vector3) -> Vector3i:
 	var local_pos := to_local(world_pos)
 	var gx := _round_to_int(local_pos.x / GRID_SIZE)
 	var gz := _round_to_int(local_pos.z / GRID_SIZE)
-	return Vector2i(gx, gz)
+	var level := detect_level_from_local_y(local_pos.y)
+	return Vector3i(gx, gz, level)
+
+func detect_level_from_local_y(local_y: float) -> int:
+	var lvl := int(round((local_y - BUILD_SURFACE_LOCAL_Y) / CEILING_HEIGHT_OFFSET))
+	return maxi(lvl, 0)
 
 func _round_to_int(v: float) -> int:
 	return int(floor(v + 0.5)) if v >= 0.0 else int(ceil(v - 0.5))
 
-func grid_to_local(grid_pos: Vector2i) -> Vector3:
+func grid_to_local(grid_pos: Vector3i) -> Vector3:
 	return Vector3(
-		grid_pos.x * GRID_SIZE,
-		0.0,
-		grid_pos.y * GRID_SIZE
+		float(grid_pos.x) * GRID_SIZE,
+		get_surface_local_y(grid_pos.z),
+		float(grid_pos.y) * GRID_SIZE
 	)
 
-func grid_to_world(grid_pos: Vector2i) -> Vector3:
+func grid_to_world(grid_pos: Vector3i) -> Vector3:
 	return to_global(grid_to_local(grid_pos))
+
+func get_surface_local_y(level: int) -> float:
+	return BUILD_SURFACE_LOCAL_Y + float(level) * CEILING_HEIGHT_OFFSET
 
 func get_build_surface_local_y() -> float:
 	return BUILD_SURFACE_LOCAL_Y
 
+func get_ceiling_surface_local_y(level: int = 0) -> float:
+	# Surface Y of the ceiling above the given level (== floor surface at level+1).
+	return get_surface_local_y(level + 1)
+
 func get_build_surface_normal_world() -> Vector3:
 	return global_basis.y.normalized()
 
-func can_place_floor(grid_pos: Vector2i) -> bool:
+func floor_count_at_level(level: int) -> int:
+	return int(floor_count_by_level.get(level, 0))
+
+func can_place_floor(grid_pos: Vector3i) -> bool:
 	if not is_grid_in_bounds(grid_pos):
 		return false
-	if grid_cells.has(grid_pos) and grid_cells[grid_pos].floor:
+	if has_floor_at(grid_pos):
 		return false
-	if floor_count == 0:
-		return true
+	var level_count := floor_count_at_level(grid_pos.z)
+	if level_count == 0:
+		if grid_pos.z == 0:
+			return true
+		# First floor at an upper level: require support directly below.
+		return has_floor_at(Vector3i(grid_pos.x, grid_pos.y, grid_pos.z - 1))
 	return _has_adjacent_floor(grid_pos)
 
-func _ensure_cell(grid_pos: Vector2i) -> Dictionary:
+func _ensure_cell(grid_pos: Vector3i) -> Dictionary:
 	if not grid_cells.has(grid_pos):
 		grid_cells[grid_pos] = { "floor": false, "item": null, "edges": {}, "floor_node": null }
-	elif not grid_cells[grid_pos].has("edges"):
-		grid_cells[grid_pos].edges = {}
-	elif not grid_cells[grid_pos].has("floor_node"):
-		grid_cells[grid_pos].floor_node = null
+	else:
+		var c: Dictionary = grid_cells[grid_pos]
+		if not c.has("edges"):
+			c.edges = {}
+		if not c.has("floor_node"):
+			c.floor_node = null
 	return grid_cells[grid_pos]
 
-func place_floor(grid_pos: Vector2i, floor_node: Node3D = null) -> void:
+func place_floor(grid_pos: Vector3i, floor_node: Node3D = null) -> void:
 	var cell := _ensure_cell(grid_pos)
 	cell.floor = true
 	cell.floor_node = floor_node
-	floor_count += 1
+	floor_count_by_level[grid_pos.z] = floor_count_at_level(grid_pos.z) + 1
 	if floor_node:
 		_register_floor_body(floor_node)
 	floor_placed.emit(grid_pos)
@@ -671,7 +696,7 @@ func _register_floor_body(floor_node: Node3D) -> void:
 			_floor_bodies.append(child)
 			return
 
-func get_floor_node(grid_pos: Vector2i) -> Node3D:
+func get_floor_node(grid_pos: Vector3i) -> Node3D:
 	if not grid_cells.has(grid_pos):
 		return null
 	var cell := _ensure_cell(grid_pos)
@@ -681,7 +706,17 @@ func get_floor_node(grid_pos: Vector2i) -> Node3D:
 	cell.floor_node = null
 	return null
 
-func can_place_item(grid_pos: Vector2i) -> bool:
+func remove_floor(grid_pos: Vector3i) -> void:
+	if not grid_cells.has(grid_pos):
+		return
+	var cell: Dictionary = grid_cells[grid_pos]
+	if not cell.get("floor", false):
+		return
+	cell.floor = false
+	cell.floor_node = null
+	floor_count_by_level[grid_pos.z] = maxi(0, floor_count_at_level(grid_pos.z) - 1)
+
+func can_place_item(grid_pos: Vector3i) -> bool:
 	if not grid_cells.has(grid_pos):
 		return false
 	if not grid_cells[grid_pos].floor:
@@ -690,13 +725,13 @@ func can_place_item(grid_pos: Vector2i) -> bool:
 		return false
 	return true
 
-func can_place_item_footprint(grid_pos: Vector2i, footprint_size: Vector2i) -> bool:
+func can_place_item_footprint(grid_pos: Vector3i, footprint_size: Vector2i) -> bool:
 	for cell_pos in _get_item_footprint_cells(grid_pos, footprint_size):
 		if not can_place_item(cell_pos):
 			return false
 	return true
 
-func can_place_edge(grid_pos: Vector2i, edge: int) -> bool:
+func can_place_edge(grid_pos: Vector3i, edge: int) -> bool:
 	if not grid_cells.has(grid_pos):
 		return false
 	if not grid_cells[grid_pos].floor:
@@ -707,70 +742,84 @@ func can_place_edge(grid_pos: Vector2i, edge: int) -> bool:
 	var mirrored := _get_mirrored_edge_slot(grid_pos, edge)
 	return mirrored.is_empty()
 
-func place_item(grid_pos: Vector2i, item: Node3D) -> void:
+func place_item(grid_pos: Vector3i, item: Node3D) -> void:
 	grid_cells[grid_pos].item = item
 
-func place_item_footprint(grid_pos: Vector2i, footprint_size: Vector2i, item: Node3D) -> void:
+func place_item_footprint(grid_pos: Vector3i, footprint_size: Vector2i, item: Node3D) -> void:
 	for cell_pos in _get_item_footprint_cells(grid_pos, footprint_size):
 		var cell: Dictionary = _ensure_cell(cell_pos)
 		cell.item = item
 
-func place_edge_item(grid_pos: Vector2i, edge: int, item: Node3D) -> void:
+func place_edge_item(grid_pos: Vector3i, edge: int, item: Node3D) -> void:
 	var cell := _ensure_cell(grid_pos)
 	cell.edges[edge] = item
 	var mirrored := _get_mirrored_edge_slot(grid_pos, edge)
 	if not mirrored.is_empty():
-		var mirrored_grid: Vector2i = mirrored["grid_pos"]
+		var mirrored_grid: Vector3i = mirrored["grid_pos"]
 		var mirrored_edge: int = mirrored["edge"]
 		var mirrored_cell := _ensure_cell(mirrored_grid)
 		mirrored_cell.edges[mirrored_edge] = item
 
-func remove_item(grid_pos: Vector2i) -> void:
+func remove_item(grid_pos: Vector3i) -> void:
 	if grid_cells.has(grid_pos) and grid_cells[grid_pos].item:
 		var item: Node3D = grid_cells[grid_pos].item as Node3D
 		for cell_key in grid_cells.keys():
 			if grid_cells[cell_key].item == item:
 				grid_cells[cell_key].item = null
 
-func _get_item_footprint_cells(grid_pos: Vector2i, footprint_size: Vector2i) -> Array[Vector2i]:
-	var cells: Array[Vector2i] = []
+func _get_item_footprint_cells(grid_pos: Vector3i, footprint_size: Vector2i) -> Array[Vector3i]:
+	var cells: Array[Vector3i] = []
 	var width: int = maxi(1, footprint_size.x)
 	var length: int = maxi(1, footprint_size.y)
 	for z in range(length):
 		for x in range(width):
-			cells.append(Vector2i(grid_pos.x + x, grid_pos.y + z))
+			cells.append(Vector3i(grid_pos.x + x, grid_pos.y + z, grid_pos.z))
 	return cells
 
-func remove_edge_item(grid_pos: Vector2i, edge: int) -> void:
+func remove_edge_item(grid_pos: Vector3i, edge: int) -> void:
 	if grid_cells.has(grid_pos):
 		var cell := _ensure_cell(grid_pos)
 		cell.edges.erase(edge)
 	var mirrored := _get_mirrored_edge_slot(grid_pos, edge)
 	if not mirrored.is_empty():
-		var mirrored_grid: Vector2i = mirrored["grid_pos"]
+		var mirrored_grid: Vector3i = mirrored["grid_pos"]
 		var mirrored_edge: int = mirrored["edge"]
 		if grid_cells.has(mirrored_grid):
 			var mirrored_cell := _ensure_cell(mirrored_grid)
 			mirrored_cell.edges.erase(mirrored_edge)
 
-func has_floor_at(grid_pos: Vector2i) -> bool:
+func has_floor_at(grid_pos: Vector3i) -> bool:
 	return grid_cells.has(grid_pos) and grid_cells[grid_pos].floor
 
-func _get_mirrored_edge_slot(grid_pos: Vector2i, edge: int) -> Dictionary:
+# Ceiling = floor at level+1.
+func has_ceiling_at(grid_pos: Vector3i) -> bool:
+	return has_floor_at(Vector3i(grid_pos.x, grid_pos.y, grid_pos.z + 1))
+
+func can_place_ceiling(grid_pos: Vector3i) -> bool:
+	return can_place_floor(Vector3i(grid_pos.x, grid_pos.y, grid_pos.z + 1))
+
+func place_ceiling(grid_pos: Vector3i, ceiling_node: Node3D = null) -> void:
+	place_floor(Vector3i(grid_pos.x, grid_pos.y, grid_pos.z + 1), ceiling_node)
+	ceiling_placed.emit(grid_pos)
+
+func get_ceiling_node(grid_pos: Vector3i) -> Node3D:
+	return get_floor_node(Vector3i(grid_pos.x, grid_pos.y, grid_pos.z + 1))
+
+func _get_mirrored_edge_slot(grid_pos: Vector3i, edge: int) -> Dictionary:
 	var mirrored_grid := grid_pos
 	var mirrored_edge := edge
 	match edge:
 		EDGE_NORTH:
-			mirrored_grid = Vector2i(grid_pos.x, grid_pos.y - 1)
+			mirrored_grid = Vector3i(grid_pos.x, grid_pos.y - 1, grid_pos.z)
 			mirrored_edge = EDGE_SOUTH
 		EDGE_SOUTH:
-			mirrored_grid = Vector2i(grid_pos.x, grid_pos.y + 1)
+			mirrored_grid = Vector3i(grid_pos.x, grid_pos.y + 1, grid_pos.z)
 			mirrored_edge = EDGE_NORTH
 		EDGE_EAST:
-			mirrored_grid = Vector2i(grid_pos.x + 1, grid_pos.y)
+			mirrored_grid = Vector3i(grid_pos.x + 1, grid_pos.y, grid_pos.z)
 			mirrored_edge = EDGE_WEST
 		EDGE_WEST:
-			mirrored_grid = Vector2i(grid_pos.x - 1, grid_pos.y)
+			mirrored_grid = Vector3i(grid_pos.x - 1, grid_pos.y, grid_pos.z)
 			mirrored_edge = EDGE_EAST
 		_:
 			return {}
@@ -781,15 +830,15 @@ func _get_mirrored_edge_slot(grid_pos: Vector2i, edge: int) -> Dictionary:
 		"edge": mirrored_edge,
 	}
 
-func _has_adjacent_floor(grid_pos: Vector2i) -> bool:
-	var neighbors: Array[Vector2i] = [
-		Vector2i(grid_pos.x + 1, grid_pos.y),
-		Vector2i(grid_pos.x - 1, grid_pos.y),
-		Vector2i(grid_pos.x, grid_pos.y + 1),
-		Vector2i(grid_pos.x, grid_pos.y - 1),
+func _has_adjacent_floor(grid_pos: Vector3i) -> bool:
+	var neighbors: Array[Vector3i] = [
+		Vector3i(grid_pos.x + 1, grid_pos.y, grid_pos.z),
+		Vector3i(grid_pos.x - 1, grid_pos.y, grid_pos.z),
+		Vector3i(grid_pos.x, grid_pos.y + 1, grid_pos.z),
+		Vector3i(grid_pos.x, grid_pos.y - 1, grid_pos.z),
 	]
 	for n in neighbors:
-		if grid_cells.has(n) and grid_cells[n].floor:
+		if has_floor_at(n):
 			return true
 	return false
 

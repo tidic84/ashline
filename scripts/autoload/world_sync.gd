@@ -171,17 +171,22 @@ func request_place_chassis(hit_point: Vector3) -> void:
 		_request_place_chassis.rpc_id(1, hit_point)
 
 
-func request_place_floor(target_net_id: int, grid_pos: Vector2i) -> void:
+func request_place_floor(target_net_id: int, grid_pos: Vector3i) -> void:
 	if should_request_host():
 		_request_place_floor.rpc_id(1, target_net_id, grid_pos)
 
 
-func request_place_item(target_net_id: int, buildable_id: String, grid_pos: Vector2i, rotation_y: float, edge: int) -> void:
+func request_place_ceiling(target_net_id: int, grid_pos: Vector3i) -> void:
+	if should_request_host():
+		_request_place_ceiling.rpc_id(1, target_net_id, grid_pos)
+
+
+func request_place_item(target_net_id: int, buildable_id: String, grid_pos: Vector3i, rotation_y: float, edge: int) -> void:
 	if should_request_host():
 		_request_place_item.rpc_id(1, target_net_id, buildable_id, grid_pos, rotation_y, edge)
 
 
-func request_demolish(target_net_id: int, grid_pos: Vector2i, edge: int) -> void:
+func request_demolish(target_net_id: int, grid_pos: Vector3i, edge: int) -> void:
 	if should_request_host():
 		_request_demolish.rpc_id(1, target_net_id, grid_pos, edge)
 
@@ -191,17 +196,22 @@ func request_damage(target_net_id: int, amount: float) -> void:
 		_request_damage.rpc_id(1, target_net_id, amount)
 
 
-func replicate_place_floor(target_net_id: int, floor_net_id: int, grid_pos: Vector2i) -> void:
+func replicate_place_floor(target_net_id: int, floor_net_id: int, grid_pos: Vector3i) -> void:
 	if is_networked() and multiplayer.is_server():
 		_apply_place_floor.rpc(target_net_id, floor_net_id, grid_pos)
 
 
-func replicate_place_item(target_net_id: int, item_net_id: int, buildable_id: String, grid_pos: Vector2i, rotation_y: float, edge: int) -> void:
+func replicate_place_ceiling(target_net_id: int, ceiling_net_id: int, grid_pos: Vector3i) -> void:
+	if is_networked() and multiplayer.is_server():
+		_apply_place_ceiling.rpc(target_net_id, ceiling_net_id, grid_pos)
+
+
+func replicate_place_item(target_net_id: int, item_net_id: int, buildable_id: String, grid_pos: Vector3i, rotation_y: float, edge: int) -> void:
 	if is_networked() and multiplayer.is_server():
 		_apply_place_item.rpc(target_net_id, item_net_id, buildable_id, grid_pos, rotation_y, edge)
 
 
-func replicate_demolish(target_net_id: int, grid_pos: Vector2i, edge: int) -> void:
+func replicate_demolish(target_net_id: int, grid_pos: Vector3i, edge: int) -> void:
 	if is_networked() and multiplayer.is_server():
 		_apply_demolish.rpc(target_net_id, grid_pos, edge)
 
@@ -308,21 +318,28 @@ func _request_place_chassis(hit_point: Vector3) -> void:
 
 
 @rpc("any_peer", "reliable")
-func _request_place_floor(target_net_id: int, grid_pos: Vector2i) -> void:
+func _request_place_floor(target_net_id: int, grid_pos: Vector3i) -> void:
 	if not multiplayer.is_server():
 		return
 	BuildSystem.server_try_place_floor(multiplayer.get_remote_sender_id(), target_net_id, grid_pos)
 
 
 @rpc("any_peer", "reliable")
-func _request_place_item(target_net_id: int, buildable_id: String, grid_pos: Vector2i, rotation_y: float, edge: int) -> void:
+func _request_place_ceiling(target_net_id: int, grid_pos: Vector3i) -> void:
+	if not multiplayer.is_server():
+		return
+	BuildSystem.server_try_place_ceiling(multiplayer.get_remote_sender_id(), target_net_id, grid_pos)
+
+
+@rpc("any_peer", "reliable")
+func _request_place_item(target_net_id: int, buildable_id: String, grid_pos: Vector3i, rotation_y: float, edge: int) -> void:
 	if not multiplayer.is_server():
 		return
 	BuildSystem.server_try_place_item(multiplayer.get_remote_sender_id(), target_net_id, buildable_id, grid_pos, rotation_y, edge)
 
 
 @rpc("any_peer", "reliable")
-func _request_demolish(target_net_id: int, grid_pos: Vector2i, edge: int) -> void:
+func _request_demolish(target_net_id: int, grid_pos: Vector3i, edge: int) -> void:
 	if not multiplayer.is_server():
 		return
 	BuildSystem.server_try_demolish(multiplayer.get_remote_sender_id(), target_net_id, grid_pos, edge)
@@ -338,17 +355,22 @@ func _request_damage(target_net_id: int, amount: float) -> void:
 
 
 @rpc("authority", "reliable")
-func _apply_place_floor(target_net_id: int, floor_net_id: int, grid_pos: Vector2i) -> void:
+func _apply_place_floor(target_net_id: int, floor_net_id: int, grid_pos: Vector3i) -> void:
 	run_remote_apply(func(): return BuildSystem.apply_network_floor(target_net_id, floor_net_id, grid_pos))
 
 
 @rpc("authority", "reliable")
-func _apply_place_item(target_net_id: int, item_net_id: int, buildable_id: String, grid_pos: Vector2i, rotation_y: float, edge: int) -> void:
+func _apply_place_ceiling(target_net_id: int, ceiling_net_id: int, grid_pos: Vector3i) -> void:
+	run_remote_apply(func(): return BuildSystem.apply_network_ceiling(target_net_id, ceiling_net_id, grid_pos))
+
+
+@rpc("authority", "reliable")
+func _apply_place_item(target_net_id: int, item_net_id: int, buildable_id: String, grid_pos: Vector3i, rotation_y: float, edge: int) -> void:
 	run_remote_apply(func(): return BuildSystem.apply_network_item(target_net_id, item_net_id, buildable_id, grid_pos, rotation_y, edge))
 
 
 @rpc("authority", "reliable")
-func _apply_demolish(target_net_id: int, grid_pos: Vector2i, edge: int) -> void:
+func _apply_demolish(target_net_id: int, grid_pos: Vector3i, edge: int) -> void:
 	run_remote_apply(func(): return BuildSystem.apply_network_demolish(target_net_id, grid_pos, edge))
 
 
@@ -531,9 +553,11 @@ func _stream_children_placeables_to_peer(peer_id: int, root: Node) -> void:
 			if parent_net_id <= 0 or child_net_id <= 0:
 				continue
 			if build_id.is_empty():
-				# Assume floor piece
 				var grid_pos := _infer_grid_pos_from_child(root, child)
-				_apply_place_floor.rpc_id(peer_id, parent_net_id, child_net_id, grid_pos)
+				if child.has_meta("is_ceiling") and bool(child.get_meta("is_ceiling")):
+					_apply_place_ceiling.rpc_id(peer_id, parent_net_id, child_net_id, grid_pos)
+				else:
+					_apply_place_floor.rpc_id(peer_id, parent_net_id, child_net_id, grid_pos)
 			else:
 				var grid_pos2 := _infer_grid_pos_from_child(root, child)
 				var edge := int(child.get_meta("edge_side", -1))
@@ -541,12 +565,13 @@ func _stream_children_placeables_to_peer(peer_id: int, root: Node) -> void:
 		_stream_children_placeables_to_peer(peer_id, child)
 
 
-func _infer_grid_pos_from_child(parent: Node, child: Node) -> Vector2i:
+func _infer_grid_pos_from_child(parent: Node, child: Node) -> Vector3i:
 	if child.has_meta("grid_pos_x") and child.has_meta("grid_pos_y"):
-		return Vector2i(int(child.get_meta("grid_pos_x")), int(child.get_meta("grid_pos_y")))
+		var level: int = int(child.get_meta("grid_pos_z", 0))
+		return Vector3i(int(child.get_meta("grid_pos_x")), int(child.get_meta("grid_pos_y")), level)
 	if parent.has_method("get_grid_position") and child is Node3D:
 		return parent.get_grid_position((child as Node3D).global_position)
-	return Vector2i.ZERO
+	return Vector3i.ZERO
 
 
 func _stream_placeable_spawn(_peer_id: int, _node: Node) -> void:
