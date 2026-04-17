@@ -248,7 +248,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if BuildSystem.is_building:
 			if _can_batch_build_current_mode():
-				_begin_batch_build()
+				if not _begin_batch_build():
+					_cancel_batch_build()
+					_try_build()
 			else:
 				_cancel_batch_build()
 				_try_build()
@@ -529,7 +531,7 @@ func _try_build() -> void:
 				BuildSystem.try_demolish(hit_point, target)
 
 func _can_batch_build_current_mode() -> bool:
-	return BuildSystem.mode == BuildSystem.BuildMode.FLOOR or _is_wall_batch_mode()
+	return BuildSystem.mode == BuildSystem.BuildMode.FLOOR or _is_wall_batch_mode() or BuildSystem.mode == BuildSystem.BuildMode.DEMOLISH
 
 func _is_wall_batch_mode() -> bool:
 	if BuildSystem.mode != BuildSystem.BuildMode.ITEM or BuildSystem.current_buildable_data == null:
@@ -539,10 +541,10 @@ func _is_wall_batch_mode() -> bool:
 		BuildableData.Category.BARRICADE,
 	]
 
-func _begin_batch_build() -> void:
+func _begin_batch_build() -> bool:
 	var context: Dictionary = _get_batch_build_context()
 	if context.is_empty():
-		return
+		return false
 	_batch_build_active = true
 	_batch_build_mode = BuildSystem.mode
 	_batch_build_target = context["target"] as Node
@@ -550,6 +552,7 @@ func _begin_batch_build() -> void:
 	_batch_build_end_grid = _batch_build_start_grid
 	_batch_build_edge = int(context.get("edge", BuildSystem.EdgeSide.NONE))
 	_update_batch_build_text()
+	return true
 
 func _update_batch_build() -> void:
 	if not _batch_build_active:
@@ -577,12 +580,19 @@ func _commit_batch_build() -> void:
 	elif _batch_build_mode == BuildSystem.BuildMode.ITEM and _batch_build_edge != BuildSystem.EdgeSide.NONE:
 		for grid_pos in _get_wall_batch_positions():
 			BuildSystem.try_place_item(_edge_hit_point(_batch_build_target, grid_pos, _batch_build_edge), _batch_build_target)
+	elif _batch_build_mode == BuildSystem.BuildMode.DEMOLISH:
+		for entry in _get_demolish_batch_entries():
+			var demolish_grid_pos: Vector2i = entry["grid_pos"]
+			var edge: int = int(entry["edge"])
+			BuildSystem.try_demolish_entry(_batch_build_target, demolish_grid_pos, edge)
 
 func _get_batch_build_context() -> Dictionary:
 	if BuildSystem.mode == BuildSystem.BuildMode.FLOOR:
 		return _get_floor_build_context()
 	if _is_wall_batch_mode():
 		return _get_wall_build_context()
+	if BuildSystem.mode == BuildSystem.BuildMode.DEMOLISH:
+		return _get_demolish_build_context()
 	return {}
 
 func _get_floor_build_context() -> Dictionary:
@@ -626,6 +636,21 @@ func _get_wall_build_context() -> Dictionary:
 		"edge": _detect_edge_from_hit_for_batch(target, hit_point, grid_pos),
 	}
 
+func _get_demolish_build_context() -> Dictionary:
+	if not build_ray.is_colliding():
+		return {}
+	var hit_point: Vector3 = build_ray.get_collision_point()
+	var collider: Object = build_ray.get_collider()
+	if collider == null:
+		return {}
+	var target: Node = _find_build_target(collider as Node)
+	if target == null:
+		return {}
+	var p: Variant = _get_build_point_on_target(target)
+	if p is Vector3:
+		hit_point = p
+	return BuildSystem.get_demolish_context_at(target, hit_point)
+
 func _get_floor_batch_positions() -> Array[Vector2i]:
 	var positions: Array[Vector2i] = []
 	var step_x: int = 1 if _batch_build_end_grid.x >= _batch_build_start_grid.x else -1
@@ -647,6 +672,22 @@ func _get_wall_batch_positions() -> Array[Vector2i]:
 			positions.append(Vector2i(_batch_build_start_grid.x, y))
 	return positions
 
+func _get_demolish_batch_entries() -> Array[Dictionary]:
+	var entries: Array[Dictionary] = []
+	if _batch_build_edge == BuildSystem.DEMOLISH_FLOOR_EDGE:
+		for grid_pos in _get_floor_batch_positions():
+			entries.append({
+				"grid_pos": grid_pos,
+				"edge": BuildSystem.DEMOLISH_FLOOR_EDGE,
+			})
+	else:
+		for grid_pos in _get_wall_batch_positions():
+			entries.append({
+				"grid_pos": grid_pos,
+				"edge": _batch_build_edge,
+			})
+	return entries
+
 func _update_batch_build_text() -> void:
 	if _batch_build_mode == BuildSystem.BuildMode.FLOOR:
 		var width: int = absi(_batch_build_end_grid.x - _batch_build_start_grid.x) + 1
@@ -659,6 +700,16 @@ func _update_batch_build_text() -> void:
 		if hud != null and hud.has_method("show_build_drag_info"):
 			hud.show_build_drag_info("Walls: 1x%d - relache pour construire" % count)
 		BuildSystem.show_batch_wall_preview(_batch_build_target, _get_wall_batch_positions(), _batch_build_edge)
+	elif _batch_build_mode == BuildSystem.BuildMode.DEMOLISH:
+		var demolish_entries: Array[Dictionary] = _get_demolish_batch_entries()
+		if hud != null and hud.has_method("show_build_drag_info"):
+			if _batch_build_edge == BuildSystem.DEMOLISH_FLOOR_EDGE:
+				var demolish_width: int = absi(_batch_build_end_grid.x - _batch_build_start_grid.x) + 1
+				var demolish_length: int = absi(_batch_build_end_grid.y - _batch_build_start_grid.y) + 1
+				hud.show_build_drag_info("Demolish floors: %dx%d (%d) - relache pour casser" % [demolish_width, demolish_length, demolish_entries.size()])
+			else:
+				hud.show_build_drag_info("Demolish walls: %d - relache pour casser" % demolish_entries.size())
+		BuildSystem.show_batch_demolish_preview(_batch_build_target, demolish_entries)
 
 func _cancel_batch_build() -> void:
 	_batch_build_active = false
@@ -1020,12 +1071,32 @@ func _on_build_exit_requested() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func _update_interact_hint() -> void:
+	if _is_inventory_open():
+		hud.hide_interact_hint()
+		hud.hide_harvest_hp()
+		return
 	if interact_ray.is_colliding():
 		var collider: Object = interact_ray.get_collider()
+		var hit: Dictionary = {
+			"position": interact_ray.get_collision_point(),
+			"collider": collider,
+		}
 		if collider and collider.has_method("interact"):
 			if collider is PumpLever:
 				hud.show_interact_hint("[E] Pump")
 				hud.hide_harvest_hp()
+			elif collider.has_method("get_interact_text_at"):
+				hud.show_interact_hint(collider.get_interact_text_at(hit))
+				if collider.is_in_group("harvestable"):
+					hud.show_harvest_hp(collider.hits_remaining, collider.hits_to_harvest)
+				else:
+					hud.hide_harvest_hp()
+			elif collider.has_method("get_interact_text"):
+				hud.show_interact_hint(collider.get_interact_text())
+				if collider.is_in_group("harvestable"):
+					hud.show_harvest_hp(collider.hits_remaining, collider.hits_to_harvest)
+				else:
+					hud.hide_harvest_hp()
 			elif collider is Harvestable or collider.is_in_group("harvestable"):
 				hud.show_interact_hint("[E] Harvest")
 				hud.show_harvest_hp(collider.hits_remaining, collider.hits_to_harvest)
@@ -1037,6 +1108,7 @@ func _update_interact_hint() -> void:
 				hud.hide_harvest_hp()
 			return
 	hud.hide_interact_hint()
+	hud.hide_harvest_hp()
 
 func _try_drop_item() -> void:
 	var slot_index := Inventory.selected_hotbar_index
