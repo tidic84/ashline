@@ -240,6 +240,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif BuildSystem.is_building:
 			_cancel_batch_build()
 			_on_build_exit_requested()
+		else:
+			_try_secondary_interact()
 
 	if event.is_action_pressed("interact"):
 		_try_interact()
@@ -536,6 +538,13 @@ func _try_interact() -> void:
 	var collider: Object = interact_ray.get_collider()
 	if collider and collider.has_method("interact"):
 		collider.interact(self)
+
+func _try_secondary_interact() -> void:
+	if not interact_ray.is_colliding():
+		return
+	var collider: Object = interact_ray.get_collider()
+	if collider and collider.has_method("secondary_interact"):
+		collider.secondary_interact(self)
 
 func _try_shoot() -> void:
 	if current_weapon and current_weapon.has_method("shoot"):
