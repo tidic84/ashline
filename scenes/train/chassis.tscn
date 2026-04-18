@@ -5,35 +5,46 @@
 [ext_resource type="PackedScene" uid="uid://dun3ai0hluacq" path="res://assets/models/train/chassis_wheel.glb" id="3_wheel"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_base"]
-size = Vector3(0.9, 0.25, 0.55)
+size = Vector3(0.9, 1.0185814, 0.55)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_demolish"]
 size = Vector3(1.1, 0.42, 0.86)
 
+[sub_resource type="BoxShape3D" id="BoxShape3D_physical"]
+size = Vector3(1.0152832, 0.18, 0.61861086)
+
 [node name="Chassis" type="StaticBody3D" unique_id=1638682682]
-transform = Transform3D(1.5, 0, 0, 0, 1.5, 0, 0, 0, 1.5, 0, 0, 0)
-collision_layer = 8
+transform = Transform3D(3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0.1, 0)
+collision_layer = 128
 script = ExtResource("1")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=503336864]
-transform = Transform3D(1, 0, 0, 0, 0.41, 0, 0, 0, 1, 0, 0.050304197, 0)
+transform = Transform3D(1, 0, 0, 0, 0.41000003, 0, 0, 0, 1, 0, 0.27755925, 0)
 shape = SubResource("BoxShape3D_base")
 
 [node name="DemolishHitbox" type="CollisionShape3D" parent="." unique_id=1644397022]
-transform = Transform3D(1, 0, 0, 0, 0.8, 0, 0, 0, 1, 0, 0.065, 0)
+transform = Transform3D(1, 0, 0, 0, 0.8, 0, 0, 0, 1, 0, 0.12, 0)
 shape = SubResource("BoxShape3D_demolish")
 
+[node name="PhysicalBody" type="StaticBody3D" parent="." unique_id=1985942998]
+collision_layer = 8
+collision_mask = 0
+
+[node name="PhysicalCollisionShape3D" type="CollisionShape3D" parent="PhysicalBody" unique_id=2068195044]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.00012207031, 0.06, 0.0001428028)
+shape = SubResource("BoxShape3D_physical")
+
 [node name="ChassisBody" parent="." unique_id=1411508706 instance=ExtResource("2_body")]
-transform = Transform3D(-2.5134048e-08, 0, 0.575, 0, 0.575, 0, -0.575, 0, -2.5134048e-08, 0, 0.19, 0)
+transform = Transform3D(-2.5134048e-08, 0, 0.575, 0, 0.575, 0, -0.575, 0, -2.5134048e-08, 0, 0.12, 0)
 
 [node name="Axle_OuterRear" parent="." unique_id=1186519451 instance=ExtResource("3_wheel")]
-transform = Transform3D(-2.5134048e-08, 0, 0.575, 0, 0.575, 0, -0.575, 0, -2.5134048e-08, 0, 0.19, -0.25850576)
+transform = Transform3D(-2.5134048e-08, 0, 0.575, 0, 0.575, 0, -0.575, 0, -2.5134048e-08, 0, 0.12, -0.25850576)
 
 [node name="Axle_InnerRear" parent="." unique_id=1200064177 instance=ExtResource("3_wheel")]
-transform = Transform3D(-2.5134048e-08, 0, 0.575, 0, 0.575, 0, -0.575, 0, -2.5134048e-08, 0, 0.19, -0.06982978)
+transform = Transform3D(-2.5134048e-08, 0, 0.575, 0, 0.575, 0, -0.575, 0, -2.5134048e-08, 0, 0.12, -0.06982978)
 
 [node name="Axle_InnerFront" parent="." unique_id=1633488889 instance=ExtResource("3_wheel")]
-transform = Transform3D(-2.5134048e-08, 0, 0.575, 0, 0.575, 0, -0.575, 0, -2.5134048e-08, 0, 0.19, 0.07629396)
+transform = Transform3D(-2.5134048e-08, 0, 0.575, 0, 0.575, 0, -0.575, 0, -2.5134048e-08, 0, 0.12, 0.07629396)
 
 [node name="Axle_OuterFront" parent="." unique_id=1388475845 instance=ExtResource("3_wheel")]
-transform = Transform3D(-2.5134048e-08, 0, 0.575, 0, 0.575, 0, -0.575, 0, -2.5134048e-08, 0, 0.19, 0.26269102)
+transform = Transform3D(-2.5134048e-08, 0, 0.575, 0, 0.575, 0, -0.575, 0, -2.5134048e-08, 0, 0.12, 0.26269102)

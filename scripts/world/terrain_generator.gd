@@ -11,9 +11,10 @@ enum Biome { PLAINS, FOREST, DESERT, SNOW, MOUNTAIN }
 enum SegmentType { GROUND, BRIDGE, TUNNEL }
 
 @export var ground_offset: float = 0.20
-@export var roadbed_half_width: float = 2.5
-@export var roadbed_blend_width: float = 3.5
-@export var rail_gauge: float = 1.0
+@export var roadbed_half_width: float = 5.0
+@export var roadbed_blend_width: float = 7.0
+@export var rail_gauge: float = 2.0
+@export_range(0.1, 10.0, 0.01, "or_greater") var rail_width_scale: float = 2.0
 @export var rail_follow_pitch: bool = true
 @export var rail_use_deformed_mesh: bool = true
 @export var rail_auto_section_length: bool = true
@@ -314,6 +315,7 @@ func _build_rail_meshes(idx: int = 0) -> void:
 			return
 
 	if _rail_section_scene != null:
+		var width_scale: float = maxf(rail_width_scale, 0.1)
 		var section_length: float = maxf(rail_section_length, 0.2)
 		if total_len > 0.0:
 			var temp_instance: Node = _rail_section_scene.instantiate()
@@ -338,7 +340,7 @@ func _build_rail_meshes(idx: int = 0) -> void:
 				for i in range(section_count):
 					var t_offset: float = offsets[i]
 					var t := _sample_track_transform(t_offset)
-					t.basis = t.basis * rot90
+					t.basis = (t.basis * rot90).scaled(Vector3(width_scale, 1.0, 1.0))
 					mm.set_instance_transform(i, t)
 				var mmi := MultiMeshInstance3D.new()
 				mmi.name = "RailSections"
@@ -350,6 +352,7 @@ func _build_rail_meshes(idx: int = 0) -> void:
 
 
 func _build_fallback_rails(rail_container: Node3D, total_len: float) -> void:
+	var width_scale: float = maxf(rail_width_scale, 0.1)
 	var step: float = maxf(rail_section_length * 0.25, 0.2)
 	var samples: Array[Transform3D] = []
 	var offset: float = 0.0
@@ -375,7 +378,7 @@ func _build_fallback_rails(rail_container: Node3D, total_len: float) -> void:
 	var tie_count: int = int(total_len / tie_spacing)
 	if tie_count > 0:
 		var tm := BoxMesh.new()
-		tm.size = Vector3(1.6, 0.08, 0.12)
+		tm.size = Vector3(1.6 * width_scale, 0.08, 0.12)
 		tm.surface_set_material(0, tie_mat)
 		var tmm := MultiMesh.new()
 		tmm.transform_format = MultiMesh.TRANSFORM_3D
@@ -437,6 +440,7 @@ func _find_first_mesh_and_xf(node: Node, parent_xf: Transform3D) -> Array:
 func _build_deformed_rail_section_mesh(total_len: float, section_scene: PackedScene) -> ArrayMesh:
 	if _rail_curve == null or total_len <= 0.001:
 		return null
+	var width_scale: float = maxf(rail_width_scale, 0.1)
 	var temp: Node = section_scene.instantiate()
 	var found := _find_first_mesh_and_xf(temp, Transform3D.IDENTITY)
 	if found.size() == 0:
@@ -489,7 +493,7 @@ func _build_deformed_rail_section_mesh(total_len: float, section_scene: PackedSc
 				var v_local: Vector3 = src_xf * src_verts[i]
 				var along: float = base_arc + (v_local.x - x_min) * x_scale
 				along = clampf(along, 0.0, total_len)
-				var lateral: float = -v_local.z
+				var lateral: float = -v_local.z * width_scale
 				var vertical: float = v_local.y
 				var t := _sample_track_transform(along)
 				var right: Vector3 = t.basis.x
@@ -571,7 +575,8 @@ func _transform_aabb(aabb: AABB, xf: Transform3D) -> AABB:
 
 
 func _build_rail_strip(samples: Array[Transform3D], lateral_offset: float, mat: Material) -> ArrayMesh:
-	var hw: float = 0.025
+	var width_scale: float = maxf(rail_width_scale, 0.1)
+	var hw: float = 0.025 * width_scale
 	var hh: float = 0.05
 	var verts := PackedVector3Array()
 	var norms := PackedVector3Array()

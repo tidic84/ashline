@@ -5,7 +5,7 @@ signal floor_placed(grid_pos: Vector3i)
 signal ceiling_placed(grid_pos: Vector3i)
 
 const GRID_SIZE: float = 1.0
-const BUILD_SURFACE_LOCAL_Y: float = 0.4
+const BUILD_SURFACE_LOCAL_Y: float = 0.63
 const CEILING_HEIGHT_OFFSET: float = 2.05
 const EDGE_NORTH: int = 1
 const EDGE_SOUTH: int = 2
