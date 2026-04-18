@@ -143,18 +143,26 @@ func _make_icon_preview(texture: Texture2D, panel_size: Vector2, icon_size: Vect
 	return wrapper
 
 func _slot_style(selected: bool) -> StyleBoxFlat:
+	# Warm parchment/leather slot; selected gets a bright aged-gold frame.
 	var s := StyleBoxFlat.new()
-	s.bg_color = Color(0.12, 0.12, 0.12, 0.90)
+	s.bg_color = Color(0.115, 0.095, 0.072, 0.98)
+	s.corner_radius_top_left     = 3
+	s.corner_radius_top_right    = 3
+	s.corner_radius_bottom_left  = 3
+	s.corner_radius_bottom_right = 3
 	if selected:
 		s.border_width_top = 2
 		s.border_width_left = 2
 		s.border_width_right = 2
 		s.border_width_bottom = 2
-		s.border_color = Color(0.95, 0.86, 0.18, 1.0)
+		s.border_color = Color(0.985, 0.830, 0.430, 1.0)
+		s.bg_color = Color(0.175, 0.135, 0.078, 0.98)
+		s.shadow_color = Color(0.98, 0.70, 0.25, 0.30)
+		s.shadow_size = 4
 	else:
 		s.border_width_top = 1
 		s.border_width_left = 1
 		s.border_width_right = 1
 		s.border_width_bottom = 1
-		s.border_color = Color(0.42, 0.42, 0.42, 0.85)
+		s.border_color = Color(0.245, 0.195, 0.130, 1.0)
 	return s

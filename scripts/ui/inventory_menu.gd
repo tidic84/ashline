@@ -23,7 +23,12 @@ var _char_model: Node3D = null
 var _char_texture_rect: TextureRect = null
 
 var _tooltip_panel: PanelContainer
-var _tooltip_label: Label
+var _tooltip_title: Label
+var _tooltip_subtitle: Label
+var _tooltip_flavor: Label
+var _tooltip_meta: Label
+var _tooltip_hint: Label
+var _tooltip_hint_row: Control
 
 var _tab_buttons: Array[Button] = []
 var _inventory_view: Control
@@ -144,23 +149,106 @@ func _build_ui() -> void:
 	_craft_view.visible = false
 	content_stack.add_child(_craft_view)
 
+	_add_divider(root_vbox)
+	_build_legend(root_vbox)
+
 	_build_tooltip()
+
+
+func _build_legend(parent: VBoxContainer) -> void:
+	# Keybind hint row along the bottom of the panel — mirrors the reference legend.
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 18)
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	parent.add_child(row)
+
+	var entries: Array = [
+		{"key": "Clic G.", "label": "Utiliser / Équiper"},
+		{"key": "Glisser", "label": "Déplacer"},
+		{"key": "Alt",     "label": "Diviser la pile"},
+		{"key": "Clic D.", "label": "Jeter"},
+		{"key": "Échap",   "label": "Fermer"},
+	]
+	for e in entries:
+		row.add_child(_make_legend_entry(e["key"], e["label"]))
+
+
+func _make_legend_entry(key_text: String, label_text: String) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	# Key pill — small rounded panel with uppercase glyph
+	var pill := PanelContainer.new()
+	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.050, 0.040, 0.028, 1.0)
+	sb.border_width_top    = 1
+	sb.border_width_left   = 1
+	sb.border_width_right  = 1
+	sb.border_width_bottom = 1
+	sb.border_color = C_BORDER
+	sb.corner_radius_top_left     = 3
+	sb.corner_radius_top_right    = 3
+	sb.corner_radius_bottom_left  = 3
+	sb.corner_radius_bottom_right = 3
+	sb.content_margin_left   = 8
+	sb.content_margin_right  = 8
+	sb.content_margin_top    = 2
+	sb.content_margin_bottom = 2
+	pill.add_theme_stylebox_override("panel", sb)
+
+	var key_lbl := Label.new()
+	key_lbl.text = key_text
+	key_lbl.add_theme_font_size_override("font_size", 10)
+	key_lbl.add_theme_color_override("font_color", C_TEXT_HI)
+	key_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pill.add_child(key_lbl)
+	row.add_child(pill)
+
+	var desc := Label.new()
+	desc.text = label_text
+	desc.add_theme_font_size_override("font_size", 10)
+	desc.add_theme_color_override("font_color", C_MUTED)
+	desc.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(desc)
+
+	return row
 
 
 func _build_tab_bar(parent: VBoxContainer) -> void:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 2)
+	row.add_theme_constant_override("separation", 4)
 	parent.add_child(row)
+
+	# Left — screen title "CHARACTER" styled as a bold small-caps header.
+	var title_lbl := Label.new()
+	title_lbl.text = "PERSONNAGE"
+	title_lbl.add_theme_font_size_override("font_size", 15)
+	title_lbl.add_theme_color_override("font_color", C_ACCENT)
+	title_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	title_lbl.custom_minimum_size = Vector2(130, 0)
+	title_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(title_lbl)
+
+	# Thin gold vertical separator between title and tabs
+	var sep := ColorRect.new()
+	sep.custom_minimum_size = Vector2(1, 20)
+	sep.color = C_BORDER
+	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(sep)
 
 	_tab_buttons.clear()
 	for i in range(2):
-		var label: String = ["INVENTAIRE", "ARTISANAT"][i]
+		var label: String = ["Inventaire", "Artisanat"][i]
 		var btn := Button.new()
 		btn.text = label
-		btn.add_theme_font_size_override("font_size", 12)
+		btn.add_theme_font_size_override("font_size", 13)
 		btn.toggle_mode = true
 		btn.button_pressed = (i == 0)
 		btn.focus_mode = Control.FOCUS_NONE
+		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 		var idx := i
 		btn.pressed.connect(func(): _switch_tab(idx))
 		_style_tab_button(btn, i == 0)
@@ -171,24 +259,76 @@ func _build_tab_bar(parent: VBoxContainer) -> void:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(spacer)
 
+	# Right — player name pill followed by a gold diamond level badge
+	var name_lbl := Label.new()
+	name_lbl.text = "UZUMAKI"
+	name_lbl.add_theme_font_size_override("font_size", 14)
+	name_lbl.add_theme_color_override("font_color", C_TEXT_HI)
+	name_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(name_lbl)
+
+	var level_badge := _make_level_badge(4)
+	row.add_child(level_badge)
+
+	# Subtle close button styled as a glyph on the right edge
 	var close_btn := Button.new()
-	close_btn.text = "FERMER  [Echap]"
+	close_btn.text = "Fermer  [Echap]"
 	close_btn.add_theme_font_size_override("font_size", 10)
 	close_btn.focus_mode = Control.FOCUS_NONE
+	close_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	var sb_close := StyleBoxFlat.new()
 	sb_close.bg_color = Color(0, 0, 0, 0)
-	sb_close.border_width_top    = 0
-	sb_close.border_width_left   = 0
-	sb_close.border_width_right  = 0
-	sb_close.border_width_bottom = 1
-	sb_close.border_color = Color(0.50, 0.18, 0.12, 1.0)
+	sb_close.content_margin_left   = 10
+	sb_close.content_margin_right  = 10
+	sb_close.content_margin_top    = 6
+	sb_close.content_margin_bottom = 6
 	close_btn.add_theme_stylebox_override("normal", sb_close)
 	var sb_close_h := sb_close.duplicate() as StyleBoxFlat
-	sb_close_h.bg_color = Color(0.20, 0.06, 0.04, 0.5)
+	sb_close_h.bg_color = Color(C_DANGER.r, C_DANGER.g, C_DANGER.b, 0.12)
+	sb_close_h.border_width_bottom = 2
+	sb_close_h.border_color = C_DANGER
 	close_btn.add_theme_stylebox_override("hover", sb_close_h)
-	close_btn.add_theme_color_override("font_color", Color(0.68, 0.32, 0.28, 1.0))
+	close_btn.add_theme_color_override("font_color", Color(0.72, 0.38, 0.32, 1.0))
+	close_btn.add_theme_color_override("font_hover_color", Color(0.95, 0.68, 0.58, 1.0))
 	close_btn.pressed.connect(func(): closed.emit())
 	row.add_child(close_btn)
+
+
+func _make_level_badge(level: int) -> Control:
+	# Diamond-shaped gold badge (rotated square) with the level number.
+	var holder := Control.new()
+	holder.custom_minimum_size = Vector2(34, 30)
+	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var diamond := Panel.new()
+	diamond.custom_minimum_size = Vector2(22, 22)
+	diamond.size = Vector2(22, 22)
+	diamond.position = Vector2(6, 4)
+	diamond.rotation = PI / 4.0
+	diamond.pivot_offset = Vector2(11, 11)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.20, 0.15, 0.08, 1.0)
+	sb.border_width_top    = 2
+	sb.border_width_left   = 2
+	sb.border_width_right  = 2
+	sb.border_width_bottom = 2
+	sb.border_color = C_ACCENT
+	diamond.add_theme_stylebox_override("panel", sb)
+	diamond.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(diamond)
+
+	var lvl_lbl := Label.new()
+	lvl_lbl.text = str(level)
+	lvl_lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	lvl_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lvl_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lvl_lbl.add_theme_font_size_override("font_size", 13)
+	lvl_lbl.add_theme_color_override("font_color", C_ACCENT_HI)
+	lvl_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(lvl_lbl)
+
+	return holder
 
 
 func _switch_tab(index: int) -> void:
@@ -222,7 +362,7 @@ func _build_left_section() -> VBoxContainer:
 	vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	vbox.mouse_filter = Control.MOUSE_FILTER_PASS
 
-	_add_section_label(vbox, "BARRE D'ACTION  ( Glisser pour réorganiser )")
+	_add_section_label(vbox, "Barre d'action")
 
 	var hotbar_wrap := PanelContainer.new()
 	hotbar_wrap.add_theme_stylebox_override("panel", _make_inset_style())
@@ -251,7 +391,7 @@ func _build_left_section() -> VBoxContainer:
 		hotbar_row.add_child(slot)
 		_hotbar_ui.append(slot)
 
-	_add_section_label(vbox, "SAC A DOS")
+	_add_section_label(vbox, "Sac à dos")
 
 	var backpack_wrap := PanelContainer.new()
 	backpack_wrap.add_theme_stylebox_override("panel", _make_inset_style())
@@ -291,36 +431,41 @@ func _build_left_section() -> VBoxContainer:
 
 
 func _build_equipment_section() -> VBoxContainer:
+	# Middle column: ARMOR in a 2×2 grid, then ACCESSORIES, then AMMO.
+	# Labels sit above each section, empty slots show a subtle silhouette glyph.
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 10)
-	vbox.custom_minimum_size = Vector2(156, 0)
+	vbox.add_theme_constant_override("separation", 14)
+	vbox.custom_minimum_size = Vector2(170, 0)
 
-	_add_section_label(vbox, "ARMURE")
+	_add_section_label(vbox, "Armure")
 
 	var armor_grid := GridContainer.new()
 	armor_grid.columns = 2
-	armor_grid.add_theme_constant_override("h_separation", 6)
-	armor_grid.add_theme_constant_override("v_separation", 6)
+	armor_grid.add_theme_constant_override("h_separation", 8)
+	armor_grid.add_theme_constant_override("v_separation", 8)
 	vbox.add_child(armor_grid)
 
-	for name_text in ["TÊTE", "TORSE", "JAMBES", "PIEDS"]:
-		armor_grid.add_child(_make_equip_slot(name_text, "⬡"))
+	# Unicode silhouettes evoke the armor piece without needing icon assets.
+	armor_grid.add_child(_make_equip_slot("⛑"))   # Helm
+	armor_grid.add_child(_make_equip_slot("🛡"))   # Cuirass
+	armor_grid.add_child(_make_equip_slot("👖"))   # Legs
+	armor_grid.add_child(_make_equip_slot("👢"))   # Boots
 
-	_add_section_label(vbox, "ACCESSOIRES")
+	_add_section_label(vbox, "Accessoires")
 
 	var acc_row := HBoxContainer.new()
-	acc_row.add_theme_constant_override("separation", 6)
+	acc_row.add_theme_constant_override("separation", 8)
 	vbox.add_child(acc_row)
-	for name_text in ["BAGUE", "COLLIER"]:
-		acc_row.add_child(_make_equip_slot(name_text, "◈"))
+	acc_row.add_child(_make_equip_slot("◈"))  # Ring
+	acc_row.add_child(_make_equip_slot("⚜"))  # Necklace
 
-	_add_section_label(vbox, "MUNITIONS")
+	_add_section_label(vbox, "Munitions")
 
 	var ammo_row := HBoxContainer.new()
-	ammo_row.add_theme_constant_override("separation", 6)
+	ammo_row.add_theme_constant_override("separation", 8)
 	vbox.add_child(ammo_row)
-	for name_text in ["PRIM.", "ALT."]:
-		ammo_row.add_child(_make_equip_slot(name_text, "◉"))
+	ammo_row.add_child(_make_equip_slot("◉"))
+	ammo_row.add_child(_make_equip_slot("◉"))
 
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -329,55 +474,46 @@ func _build_equipment_section() -> VBoxContainer:
 	return vbox
 
 
-func _make_equip_slot(slot_label: String, _icon_char: String) -> VBoxContainer:
-	var wrapper := VBoxContainer.new()
-	wrapper.add_theme_constant_override("separation", 2)
-
-	var name_lbl := Label.new()
-	name_lbl.text = slot_label
-	name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	name_lbl.add_theme_font_size_override("font_size", 9)
-	name_lbl.add_theme_color_override("font_color", C_MUTED)
-	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	wrapper.add_child(name_lbl)
-
+func _make_equip_slot(icon_char: String) -> PanelContainer:
+	# Single-slot panel: warm recessed well, soft silhouette glyph when empty.
 	var slot_bg := PanelContainer.new()
-	slot_bg.custom_minimum_size = Vector2(64, 58)
+	slot_bg.custom_minimum_size = Vector2(72, 62)
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = C_DEEP
+	sb.bg_color = C_SLOT_EMPTY
 	sb.border_width_top    = 1
 	sb.border_width_left   = 1
 	sb.border_width_right  = 1
 	sb.border_width_bottom = 1
 	sb.border_color = C_BORDER
+	sb.corner_radius_top_left     = 3
+	sb.corner_radius_top_right    = 3
+	sb.corner_radius_bottom_left  = 3
+	sb.corner_radius_bottom_right = 3
 	slot_bg.add_theme_stylebox_override("panel", sb)
-	wrapper.add_child(slot_bg)
 
-	# Diagonal cross lines — "empty slot" indicator
-	var cross_lbl := Label.new()
-	cross_lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	cross_lbl.text = "—"
-	cross_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	cross_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	cross_lbl.add_theme_font_size_override("font_size", 18)
-	cross_lbl.add_theme_color_override("font_color", Color(C_BORDER.r, C_BORDER.g, C_BORDER.b, 0.5))
-	cross_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	slot_bg.add_child(cross_lbl)
+	var glyph := Label.new()
+	glyph.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	glyph.text = icon_char
+	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	glyph.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	glyph.add_theme_font_size_override("font_size", 24)
+	glyph.add_theme_color_override("font_color", Color(C_MUTED.r, C_MUTED.g, C_MUTED.b, 0.55))
+	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	slot_bg.add_child(glyph)
 
-	return wrapper
+	return slot_bg
 
 
 func _build_character_section() -> VBoxContainer:
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 8)
-	vbox.custom_minimum_size = Vector2(220, 0)
+	vbox.add_theme_constant_override("separation", 10)
+	vbox.custom_minimum_size = Vector2(240, 0)
 
 	var char_panel := PanelContainer.new()
 	char_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	char_panel.add_theme_stylebox_override("panel", _make_inset_style(C_DEEP))
 	vbox.add_child(char_panel)
 
-	# Character viewport texture placeholder (filled after _setup_character_viewport)
 	_char_texture_rect = TextureRect.new()
 	_char_texture_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_char_texture_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -385,7 +521,6 @@ func _build_character_section() -> VBoxContainer:
 	_char_texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	char_panel.add_child(_char_texture_rect)
 
-	# Label overlay while loading
 	var loading_lbl := Label.new()
 	loading_lbl.text = "Personnage"
 	loading_lbl.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
@@ -395,40 +530,85 @@ func _build_character_section() -> VBoxContainer:
 	loading_lbl.name = "LoadingLabel"
 	char_panel.add_child(loading_lbl)
 
-	# Stats panel
+	# Compact stat icon strip (reference-inspired: eye, spark, heart, blade with numeric values)
+	var stat_strip := _build_stat_icon_strip()
+	vbox.add_child(stat_strip)
+
+	# Slim bars below for survival (health / hunger / thirst)
 	var stats_panel := PanelContainer.new()
 	stats_panel.add_theme_stylebox_override("panel", _make_inset_style())
 	vbox.add_child(stats_panel)
 
 	var stats_margin := MarginContainer.new()
-	_set_margins(stats_margin, 10, 8, 10, 8)
+	_set_margins(stats_margin, 12, 10, 12, 10)
 	stats_panel.add_child(stats_margin)
 
 	var stats_vbox := VBoxContainer.new()
-	stats_vbox.add_theme_constant_override("separation", 5)
+	stats_vbox.add_theme_constant_override("separation", 6)
 	stats_margin.add_child(stats_vbox)
 
-	var h := _add_stat_bar(stats_vbox, "SANTÉ", Color(0.80, 0.22, 0.22, 1.0))
+	var h := _add_stat_bar(stats_vbox, "Santé", Color(0.80, 0.22, 0.22, 1.0))
 	_stat_health_fill = h[0] as ColorRect
 	_stat_health_empty = h[1] as ColorRect
-	var f := _add_stat_bar(stats_vbox, "FAIM", Color(0.82, 0.62, 0.18, 1.0))
+	var f := _add_stat_bar(stats_vbox, "Faim",  Color(0.82, 0.62, 0.18, 1.0))
 	_stat_hunger_fill = f[0] as ColorRect
 	_stat_hunger_empty = f[1] as ColorRect
-	var t := _add_stat_bar(stats_vbox, "SOIF", Color(0.22, 0.55, 0.80, 1.0))
+	var t := _add_stat_bar(stats_vbox, "Soif",  Color(0.32, 0.62, 0.82, 1.0))
 	_stat_thirst_fill = t[0] as ColorRect
 	_stat_thirst_empty = t[1] as ColorRect
 
 	return vbox
 
 
+func _build_stat_icon_strip() -> Control:
+	# Four-stat strip: Observation (👁), Agility (⚡), Vigor (♥), Blade (🗡).
+	# Values are cosmetic placeholders matching the reference look.
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 18)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	var stats: Array = [
+		{"glyph": "👁", "value": "0"},
+		{"glyph": "⚡", "value": "0"},
+		{"glyph": "♥", "value": "9"},
+		{"glyph": "🗡", "value": "4"},
+	]
+	for s in stats:
+		var col := VBoxContainer.new()
+		col.alignment = BoxContainer.ALIGNMENT_CENTER
+		col.add_theme_constant_override("separation", 0)
+		col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+		var g := Label.new()
+		g.text = s["glyph"]
+		g.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		g.add_theme_font_size_override("font_size", 18)
+		g.add_theme_color_override("font_color", C_ACCENT)
+		g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col.add_child(g)
+
+		var v := Label.new()
+		v.text = s["value"]
+		v.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		v.add_theme_font_size_override("font_size", 13)
+		v.add_theme_color_override("font_color", C_TEXT_HI)
+		v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col.add_child(v)
+
+		row.add_child(col)
+
+	return row
+
+
 func _add_stat_bar(parent: VBoxContainer, label_text: String, bar_color: Color) -> Array:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 6)
+	row.add_theme_constant_override("separation", 8)
 	parent.add_child(row)
 
 	var lbl := Label.new()
 	lbl.text = label_text
-	lbl.custom_minimum_size = Vector2(48, 0)
+	lbl.custom_minimum_size = Vector2(52, 0)
 	lbl.add_theme_font_size_override("font_size", 10)
 	lbl.add_theme_color_override("font_color", C_MUTED)
 	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -436,7 +616,7 @@ func _add_stat_bar(parent: VBoxContainer, label_text: String, bar_color: Color) 
 	row.add_child(lbl)
 
 	var bar_row := HBoxContainer.new()
-	bar_row.custom_minimum_size = Vector2(0, 6)
+	bar_row.custom_minimum_size = Vector2(0, 7)
 	bar_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bar_row.add_theme_constant_override("separation", 0)
 	bar_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -450,7 +630,7 @@ func _add_stat_bar(parent: VBoxContainer, label_text: String, bar_color: Color) 
 	bar_row.add_child(fill_rect)
 
 	var empty_rect := ColorRect.new()
-	empty_rect.color = Color(0.08, 0.09, 0.10, 1.0)
+	empty_rect.color = Color(0.035, 0.028, 0.022, 1.0)
 	empty_rect.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	empty_rect.size_flags_stretch_ratio = 0.0
 	empty_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -472,7 +652,7 @@ func _build_craft_view() -> Control:
 	list_vbox.custom_minimum_size = Vector2(300, 0)
 	hbox.add_child(list_vbox)
 
-	_add_section_label(list_vbox, "RECETTES DISPONIBLES")
+	_add_section_label(list_vbox, "Recettes disponibles")
 
 	var list_scroll := ScrollContainer.new()
 	list_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -491,7 +671,7 @@ func _build_craft_view() -> Control:
 	detail_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	hbox.add_child(detail_vbox)
 
-	_add_section_label(detail_vbox, "DÉTAILS")
+	_add_section_label(detail_vbox, "Détails")
 
 	var detail_panel := PanelContainer.new()
 	detail_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -515,23 +695,35 @@ func _build_craft_view() -> Control:
 	detail_inner.add_child(_craft_info_label)
 
 	_craft_button = Button.new()
-	_craft_button.text = "FABRIQUER  [F]"
-	_craft_button.add_theme_font_size_override("font_size", 12)
+	_craft_button.text = "Fabriquer  [F]"
+	_craft_button.add_theme_font_size_override("font_size", 13)
 	_craft_button.focus_mode = Control.FOCUS_NONE
+	_craft_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	var sb_craft := StyleBoxFlat.new()
 	sb_craft.bg_color = C_ACCENT
-	sb_craft.border_width_top    = 0
-	sb_craft.border_width_left   = 0
-	sb_craft.border_width_right  = 0
-	sb_craft.border_width_bottom = 0
+	sb_craft.border_width_top    = 1
+	sb_craft.border_width_left   = 1
+	sb_craft.border_width_right  = 1
+	sb_craft.border_width_bottom = 1
+	sb_craft.border_color = C_ACCENT_HI
+	sb_craft.corner_radius_top_left     = 4
+	sb_craft.corner_radius_top_right    = 4
+	sb_craft.corner_radius_bottom_left  = 4
+	sb_craft.corner_radius_bottom_right = 4
+	sb_craft.content_margin_left   = 14
+	sb_craft.content_margin_right  = 14
+	sb_craft.content_margin_top    = 6
+	sb_craft.content_margin_bottom = 6
 	_craft_button.add_theme_stylebox_override("normal", sb_craft)
 	var sb_craft_h := sb_craft.duplicate() as StyleBoxFlat
-	sb_craft_h.bg_color = Color(C_ACCENT.r * 1.2, C_ACCENT.g * 1.2, C_ACCENT.b * 1.2, 1.0)
+	sb_craft_h.bg_color = C_ACCENT_HI
 	_craft_button.add_theme_stylebox_override("hover", sb_craft_h)
-	var sb_craft_d := StyleBoxFlat.new()
-	sb_craft_d.bg_color = Color(0.12, 0.12, 0.14, 1.0)
+	var sb_craft_d := sb_craft.duplicate() as StyleBoxFlat
+	sb_craft_d.bg_color = Color(0.18, 0.15, 0.11, 1.0)
+	sb_craft_d.border_color = C_BORDER
 	_craft_button.add_theme_stylebox_override("disabled", sb_craft_d)
-	_craft_button.add_theme_color_override("font_color", Color(0.06, 0.04, 0.02, 1.0))
+	_craft_button.add_theme_color_override("font_color", Color(0.10, 0.06, 0.02, 1.0))
+	_craft_button.add_theme_color_override("font_hover_color", Color(0.10, 0.06, 0.02, 1.0))
 	_craft_button.add_theme_color_override("font_color_disabled", C_MUTED)
 	_craft_button.pressed.connect(_on_craft_pressed)
 	detail_inner.add_child(_craft_button)
@@ -724,29 +916,101 @@ func _exit_tree() -> void:
 # ─── TOOLTIP ─────────────────────────────────────────────────────────────────
 
 func _build_tooltip() -> void:
+	# Parchment-card tooltip: gold title, muted subtitle, italic flavor, meta + hint footer.
 	_tooltip_panel = PanelContainer.new()
 	_tooltip_panel.visible = false
 	_tooltip_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tooltip_panel.custom_minimum_size = Vector2(232, 0)
 	add_child(_tooltip_panel)
 
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = C_BG
-	sb.border_width_top    = 0
-	sb.border_width_left   = 2
-	sb.border_width_right  = 0
-	sb.border_width_bottom = 0
-	sb.border_color = C_ACCENT
+	sb.bg_color = Color(0.088, 0.070, 0.050, 0.98)
+	sb.border_width_top    = 1
+	sb.border_width_left   = 1
+	sb.border_width_right  = 1
+	sb.border_width_bottom = 1
+	sb.border_color = C_BORDER_LT
+	sb.corner_radius_top_left     = 4
+	sb.corner_radius_top_right    = 4
+	sb.corner_radius_bottom_left  = 4
+	sb.corner_radius_bottom_right = 4
+	sb.shadow_color = Color(0, 0, 0, 0.75)
+	sb.shadow_size = 10
+	sb.shadow_offset = Vector2(0, 3)
 	_tooltip_panel.add_theme_stylebox_override("panel", sb)
 
 	var tooltip_margin := MarginContainer.new()
-	_set_margins(tooltip_margin, 8, 5, 8, 5)
+	_set_margins(tooltip_margin, 12, 10, 12, 10)
 	_tooltip_panel.add_child(tooltip_margin)
 
-	_tooltip_label = Label.new()
-	_tooltip_label.add_theme_font_size_override("font_size", 12)
-	_tooltip_label.add_theme_color_override("font_color", C_TEXT)
-	_tooltip_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	tooltip_margin.add_child(_tooltip_label)
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 4)
+	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tooltip_margin.add_child(vbox)
+
+	_tooltip_title = Label.new()
+	_tooltip_title.add_theme_font_size_override("font_size", 15)
+	_tooltip_title.add_theme_color_override("font_color", C_ACCENT_HI)
+	_tooltip_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(_tooltip_title)
+
+	_tooltip_subtitle = Label.new()
+	_tooltip_subtitle.add_theme_font_size_override("font_size", 10)
+	_tooltip_subtitle.add_theme_color_override("font_color", C_MUTED)
+	_tooltip_subtitle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(_tooltip_subtitle)
+
+	# Thin rule
+	var rule := ColorRect.new()
+	rule.custom_minimum_size = Vector2(0, 1)
+	rule.color = C_BORDER
+	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(rule)
+
+	_tooltip_flavor = Label.new()
+	_tooltip_flavor.add_theme_font_size_override("font_size", 11)
+	_tooltip_flavor.add_theme_color_override("font_color", C_TEXT)
+	_tooltip_flavor.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_tooltip_flavor.custom_minimum_size = Vector2(208, 0)
+	_tooltip_flavor.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(_tooltip_flavor)
+
+	_tooltip_meta = Label.new()
+	_tooltip_meta.add_theme_font_size_override("font_size", 10)
+	_tooltip_meta.add_theme_color_override("font_color", C_MUTED)
+	_tooltip_meta.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(_tooltip_meta)
+
+	_tooltip_hint_row = Control.new()
+	_tooltip_hint_row.custom_minimum_size = Vector2(0, 22)
+	_tooltip_hint_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(_tooltip_hint_row)
+
+	var hint_bg := Panel.new()
+	hint_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var hint_sb := StyleBoxFlat.new()
+	hint_sb.bg_color = Color(0.050, 0.040, 0.028, 1.0)
+	hint_sb.border_width_top    = 1
+	hint_sb.border_width_left   = 1
+	hint_sb.border_width_right  = 1
+	hint_sb.border_width_bottom = 1
+	hint_sb.border_color = C_BORDER
+	hint_sb.corner_radius_top_left     = 3
+	hint_sb.corner_radius_top_right    = 3
+	hint_sb.corner_radius_bottom_left  = 3
+	hint_sb.corner_radius_bottom_right = 3
+	hint_bg.add_theme_stylebox_override("panel", hint_sb)
+	hint_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tooltip_hint_row.add_child(hint_bg)
+
+	_tooltip_hint = Label.new()
+	_tooltip_hint.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_tooltip_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_tooltip_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_tooltip_hint.add_theme_font_size_override("font_size", 10)
+	_tooltip_hint.add_theme_color_override("font_color", C_TEXT_HI)
+	_tooltip_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tooltip_hint_row.add_child(_tooltip_hint)
 
 
 func _process(_delta: float) -> void:
@@ -781,8 +1045,52 @@ func _on_slot_hovered(slot_index: int, item_id: String) -> void:
 	if item_id.is_empty():
 		_tooltip_panel.visible = false
 		return
-	_tooltip_label.text = Inventory.get_item_name(item_id)
+	_tooltip_title.text = Inventory.get_item_name(item_id)
+	_tooltip_subtitle.text = _item_subtitle(item_id)
+	var flavor: String = _item_flavor(item_id)
+	_tooltip_flavor.text = flavor
+	_tooltip_flavor.visible = not flavor.is_empty()
+	_tooltip_meta.text = _item_meta(item_id)
+	_tooltip_meta.visible = not _tooltip_meta.text.is_empty()
+	var hint: String = "Équiper" if slot_index < Inventory.HOTBAR_SIZE else "Glisser pour déplacer"
+	_tooltip_hint.text = hint
+	_tooltip_panel.reset_size()
 	_tooltip_panel.visible = true
+
+
+func _item_subtitle(item_id: String) -> String:
+	# Best-effort classification for the card's subline (e.g. "Ressource, Commun").
+	var kind: String = "Objet"
+	match item_id:
+		"axe", "pickaxe", "hammer": kind = "Outil"
+		"wood", "log", "branch", "stone": kind = "Ressource"
+		"metal", "metal_scrap": kind = "Matériau"
+		"fuel": kind = "Consommable"
+		"components": kind = "Composant"
+	return "%s, Commun" % kind
+
+
+func _item_flavor(item_id: String) -> String:
+	match item_id:
+		"axe":         return "Affûtée par l'usage, fendue par l'ambition."
+		"pickaxe":     return "Les cieux n'attendent pas ceux qui ne creusent pas."
+		"hammer":      return "Le son d'un chantier, la patience d'un forgeron."
+		"wood":        return "Planches brutes, à la sève encore tendre."
+		"log":         return "Grumes fraîchement abattues, prêtes à être fendues."
+		"branch":      return "De petits fagots parfaits pour le foyer."
+		"stone":       return "Pierres des terres basses, lourdes et sûres."
+		"metal":       return "Lingots polis, dignes d'une bonne lame."
+		"metal_scrap": return "Fragments rouillés que l'on recycle volontiers."
+		"fuel":        return "Huile épaisse qui brûle longtemps dans la nuit."
+		"components":  return "Rouages et ressorts — le cœur de toute mécanique."
+	return ""
+
+
+func _item_meta(item_id: String) -> String:
+	var stack: int = int(Inventory.ITEM_STACK_SIZES.get(item_id, 0)) if Inventory.ITEM_STACK_SIZES.has(item_id) else 0
+	if stack > 1:
+		return "Pile max : %d" % stack
+	return ""
 
 func _on_slot_unhovered(_slot_index: int) -> void:
 	_tooltip_panel.visible = false
@@ -892,13 +1200,22 @@ func _can_craft(recipe_id: String) -> bool:
 	return false
 
 
-const C_BG      := Color(0.060, 0.065, 0.070, 0.98)   # panel background
-const C_DEEP    := Color(0.035, 0.038, 0.042, 1.00)   # recessed / inner wells
-const C_BORDER  := Color(0.18,  0.20,  0.22,  1.00)   # subtle border
-const C_ACCENT  := Color(0.72,  0.42,  0.06,  1.00)   # amber — active / highlight
-const C_ACCENT2 := Color(0.72,  0.42,  0.06,  0.30)   # amber dim
-const C_TEXT    := Color(0.80,  0.78,  0.74,  1.00)   # primary text
-const C_MUTED   := Color(0.38,  0.40,  0.44,  1.00)   # secondary / label text
+# ─── PALETTE (warm parchment + aged gold, RPG / pirate feel) ────────────────
+const C_BG        := Color(0.095, 0.078, 0.060, 0.985)  # main panel — warm dark brown
+const C_BG_TOP    := Color(0.135, 0.108, 0.078, 0.985)  # panel top gradient tint
+const C_DEEP      := Color(0.055, 0.045, 0.034, 1.00)   # inner wells (tobacco dark)
+const C_DEEP_EDGE := Color(0.030, 0.024, 0.018, 1.00)   # inner well shadow edge
+const C_SLOT      := Color(0.115, 0.095, 0.072, 1.00)   # item slot fill
+const C_SLOT_EMPTY:= Color(0.070, 0.057, 0.042, 1.00)   # empty slot fill
+const C_BORDER    := Color(0.245, 0.195, 0.130, 1.00)   # warm wood border
+const C_BORDER_LT := Color(0.360, 0.282, 0.180, 1.00)   # brighter wood border
+const C_ACCENT    := Color(0.860, 0.650, 0.260, 1.00)   # aged gold
+const C_ACCENT2   := Color(0.860, 0.650, 0.260, 0.28)   # aged gold, translucent
+const C_ACCENT_HI := Color(0.985, 0.830, 0.430, 1.00)   # bright gold highlight
+const C_TEXT      := Color(0.905, 0.855, 0.745, 1.00)   # warm parchment
+const C_TEXT_HI   := Color(0.985, 0.955, 0.880, 1.00)   # bright parchment (titles)
+const C_MUTED     := Color(0.555, 0.490, 0.395, 1.00)   # warm muted
+const C_DANGER    := Color(0.765, 0.235, 0.210, 1.00)   # ember red
 
 
 func _apply_panel_style(panel: Control, bg: Color, border: Color, border_w: int) -> void:
@@ -909,67 +1226,86 @@ func _apply_panel_style(panel: Control, bg: Color, border: Color, border_w: int)
 	sb.border_width_right  = border_w
 	sb.border_width_bottom = border_w
 	sb.border_color = border
+	sb.border_blend = true
+	sb.corner_radius_top_left     = 4
+	sb.corner_radius_top_right    = 4
+	sb.corner_radius_bottom_left  = 4
+	sb.corner_radius_bottom_right = 4
+	# soft outer shadow for depth
+	sb.shadow_color = Color(0, 0, 0, 0.55)
+	sb.shadow_size = 8
+	sb.shadow_offset = Vector2(0, 2)
 	panel.add_theme_stylebox_override("panel", sb)
 
 
 func _make_inset_style(bg: Color = C_DEEP) -> StyleBoxFlat:
+	# Recessed "leather" well with warm two-tone border
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
 	sb.border_width_top    = 1
 	sb.border_width_left   = 1
 	sb.border_width_right  = 1
 	sb.border_width_bottom = 1
-	sb.border_color = C_BORDER
+	sb.border_color = C_DEEP_EDGE
+	sb.corner_radius_top_left     = 3
+	sb.corner_radius_top_right    = 3
+	sb.corner_radius_bottom_left  = 3
+	sb.corner_radius_bottom_right = 3
+	sb.content_margin_left   = 2
+	sb.content_margin_right  = 2
+	sb.content_margin_top    = 2
+	sb.content_margin_bottom = 2
 	return sb
 
 
 func _style_tab_button(btn: Button, active: bool) -> void:
+	# Reference-inspired tabs: active has a small gold underline dot + brighter label.
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = C_ACCENT2 if active else Color(0, 0, 0, 0)
+	sb.bg_color = Color(0, 0, 0, 0)
 	sb.border_width_top    = 0
 	sb.border_width_left   = 0
 	sb.border_width_right  = 0
-	sb.border_width_bottom = 2 if active else 1
+	sb.border_width_bottom = 2 if active else 0
 	sb.border_color = C_ACCENT if active else C_BORDER
-	sb.expand_margin_left  = 6
-	sb.expand_margin_right = 6
+	sb.content_margin_left   = 14
+	sb.content_margin_right  = 14
+	sb.content_margin_top    = 6
+	sb.content_margin_bottom = 6
 	btn.add_theme_stylebox_override("normal", sb)
 	btn.add_theme_stylebox_override("pressed", sb)
+
 	var sb_h := sb.duplicate() as StyleBoxFlat
-	sb_h.bg_color = C_ACCENT2
+	sb_h.bg_color = Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.10)
+	sb_h.border_width_bottom = 2
+	sb_h.border_color = C_ACCENT2
 	btn.add_theme_stylebox_override("hover", sb_h)
-	btn.add_theme_color_override("font_color", C_ACCENT if active else C_MUTED)
+
+	btn.add_theme_color_override("font_color", C_TEXT_HI if active else C_MUTED)
+	btn.add_theme_color_override("font_hover_color", C_TEXT_HI)
+	btn.add_theme_color_override("font_pressed_color", C_TEXT_HI)
+	btn.add_theme_constant_override("outline_size", 0)
 
 
 func _add_section_label(parent: Control, text: String) -> Label:
-	var hbox := HBoxContainer.new()
-	hbox.add_theme_constant_override("separation", 7)
-	hbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	parent.add_child(hbox)
-
-	var bar := ColorRect.new()
-	bar.custom_minimum_size = Vector2(2, 12)
-	bar.color = C_ACCENT
-	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hbox.add_child(bar)
-
+	# Italic-like serif-feeling caption that sits flush on its panel, as in the reference
 	var lbl := Label.new()
 	lbl.text = text
-	lbl.add_theme_font_size_override("font_size", 10)
+	lbl.add_theme_font_size_override("font_size", 11)
 	lbl.add_theme_color_override("font_color", C_MUTED)
 	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hbox.add_child(lbl)
-
+	parent.add_child(lbl)
 	return lbl
 
 
 func _add_divider(parent: VBoxContainer) -> void:
+	# Thin two-tone gold rule for section separation
 	var sep := HSeparator.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = C_BORDER
 	sb.content_margin_top    = 0
 	sb.content_margin_bottom = 0
 	sep.add_theme_stylebox_override("separator", sb)
+	sep.add_theme_constant_override("separation", 1)
 	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(sep)
 
