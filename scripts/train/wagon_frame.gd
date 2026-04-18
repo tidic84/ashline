@@ -34,6 +34,8 @@ const TRAIN_AUDIO_MAX_DISTANCE: float = 75.0
 var front_bogie: TrainChassis = null
 var rear_bogie: TrainChassis = null
 var is_on_rails: bool = false
+var front_coupler: Node3D = null
+var rear_coupler: Node3D = null
 
 # Coupling: each side (0=front/+Z, 1=back/-Z) may link to another WagonFrame.
 # Chains pick an arbitrary leader; followers store _chain_leader + rail-progress
@@ -1022,3 +1024,30 @@ func _build_collision_surface() -> void:
 	col.transform = Transform3D(Basis.IDENTITY, Vector3(0.0, BUILD_SURFACE_LOCAL_Y, 0.0))
 	_build_surface.add_child(col)
 	add_child(_build_surface)
+	_spawn_couplers()
+
+
+func _spawn_couplers() -> void:
+	if get_meta("is_preview", false):
+		return
+	var coupler_scene := load("res://scenes/building/coupler.tscn") as PackedScene
+	if coupler_scene == null:
+		return
+	var half_z: float = float(wagon_length) * GRID_SIZE * 0.5
+	if front_coupler == null or not is_instance_valid(front_coupler):
+		front_coupler = coupler_scene.instantiate()
+		add_child(front_coupler)
+		front_coupler.position = Vector3(0.0, 0.0, half_z)
+		if front_coupler.has_method("setup"):
+			front_coupler.setup(0)
+	if rear_coupler == null or not is_instance_valid(rear_coupler):
+		rear_coupler = coupler_scene.instantiate()
+		add_child(rear_coupler)
+		rear_coupler.position = Vector3(0.0, 0.0, -half_z)
+		rear_coupler.rotation.y = PI
+		if rear_coupler.has_method("setup"):
+			rear_coupler.setup(1)
+
+
+func get_coupler(side: int) -> Node3D:
+	return front_coupler if side == 0 else rear_coupler

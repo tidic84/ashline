@@ -1,5 +1,7 @@
 extends Node3D
 
+const LOADING_OVERLAY_SCENE: PackedScene = preload("res://scenes/ui/loading_overlay.tscn")
+
 @onready var players_container: Node3D = $Players
 @onready var fps_controller: CharacterBody3D = $UP_FPSController_Prefab
 @onready var build_controller: Node = $BuildController
@@ -33,6 +35,7 @@ func _ready() -> void:
 		Inventory.grant_starter_inventory()
 
 	GraphicsSettings.apply_all()
+	AudioManager.stop_music()
 	AudioManager.force_play_ambient("train_ambience")
 	GameManager.start_game()
 	await get_tree().process_frame
@@ -96,18 +99,9 @@ func _show_loading_overlay(message: String) -> void:
 		return
 	var layer := CanvasLayer.new()
 	layer.layer = 128
-	var rect := ColorRect.new()
-	rect.color = Color(0.06, 0.08, 0.08, 0.92)
-	rect.anchor_right = 1.0
-	rect.anchor_bottom = 1.0
-	layer.add_child(rect)
-	var label := Label.new()
-	label.text = message
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	label.anchor_right = 1.0
-	label.anchor_bottom = 1.0
-	label.add_theme_font_size_override("font_size", 28)
-	layer.add_child(label)
+	var overlay := LOADING_OVERLAY_SCENE.instantiate() as Control
+	if overlay != null and overlay.has_method("set_status"):
+		overlay.call("set_status", message, false, 0.0)
+	layer.add_child(overlay)
 	add_child(layer)
 	_loading_overlay = layer

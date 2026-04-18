@@ -1,6 +1,8 @@
 extends Node
 class_name BuildController
 
+const FootstepAudioHelper = preload("res://scripts/player/footstep_audio.gd")
+
 # Lightweight standalone build/interact controller that plugs into the
 # UP_FPSController (uniplayer) prefab. Handles:
 #  - Opening the build menu (B)
@@ -83,6 +85,14 @@ func _ready() -> void:
 		)
 	GameManager.game_state_changed.connect(_on_game_state_changed)
 	AudioManager.stop_ambient()
+	if _fps.has_signal("footstep"):
+		_fps.connect("footstep", Callable(self, "_on_footstep"))
+
+
+func _on_footstep(_leg: int) -> void:
+	if _fps == null or not is_instance_valid(_fps):
+		return
+	FootstepAudioHelper.play_local_footstep(_fps, _fps)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -366,6 +376,7 @@ func _commit_batch_build() -> void:
 		return
 	if not BuildSystem.can_place:
 		return
+	BuildSystem.begin_build_place_sfx_batch()
 	if _batch_build_mode == BuildSystem.BuildMode.FLOOR:
 		for grid_pos in BuildSystem.get_batch_floor_order(_batch_build_target, _get_floor_batch_positions()):
 			BuildSystem.try_place_floor(_batch_build_target.grid_to_world(grid_pos), _batch_build_target)
@@ -380,6 +391,7 @@ func _commit_batch_build() -> void:
 			var demolish_grid_pos: Vector3i = entry["grid_pos"]
 			var edge: int = int(entry["edge"])
 			BuildSystem.try_demolish_entry(_batch_build_target, demolish_grid_pos, edge)
+	BuildSystem.end_build_place_sfx_batch()
 
 
 func _get_batch_build_context() -> Dictionary:

@@ -148,6 +148,12 @@ func set_direction(dir: float) -> void:
 func _try_path_transition(at_end: int, overflow: float) -> bool:
 	if current_rail_path == null:
 		return false
+	# Coupled wagons can't cross rail junctions as a group — stop at the boundary.
+	# Without this, the leader's front bogie flips to the next curve while the
+	# followers (tied to the old curve by rail_progress offsets) teleport with it.
+	var parent_frame := get_parent() as WagonFrame
+	if parent_frame != null and (parent_frame.coupled_front != null or parent_frame.coupled_back != null):
+		return false
 	var actual_exit_end: int = _map_active_end_to_path_end(at_end)
 	var route: Dictionary = RailNetwork.get_active_route(current_rail_path, actual_exit_end)
 	if route.is_empty():

@@ -9,6 +9,8 @@ var current_state: GameState = GameState.MENU
 var score: int = 0
 var current_round: int = 0
 var players: Dictionary = {}
+var pending_scene_path: String = ""
+var pending_loading_message: String = ""
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -37,6 +39,19 @@ func start_game() -> void:
 	score = 0
 	current_round = 0
 	change_state(GameState.PLAYING)
+
+func queue_scene_transition(target_scene_path: String, loading_message: String = "") -> void:
+	pending_scene_path = target_scene_path
+	pending_loading_message = loading_message
+
+func consume_scene_transition() -> Dictionary:
+	var transition := {
+		"scene_path": pending_scene_path,
+		"message": pending_loading_message,
+	}
+	pending_scene_path = ""
+	pending_loading_message = ""
+	return transition
 
 func _input(event: InputEvent) -> void:
 	var focus := get_viewport().gui_get_focus_owner()

@@ -8,6 +8,7 @@ signal buildable_selected(data: BuildableData)
 
 enum BuildMode { OFF, CHASSIS, FLOOR, CEILING, ITEM, DEMOLISH }
 const DEMOLISH_FLOOR_EDGE: int = -3
+const BUILD_PLACE_SFX_NAME: String = "build_place_sweep"
 
 var mode: BuildMode = BuildMode.OFF
 var is_building: bool = false
@@ -36,7 +37,6 @@ var _first_bogie_rail_path: Node = null
 var _second_bogie_preview: Node3D = null
 var demolish_target: Node3D = null  # Node highlighted for demolition
 var batch_demolish_targets: Array[Node3D] = []
-var _wall_sfx_index: int = 0
 var preview_material_demolish: StandardMaterial3D
 
 # Edge snapping for walls
@@ -47,6 +47,8 @@ var _last_item_preview_target: Node = null
 var _last_item_preview_grid: Vector3i = Vector3i.ZERO
 var _last_item_preview_buildable_id: String = ""
 var _last_item_preview_rotation: float = 0.0
+var _build_place_sfx_suppression_depth: int = 0
+var _build_place_sfx_pending: bool = false
 # Costs
 const CHASSIS_COST: Dictionary = { "wood": 10, "metal": 15 }
 const FLOOR_COST: Dictionary = { "wood": 3 }
@@ -109,6 +111,31 @@ func _play_blueprint_anim(node: Node3D) -> void:
 	if node == null or not is_instance_valid(node):
 		return
 	BlueprintAnimator.animate(node)
+
+func _play_build_place_sfx() -> void:
+	if _build_place_sfx_suppression_depth > 0:
+		_build_place_sfx_pending = true
+		return
+	_play_build_place_sfx_immediate()
+
+func _play_build_place_sfx_immediate() -> void:
+	AudioManager.play_sfx(BUILD_PLACE_SFX_NAME, linear_to_db(0.8))
+
+func _play_build_place_sfx_on_replication() -> void:
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		return
+	_play_build_place_sfx()
+
+func begin_build_place_sfx_batch() -> void:
+	_build_place_sfx_suppression_depth += 1
+
+func end_build_place_sfx_batch() -> void:
+	if _build_place_sfx_suppression_depth <= 0:
+		return
+	_build_place_sfx_suppression_depth -= 1
+	if _build_place_sfx_suppression_depth == 0 and _build_place_sfx_pending:
+		_build_place_sfx_pending = false
+		_play_build_place_sfx_immediate()
 
 func _load_buildables() -> void:
 	var dir := DirAccess.open("res://resources/buildables/")
@@ -718,6 +745,7 @@ func try_place_chassis(hit_point: Vector3, actor_peer_id: int = -1, replicate: b
 	_first_bogie_rail_path = best_rp
 	# Hide step 1 preview
 	_clear_preview()
+	_play_build_place_sfx()
 	item_placed.emit(instance)
 	return instance
 
@@ -852,6 +880,7 @@ func _place_second_bogie(hit_point: Vector3, actor_peer_id: int = -1, _replicate
 	_first_bogie_curve = null
 	_first_bogie_rail_path = null
 
+	_play_build_place_sfx()
 	item_placed.emit(frame)
 	return frame
 
@@ -924,6 +953,7 @@ func try_place_floor(hit_point: Vector3, chassis: Node, actor_peer_id: int = -1,
 	instance.set_meta("grid_pos_y", grid_pos.y)
 	instance.set_meta("grid_pos_z", grid_pos.z)
 	chassis.place_floor(grid_pos, instance)
+	_play_build_place_sfx()
 	item_placed.emit(instance)
 	if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
 		WorldSync.replicate_place_floor(WorldSync.get_net_id(chassis), WorldSync.get_net_id(instance), grid_pos)
@@ -955,6 +985,7 @@ func try_place_ceiling(hit_point: Vector3, chassis: Node, actor_peer_id: int = -
 	instance.set_meta("grid_pos_y", grid_pos.y)
 	instance.set_meta("grid_pos_z", grid_pos.z)
 	chassis.place_floor(grid_pos, instance)
+	_play_build_place_sfx()
 	item_placed.emit(instance)
 	if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
 		WorldSync.replicate_place_ceiling(WorldSync.get_net_id(chassis), WorldSync.get_net_id(instance), grid_pos)
@@ -1018,12 +1049,7 @@ func try_place_item(hit_point: Vector3, chassis: Node, actor_peer_id: int = -1, 
 		instance.position = local_pos
 		chassis.place_item(grid_pos, instance)
 
-	if current_buildable_data:
-		if current_buildable_data.id == "placeable_wall_blue" or current_buildable_data.id == "placeable_wall_yellow":
-			_wall_sfx_index = (_wall_sfx_index + 1) % 3
-			AudioManager.play_sfx("wall_place_" + str(_wall_sfx_index + 1), linear_to_db(0.8))
-		elif current_buildable_data.id == "direction_lever":
-			AudioManager.play_sfx("levier_place")
+	_play_build_place_sfx()
 	item_placed.emit(instance)
 	if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
 		WorldSync.replicate_place_item(WorldSync.get_net_id(chassis), item_net_id, current_buildable_data.id, grid_pos, preview_rotation, edge)
@@ -1091,6 +1117,7 @@ func apply_network_floor(target_net_id: int, floor_net_id: int, grid_pos: Vector
 	instance.set_meta("grid_pos_y", grid_pos.y)
 	instance.set_meta("grid_pos_z", grid_pos.z)
 	target.place_floor(grid_pos, instance)
+	_play_build_place_sfx_on_replication()
 	item_placed.emit(instance)
 	return instance
 
@@ -1110,6 +1137,7 @@ func apply_network_ceiling(target_net_id: int, ceiling_net_id: int, grid_pos: Ve
 	instance.set_meta("grid_pos_y", grid_pos.y)
 	instance.set_meta("grid_pos_z", grid_pos.z)
 	target.place_floor(grid_pos, instance)
+	_play_build_place_sfx_on_replication()
 	item_placed.emit(instance)
 	return instance
 
@@ -1169,6 +1197,7 @@ func _instantiate_buildable_on_target(target: Node, data: BuildableData, grid_po
 			target.place_item_footprint(grid_pos, footprint_size, instance)
 		else:
 			target.place_item(grid_pos, instance)
+	_play_build_place_sfx_on_replication()
 	item_placed.emit(instance)
 	return instance
 

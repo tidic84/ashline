@@ -2,39 +2,43 @@ extends Control
 
 enum Page { MAIN, COOP, LOBBY }
 
-@onready var main_page: VBoxContainer = $MenuRoot/PanelStack/StackMargin/StackRoot/MainPage
-@onready var coop_page: VBoxContainer = $MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage
-@onready var lobby_page: VBoxContainer = $MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage
+const MENU_MUSIC_PRIMARY: AudioStream = preload("res://assets/audio/music/ashline_mainmenu_1_0.wav")
+const MENU_MUSIC_FALLBACK: AudioStream = preload("res://assets/audio/music/Wacky Waiting.ogg")
 
-@onready var solo_button: Button = $MenuRoot/PanelStack/StackMargin/StackRoot/MainPage/SoloButton
-@onready var coop_button: Button = $MenuRoot/PanelStack/StackMargin/StackRoot/MainPage/CoopButton
-@onready var settings_button: Button = $MenuRoot/PanelStack/StackMargin/StackRoot/MainPage/SettingsButton
-@onready var quit_button: Button = $MenuRoot/PanelStack/StackMargin/StackRoot/MainPage/QuitButton
+@onready var main_page: VBoxContainer = $ContentLeft/MainPage
+@onready var coop_page: VBoxContainer = $ContentLeft/CoopPage
+@onready var lobby_page: VBoxContainer = $ContentLeft/LobbyPage
 
-@onready var name_input: LineEdit = $MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage/NameInput
-@onready var address_input: LineEdit = $MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage/AddressRow/AddressInput
-@onready var port_input: LineEdit = $MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage/AddressRow/PortInput
-@onready var action_row: HBoxContainer = $MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage/ActionRow
-@onready var host_button: Button = $MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage/ActionRow/HostButton
-@onready var join_button: Button = $MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage/ActionRow/JoinButton
-@onready var connecting_row: VBoxContainer = $MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage/ConnectingRow
-@onready var connecting_label: Label = $MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage/ConnectingRow/ConnectingLabel
-@onready var cancel_button: Button = $MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage/ConnectingRow/CancelButton
-@onready var back_coop_button: Button = $MenuRoot/PanelStack/StackMargin/StackRoot/CoopPage/BackCoopButton
+@onready var solo_button: Button = $ContentLeft/MainPage/SoloButton
+@onready var coop_button: Button = $ContentLeft/MainPage/CoopButton
+@onready var settings_button: Button = $ContentLeft/MainPage/SettingsButton
+@onready var quit_button: Button = $ContentLeft/MainPage/QuitButton
 
-@onready var player_list: ItemList = $MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage/PlayerList
-@onready var player_count_label: Label = $MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage/LobbyHeader/PlayerCountLabel
-@onready var chat_log: RichTextLabel = $MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage/ChatLog
-@onready var chat_input: LineEdit = $MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage/ChatRow/ChatInput
-@onready var chat_send_button: Button = $MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage/ChatRow/ChatSendButton
-@onready var start_button: Button = $MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage/StartButton
-@onready var back_lobby_button: Button = $MenuRoot/PanelStack/StackMargin/StackRoot/LobbyPage/BackLobbyButton
+@onready var name_input: LineEdit = $ContentLeft/CoopPage/NameInput
+@onready var address_input: LineEdit = $ContentLeft/CoopPage/AddressRow/AddressInput
+@onready var port_input: LineEdit = $ContentLeft/CoopPage/AddressRow/PortInput
+@onready var action_row: HBoxContainer = $ContentLeft/CoopPage/ActionRow
+@onready var host_button: Button = $ContentLeft/CoopPage/ActionRow/HostButton
+@onready var join_button: Button = $ContentLeft/CoopPage/ActionRow/JoinButton
+@onready var connecting_row: VBoxContainer = $ContentLeft/CoopPage/ConnectingRow
+@onready var connecting_label: Label = $ContentLeft/CoopPage/ConnectingRow/ConnectingLabel
+@onready var cancel_button: Button = $ContentLeft/CoopPage/ConnectingRow/CancelButton
+@onready var back_coop_button: Button = $ContentLeft/CoopPage/BackCoopButton
 
-@onready var status_label: Label = $MenuRoot/PanelStack/StackMargin/StackRoot/StatusLabel
+@onready var player_list: ItemList = $ContentLeft/LobbyPage/PlayerList
+@onready var player_count_label: Label = $ContentLeft/LobbyPage/LobbyHeader/PlayerCountLabel
+@onready var chat_log: RichTextLabel = $ContentLeft/LobbyPage/ChatLog
+@onready var chat_input: LineEdit = $ContentLeft/LobbyPage/ChatRow/ChatInput
+@onready var chat_send_button: Button = $ContentLeft/LobbyPage/ChatRow/ChatSendButton
+@onready var start_button: Button = $ContentLeft/LobbyPage/StartButton
+@onready var back_lobby_button: Button = $ContentLeft/LobbyPage/BackLobbyButton
+
+@onready var status_label: Label = $ContentLeft/StatusLabel
 @onready var settings_menu: SettingsMenu = $SettingsLayer/SettingsMenu
 
 var _current_page: int = Page.MAIN
 var _connecting: bool = false
+var _menu_music_player: AudioStreamPlayer = null
 
 func _ready() -> void:
 	_apply_styles()
@@ -69,108 +73,69 @@ func _ready() -> void:
 	name_input.text = NetworkManager.local_player_name if NetworkManager.local_player_name != "" else "Player"
 
 	_show_page(Page.MAIN)
-	AudioManager.play_ambient("train_ambience")
+	GameManager.change_state(GameManager.GameState.MENU)
+	_start_menu_audio()
+	call_deferred("_start_menu_audio")
+
+func _start_menu_audio() -> void:
+	AudioManager.stop_ambient()
+	AudioManager.stop_music()
+	_ensure_menu_music_player()
+	if _menu_music_player == null:
+		return
+	if MENU_MUSIC_PRIMARY != null:
+		_menu_music_player.stream = MENU_MUSIC_PRIMARY
+	else:
+		_menu_music_player.stream = MENU_MUSIC_FALLBACK
+	if _menu_music_player.stream == null:
+		return
+	_menu_music_player.stop()
+	_menu_music_player.play()
+
+func _ensure_menu_music_player() -> void:
+	if _menu_music_player != null and is_instance_valid(_menu_music_player):
+		return
+	_menu_music_player = AudioStreamPlayer.new()
+	_menu_music_player.name = "MenuMusicPlayer"
+	_menu_music_player.process_mode = Node.PROCESS_MODE_ALWAYS
+	_menu_music_player.bus = "Master"
+	_menu_music_player.volume_db = -2.0
+	_menu_music_player.finished.connect(_on_menu_music_finished)
+	add_child(_menu_music_player)
+
+func _on_menu_music_finished() -> void:
+	if _menu_music_player == null or not is_instance_valid(_menu_music_player):
+		return
+	if _menu_music_player.stream == null:
+		return
+	_menu_music_player.play()
+
+func _exit_tree() -> void:
+	if _menu_music_player != null and is_instance_valid(_menu_music_player):
+		_menu_music_player.stop()
 
 func _apply_styles() -> void:
-	var panel_style := StyleBoxFlat.new()
-	panel_style.bg_color = Color(0.08, 0.10, 0.07, 0.92)
-	panel_style.border_width_top = 1
-	panel_style.border_width_bottom = 1
-	panel_style.border_width_left = 1
-	panel_style.border_width_right = 1
-	panel_style.border_color = Color(0.35, 0.28, 0.15, 0.55)
-	panel_style.corner_radius_top_left = 6
-	panel_style.corner_radius_top_right = 6
-	panel_style.corner_radius_bottom_left = 6
-	panel_style.corner_radius_bottom_right = 6
-	panel_style.shadow_color = Color(0, 0, 0, 0.55)
-	panel_style.shadow_size = 18
-	$MenuRoot/PanelStack.add_theme_stylebox_override("panel", panel_style)
+	var empty := StyleBoxEmpty.new()
 
-	_style_primary_button(solo_button)
-	_style_primary_button(start_button)
-	for btn in [coop_button, host_button, join_button]:
-		_style_secondary_button(btn)
-	_style_cancel_button(cancel_button)
-	for btn in [settings_button, quit_button, back_coop_button, back_lobby_button, chat_send_button]:
-		_style_tertiary_button(btn)
+	var hover_style := StyleBoxFlat.new()
+	hover_style.bg_color = Color(1, 1, 1, 0.0)
+	hover_style.border_width_left = 3
+	hover_style.border_color = Color(0.92, 0.88, 0.72, 0.9)
 
-func _style_primary_button(btn: Button) -> void:
-	var n := StyleBoxFlat.new()
-	n.bg_color = Color(0.78, 0.65, 0.32, 0.98)
-	n.border_width_top = 2
-	n.border_width_bottom = 2
-	n.border_width_left = 2
-	n.border_width_right = 2
-	n.border_color = Color(0.92, 0.8, 0.45, 0.95)
-	n.corner_radius_top_left = 4
-	n.corner_radius_top_right = 4
-	n.corner_radius_bottom_left = 4
-	n.corner_radius_bottom_right = 4
-	btn.add_theme_stylebox_override("normal", n)
-	var h := n.duplicate() as StyleBoxFlat
-	h.bg_color = Color(0.92, 0.78, 0.4, 1.0)
-	btn.add_theme_stylebox_override("hover", h)
-	var p := n.duplicate() as StyleBoxFlat
-	p.bg_color = Color(0.58, 0.48, 0.22, 1.0)
-	btn.add_theme_stylebox_override("pressed", p)
+	var pressed_style := StyleBoxFlat.new()
+	pressed_style.bg_color = Color(1, 1, 1, 0.0)
+	pressed_style.border_width_left = 3
+	pressed_style.border_color = Color(0.65, 0.62, 0.45, 0.7)
 
-func _style_secondary_button(btn: Button) -> void:
-	var n := StyleBoxFlat.new()
-	n.bg_color = Color(0.18, 0.22, 0.15, 0.9)
-	n.border_width_top = 1
-	n.border_width_bottom = 1
-	n.border_width_left = 1
-	n.border_width_right = 1
-	n.border_color = Color(0.45, 0.4, 0.22, 0.65)
-	n.corner_radius_top_left = 3
-	n.corner_radius_top_right = 3
-	n.corner_radius_bottom_left = 3
-	n.corner_radius_bottom_right = 3
-	btn.add_theme_stylebox_override("normal", n)
-	var h := n.duplicate() as StyleBoxFlat
-	h.bg_color = Color(0.28, 0.32, 0.2, 0.98)
-	h.border_color = Color(0.85, 0.72, 0.42, 0.8)
-	btn.add_theme_stylebox_override("hover", h)
-	var p := n.duplicate() as StyleBoxFlat
-	p.bg_color = Color(0.36, 0.3, 0.16, 1.0)
-	btn.add_theme_stylebox_override("pressed", p)
-
-func _style_cancel_button(btn: Button) -> void:
-	var n := StyleBoxFlat.new()
-	n.bg_color = Color(0.32, 0.12, 0.1, 0.9)
-	n.border_width_top = 1
-	n.border_width_bottom = 1
-	n.border_width_left = 1
-	n.border_width_right = 1
-	n.border_color = Color(0.7, 0.35, 0.3, 0.7)
-	n.corner_radius_top_left = 3
-	n.corner_radius_top_right = 3
-	n.corner_radius_bottom_left = 3
-	n.corner_radius_bottom_right = 3
-	btn.add_theme_stylebox_override("normal", n)
-	var h := n.duplicate() as StyleBoxFlat
-	h.bg_color = Color(0.5, 0.18, 0.14, 1.0)
-	h.border_color = Color(0.95, 0.6, 0.5, 0.9)
-	btn.add_theme_stylebox_override("hover", h)
-	var p := n.duplicate() as StyleBoxFlat
-	p.bg_color = Color(0.6, 0.22, 0.16, 1.0)
-	btn.add_theme_stylebox_override("pressed", p)
-
-func _style_tertiary_button(btn: Button) -> void:
-	var n := StyleBoxFlat.new()
-	n.bg_color = Color(0.08, 0.10, 0.08, 0.0)
-	btn.add_theme_stylebox_override("normal", n)
-	var h := StyleBoxFlat.new()
-	h.bg_color = Color(0.2, 0.22, 0.16, 0.6)
-	h.corner_radius_top_left = 3
-	h.corner_radius_top_right = 3
-	h.corner_radius_bottom_left = 3
-	h.corner_radius_bottom_right = 3
-	btn.add_theme_stylebox_override("hover", h)
-	var p := h.duplicate() as StyleBoxFlat
-	p.bg_color = Color(0.32, 0.26, 0.14, 0.8)
-	btn.add_theme_stylebox_override("pressed", p)
+	for btn in [solo_button, coop_button, settings_button, quit_button,
+			host_button, join_button, back_coop_button, back_lobby_button,
+			chat_send_button, cancel_button, start_button]:
+		btn.add_theme_stylebox_override("normal", empty)
+		btn.add_theme_stylebox_override("hover", hover_style)
+		btn.add_theme_stylebox_override("pressed", pressed_style)
+		btn.add_theme_stylebox_override("focus", empty)
+		btn.add_theme_color_override("font_hover_color", Color(1.0, 1.0, 0.95, 1.0))
+		btn.add_theme_color_override("font_pressed_color", Color(0.75, 0.72, 0.55, 1.0))
 
 func _connect_network_signal(sig: Signal, callback: Callable) -> void:
 	if not sig.is_connected(callback):

@@ -276,6 +276,23 @@ func broadcast_coupling(wagon_net_id: int, other_net_id: int, my_side: int, othe
 		_apply_coupling.rpc(wagon_net_id, other_net_id, my_side, other_side, couple)
 
 
+func request_coupler_interact(wagon_net_id: int, side: int) -> void:
+	if should_request_host():
+		_request_coupler_interact.rpc_id(1, wagon_net_id, side)
+
+
+@rpc("any_peer", "reliable")
+func _request_coupler_interact(wagon_net_id: int, side: int) -> void:
+	if not multiplayer.is_server():
+		return
+	var wagon := get_entity(wagon_net_id) as WagonFrame
+	if wagon == null:
+		return
+	var coupler := wagon.get_coupler(side)
+	if coupler != null and coupler.has_method("server_interact"):
+		coupler.server_interact(multiplayer.get_remote_sender_id())
+
+
 @rpc("authority", "reliable")
 func _apply_coupling(wagon_net_id: int, other_net_id: int, my_side: int, other_side: int, couple: bool) -> void:
 	if multiplayer.is_server():

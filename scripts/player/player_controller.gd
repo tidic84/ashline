@@ -1,5 +1,7 @@
 extends CharacterBody3D
 
+const FootstepAudioHelper = preload("res://scripts/player/footstep_audio.gd")
+
 const WALK_SPEED: float = 3.4
 const SPRINT_SPEED: float = 5.4
 const CROUCH_SPEED: float = 1.8
@@ -20,6 +22,9 @@ const BOB_CROUCH_FREQ: float = 6.0
 const BOB_IDLE_STRENGTH: float = 0.003
 const BOB_IDLE_FREQ: float = 1.5
 const PLAYER_SYNC_INTERVAL: float = 0.033
+const FOOTSTEP_WALK_INTERVAL: float = 0.46
+const FOOTSTEP_SPRINT_INTERVAL: float = 0.32
+const FOOTSTEP_CROUCH_INTERVAL: float = 0.62
 const BUILD_COLLISION_MASK: int = 137  # World (1) + Train (8) + BuildDetect (128)
 const PLAYER_REMOTE_EXTRAPOLATION: float = 0.12
 const PLAYER_ANIM_IDLE: String = "idle"
@@ -103,6 +108,7 @@ var _batch_build_start_grid: Vector3i = Vector3i.ZERO
 var _batch_build_end_grid: Vector3i = Vector3i.ZERO
 var _batch_build_edge: int = BuildSystem.EdgeSide.NONE
 var _hovered_switch: RailSwitch = null
+var _footstep_timer: float = 0.0
 
 func _enter_tree() -> void:
 	is_local = not multiplayer.has_multiplayer_peer() or get_multiplayer_authority() == multiplayer.get_unique_id()
@@ -312,6 +318,7 @@ func _physics_process(delta: float) -> void:
 	head.position.y = lerpf(head.position.y, _target_head_y, CROUCH_CAMERA_LERP_SPEED * delta)
 	move_and_slide()
 	_update_head_bob(delta, direction.length() > 0.1)
+	_update_footsteps(delta, direction.length() > 0.1)
 	_network_sync_accum += delta
 	if _network_sync_accum >= PLAYER_SYNC_INTERVAL:
 		_network_sync_accum = 0.0
@@ -366,6 +373,28 @@ func _update_head_bob(delta: float, is_moving: bool) -> void:
 	camera.position.x = lerpf(camera.position.x, _camera_default_x + bob_x, 10.0 * delta)
 	camera.rotation.z = lerpf(camera.rotation.z, _camera_default_roll + bob_roll, 10.0 * delta)
 	camera.fov = lerpf(camera.fov, target_fov, 8.0 * delta)
+
+
+func _update_footsteps(delta: float, is_moving: bool) -> void:
+	if not is_local:
+		return
+	if not is_on_floor() or not is_moving:
+		_footstep_timer = 0.0
+		return
+	var horizontal_speed: float = Vector2(velocity.x, velocity.z).length()
+	if horizontal_speed < 0.75:
+		_footstep_timer = 0.0
+		return
+	_footstep_timer -= delta
+	if _footstep_timer > 0.0:
+		return
+	FootstepAudioHelper.play_local_footstep(self, self)
+	if _is_crouching:
+		_footstep_timer = FOOTSTEP_CROUCH_INTERVAL
+	elif _is_sprinting:
+		_footstep_timer = FOOTSTEP_SPRINT_INTERVAL
+	else:
+		_footstep_timer = FOOTSTEP_WALK_INTERVAL
 
 func _update_wagon_platform(delta: float) -> void:
 	var current_wagon := _find_wagon_underfoot()
@@ -469,6 +498,7 @@ func respawn_to_spawn() -> void:
 	_last_wagon_transform = Transform3D.IDENTITY
 	_platform_velocity_carry = Vector3.ZERO
 	_is_crouching = false
+	_footstep_timer = 0.0
 	_update_crouch_state()
 	head.rotation = Vector3.ZERO
 	_pitch = 0.0
@@ -605,6 +635,7 @@ func _commit_batch_build() -> void:
 		return
 	if not BuildSystem.can_place:
 		return
+	BuildSystem.begin_build_place_sfx_batch()
 	if _batch_build_mode == BuildSystem.BuildMode.FLOOR:
 		for grid_pos in BuildSystem.get_batch_floor_order(_batch_build_target, _get_floor_batch_positions()):
 			BuildSystem.try_place_floor(_batch_build_target.grid_to_world(grid_pos), _batch_build_target)
@@ -619,6 +650,7 @@ func _commit_batch_build() -> void:
 			var demolish_grid_pos: Vector3i = entry["grid_pos"]
 			var edge: int = int(entry["edge"])
 			BuildSystem.try_demolish_entry(_batch_build_target, demolish_grid_pos, edge)
+	BuildSystem.end_build_place_sfx_batch()
 
 func _get_batch_build_context() -> Dictionary:
 	if BuildSystem.mode == BuildSystem.BuildMode.FLOOR:

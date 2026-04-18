@@ -113,7 +113,11 @@ func host_start_game() -> void:
 
 @rpc("authority", "call_local", "reliable")
 func start_game() -> void:
-	get_tree().change_scene_to_file("res://scenes/main/main.tscn")
+	GameManager.queue_scene_transition(
+		"res://scenes/main/main.tscn",
+		"La locomotive se met en route..."
+	)
+	get_tree().change_scene_to_file("res://scenes/ui/loading_screen.tscn")
 
 func _on_peer_connected(id: int) -> void:
 	if multiplayer.is_server():

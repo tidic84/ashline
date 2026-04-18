@@ -9,5 +9,8 @@
       "Bash(cp \"/c/Users/Thomas/Desktop/JEU TRAIN/SFX/WallSFX3.wav\" /c/Users/Thomas/Desktop/ashline/audio/sfx/wall_place_3.wav)",
       "Bash(cp \"/c/Users/Thomas/Desktop/JEU TRAIN/SFX/LevierOrientation.wav\" /c/Users/Thomas/Desktop/ashline/audio/sfx/levier_place.wav)"
     ]
+  },
+  "remote": {
+    "defaultEnvironmentId": "env_011CV2hJ5FYK2QW6ZoQhYVKr"
   }
 }

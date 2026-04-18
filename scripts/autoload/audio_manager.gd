@@ -7,6 +7,7 @@ extends Node
 # play_ambient("forest") — loops an ambient loop.
 
 const SFX_DIR: String = "res://assets/audio/sfx/"
+const IMPACTS_DIR: String = "res://assets/audio/impacts/"
 const AMBIENT_DIR: String = "res://assets/audio/ambient/"
 const MUSIC_DIR: String = "res://assets/audio/music/"
 const CONFIG_PATH: String = "user://settings.cfg"
@@ -31,9 +32,12 @@ const AMBIENT_FALLBACK_PATHS: Dictionary = {
 
 var _sfx_cache: Dictionary = {}   # name -> AudioStream
 var _ambient_cache: Dictionary = {}
+var _music_cache: Dictionary = {}
 var _ambient_player: AudioStreamPlayer = null
+var _music_player: AudioStreamPlayer = null
 var _current_ambient: String = ""
 var _requested_ambient: String = ""
+var _current_music: String = ""
 var _sfx_pool: Array[AudioStreamPlayer] = []
 var _train_move_player: AudioStreamPlayer3D = null
 var _train_move_should_loop: bool = false
@@ -57,13 +61,19 @@ func _ready() -> void:
 	_ambient_player.volume_db = 0.0
 	_ambient_player.finished.connect(_on_ambient_finished)
 	add_child(_ambient_player)
+	_music_player = AudioStreamPlayer.new()
+	_music_player.process_mode = Node.PROCESS_MODE_ALWAYS
+	_music_player.bus = "Master"
+	_music_player.volume_db = -6.0
+	add_child(_music_player)
 	_scan_folder(SFX_DIR, _sfx_cache)
+	_scan_folder(IMPACTS_DIR, _sfx_cache)
 	_scan_folder(AMBIENT_DIR, _ambient_cache)
+	_scan_folder(MUSIC_DIR, _music_cache)
 	if TRAIN_AMBIENT_STREAM != null:
 		_ambient_cache["train_ambience"] = TRAIN_AMBIENT_STREAM
 	_requested_ambient = "train_ambience"
 	_play_ambient_now(_requested_ambient)
-	_start_woodland_ambient()
 
 func _process(delta: float) -> void:
 	if _train_fading_out:
@@ -109,6 +119,13 @@ func _start_woodland_ambient() -> void:
 func _on_woodland_finished() -> void:
 	if _woodland_player != null:
 		_woodland_player.play()
+
+func _stop_woodland_ambient() -> void:
+	if _woodland_player == null:
+		return
+	_woodland_player.stop()
+	_woodland_player.queue_free()
+	_woodland_player = null
 
 func set_global_volume_db(volume_db: float) -> void:
 	var master_idx: int = AudioServer.get_bus_index("Master")
@@ -165,10 +182,22 @@ func _scan_folder(path: String, cache: Dictionary) -> void:
 	while file_name != "":
 		if not dir.current_is_dir() and (file_name.ends_with(".ogg") or file_name.ends_with(".wav") or file_name.ends_with(".mp3")):
 			var key: String = file_name.get_basename()
-			var stream: AudioStream = load(path + file_name) as AudioStream
+			var stream := _load_stream_from_path(path + file_name)
 			if stream:
 				cache[key] = stream
 		file_name = dir.get_next()
+
+func _load_stream_from_path(path: String) -> AudioStream:
+	if ResourceLoader.exists(path):
+		var imported_stream := load(path) as AudioStream
+		if imported_stream != null:
+			return imported_stream
+	var absolute_path := ProjectSettings.globalize_path(path)
+	if not FileAccess.file_exists(absolute_path):
+		return null
+	if path.get_extension().to_lower() == "wav":
+		return AudioStreamWAV.load_from_file(absolute_path)
+	return null
 
 func play_sfx(name: String, volume_db: float = 0.0, pitch: float = 1.0) -> void:
 	if not _sfx_cache.has(name):
@@ -329,10 +358,33 @@ func force_play_ambient(name: String) -> void:
 
 func stop_ambient() -> void:
 	_requested_ambient = ""
+	_stop_woodland_ambient()
 	if _ambient_player == null:
 		return
 	_ambient_player.stop()
 	_current_ambient = ""
+
+func play_music(name: String) -> bool:
+	if _music_player == null:
+		return false
+	if _current_music == name and _music_player.playing:
+		return true
+	if not _music_cache.has(name):
+		_try_load_music(name)
+	if not _music_cache.has(name):
+		return false
+	var stream: AudioStream = _music_cache[name]
+	_configure_music_loop(stream)
+	_music_player.stream = stream
+	_music_player.play()
+	_current_music = name
+	return true
+
+func stop_music() -> void:
+	_current_music = ""
+	if _music_player == null:
+		return
+	_music_player.stop()
 
 func _configure_ambient_loop(stream: AudioStream) -> void:
 	if stream is AudioStreamWAV:
@@ -342,21 +394,30 @@ func _configure_ambient_loop(stream: AudioStream) -> void:
 	elif stream is AudioStreamMP3:
 		(stream as AudioStreamMP3).loop = true
 
+func _configure_music_loop(stream: AudioStream) -> void:
+	_configure_ambient_loop(stream)
+
 func _try_load_ambient(name: String) -> void:
 	if AMBIENT_FALLBACK_PATHS.has(name):
 		var fallback_path: String = String(AMBIENT_FALLBACK_PATHS[name])
-		if ResourceLoader.exists(fallback_path):
-			var fallback_stream: AudioStream = load(fallback_path) as AudioStream
-			if fallback_stream != null:
-				_ambient_cache[name] = fallback_stream
-				return
+		var fallback_stream := _load_stream_from_path(fallback_path)
+		if fallback_stream != null:
+			_ambient_cache[name] = fallback_stream
+			return
 	for ext in [".wav", ".ogg", ".mp3"]:
 		var path: String = AMBIENT_DIR + name + ext
-		if ResourceLoader.exists(path):
-			var stream: AudioStream = load(path) as AudioStream
-			if stream:
-				_ambient_cache[name] = stream
-				return
+		var stream := _load_stream_from_path(path)
+		if stream != null:
+			_ambient_cache[name] = stream
+			return
+
+func _try_load_music(name: String) -> void:
+	for ext in [".ogg", ".wav", ".mp3"]:
+		var path: String = MUSIC_DIR + name + ext
+		var stream := _load_stream_from_path(path)
+		if stream != null:
+			_music_cache[name] = stream
+			return
 
 func _on_ambient_finished() -> void:
 	if _current_ambient.is_empty():
