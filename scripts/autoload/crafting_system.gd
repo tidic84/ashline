@@ -5,19 +5,22 @@ signal craft_failed(item_id: String, reason: String)
 
 const RECIPES: Dictionary = {
 	"axe": {
-		"display_name": "Axe",
+		"display_name": "Hache",
 		"ingredients": {"branch": 2, "stone": 3, "metal_scrap": 1},
 		"preview_color": Color(0.78, 0.42, 0.20, 1.0),
+		"craft_time": 4.0,
 	},
 	"pickaxe": {
-		"display_name": "Pickaxe",
+		"display_name": "Pioche",
 		"ingredients": {"branch": 2, "stone": 2, "metal_scrap": 2},
 		"preview_color": Color(0.55, 0.60, 0.65, 1.0),
+		"craft_time": 6.0,
 	},
 	"hammer": {
-		"display_name": "Hammer",
+		"display_name": "Marteau",
 		"ingredients": {"branch": 1, "stone": 2, "metal_scrap": 3},
 		"preview_color": Color(0.88, 0.72, 0.32, 1.0),
+		"craft_time": 5.0,
 	},
 }
 

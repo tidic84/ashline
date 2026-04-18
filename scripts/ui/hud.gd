@@ -87,7 +87,9 @@ func _ready() -> void:
 	_on_inventory_updated()
 	_on_survival_changed(Inventory.health, Inventory.hunger, Inventory.thirst)
 	_on_game_state_changed(GameManager.current_state)
+	_build_workbench_ui()
 
+var _workbench_ui: Control = null
 
 func _input(event: InputEvent) -> void:
 	if not visible:
@@ -337,6 +339,8 @@ func _hide_transient_menus_for_pause() -> void:
 		settings_menu.visible = false
 	if _inventory_menu and _inventory_menu.visible:
 		toggle_inventory_panel(false)
+	if _workbench_ui and _workbench_ui.visible:
+		_workbench_ui.call("close")
 	BuildSystem.hide_preview()
 
 func _get_local_player_controller() -> CharacterBody3D:
@@ -451,6 +455,26 @@ func _build_chat_ui() -> void:
 	_chat_input.visible = false
 	_chat_input.text_submitted.connect(_on_chat_submitted)
 	vbox.add_child(_chat_input)
+
+func _build_workbench_ui() -> void:
+	var script := load("res://scripts/ui/workbench_ui.gd")
+	_workbench_ui = script.new()
+	_workbench_ui.name = "WorkbenchUI"
+	_workbench_ui.connect("closed", _on_workbench_closed)
+	add_child(_workbench_ui)
+	_workbench_ui.move_to_front()
+
+func open_workbench() -> void:
+	if _workbench_ui == null:
+		return
+	if inventory_panel.visible:
+		toggle_inventory_panel(false)
+	if build_menu:
+		build_menu.hide_menu()
+	_workbench_ui.call("open")
+
+func _on_workbench_closed() -> void:
+	pass
 
 func _on_chat_submitted(text: String) -> void:
 	NetworkManager.send_chat_message(text)

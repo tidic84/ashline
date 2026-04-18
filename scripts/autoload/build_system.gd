@@ -1032,21 +1032,21 @@ func try_place_item(hit_point: Vector3, chassis: Node, actor_peer_id: int = -1, 
 	chassis.add_child(instance)
 	var item_net_id := WorldSync.register_entity(instance)
 
-	var local_pos: Vector3 = chassis.grid_to_local(grid_pos)
-	local_pos.y = chassis.get_surface_local_y(grid_pos.z) + 0.05
-
 	if is_edge_item and edge != EdgeSide.NONE:
-		local_pos += _edge_offset(edge)
+		var edge_local: Vector3 = chassis.grid_to_local(grid_pos)
+		edge_local.y = chassis.get_surface_local_y(grid_pos.z) + 0.05
+		edge_local += _edge_offset(edge)
 		instance.rotation.y = _edge_rotation(edge) + preview_rotation
 		instance.set_meta("edge_side", edge)
 		instance.set_meta("grid_pos_x", grid_pos.x)
 		instance.set_meta("grid_pos_y", grid_pos.y)
 		instance.set_meta("grid_pos_z", grid_pos.z)
-		instance.position = local_pos
+		instance.position = edge_local
 		chassis.place_edge_item(grid_pos, edge, instance)
 	else:
+		var footprint: Vector2i = _get_buildable_footprint(current_buildable_data, preview_rotation) if current_buildable_data else Vector2i(1, 1)
 		instance.rotation.y = preview_rotation
-		instance.position = local_pos
+		instance.position = _get_item_local_position(chassis, grid_pos, footprint)
 		chassis.place_item(grid_pos, instance)
 
 	_play_build_place_sfx()
