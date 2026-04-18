@@ -20,25 +20,18 @@ const HOTBAR_KEY_LABELS: Array[String] = ["1", "2", "3", "4", "5", "6", "7", "8"
 @onready var pause_menu: PauseMenu = $PauseMenu
 @onready var stats_display: Control = $StatsDisplay
 @onready var hotbar_slots: HBoxContainer = $HotbarPanel/HotbarSlots
-@onready var inventory_panel: PanelContainer = $InventoryPanel
-@onready var inventory_items_grid: GridContainer = $InventoryPanel/Margin/VBox/InventoryItemsGrid
-@onready var inventory_recipes_label: Label = $InventoryPanel/Margin/VBox/Right/RecipeList
-@onready var craft_preview_label: Label = $InventoryPanel/Margin/VBox/Right/CraftInfo
 @onready var item_tooltip_panel: PanelContainer = $ItemTooltip
 @onready var item_tooltip_label: Label = $ItemTooltip/Name
 @onready var pickup_notif_container: VBoxContainer = $PickupNotifContainer
+
+var _inventory_menu: InventoryMenu = null
 
 var tracked_chassis: Node = null  # TrainChassis or WagonFrame
 var _hud_refresh_accum: float = 0.0
 const HUD_REFRESH_INTERVAL: float = 0.1
 const TOOLTIP_OFFSET: Vector2 = Vector2(18.0, 18.0)
 
-var _recipe_ids: Array[String] = []
-var _selected_recipe_index: int = 0
-var _crafting_system: Node = null
-
 var _hotbar_ui: Array[InventorySlotUI] = []
-var _inventory_ui: Array[InventorySlotUI] = []
 var _preview_tuner_panel: PanelContainer
 var _preview_tuner_item_select: OptionButton
 var _preview_tuner_texture: TextureRect
@@ -71,51 +64,30 @@ func _ready() -> void:
 	Inventory.item_picked_up.connect(_on_item_picked_up)
 	NetworkManager.chat_message_received.connect(_on_chat_message_received)
 
-	_crafting_system = get_node_or_null("/root/CraftingSystem")
-	if _crafting_system and _crafting_system.has_signal("crafted"):
-		_crafting_system.connect("crafted", _on_recipe_crafted)
-
 	build_panel.visible = false
 	interact_hint.visible = false
 	target_info_bg.visible = false
 	speed_label.visible = false
 	slope_label.visible = false
-	inventory_panel.visible = false
 	item_tooltip_panel.visible = false
 
+	# Hide legacy inventory panel — replaced by InventoryMenu
+	var legacy_panel := get_node_or_null("InventoryPanel")
+	if legacy_panel:
+		legacy_panel.visible = false
+
 	_build_hotbar_ui()
-	_build_inventory_slots_ui()
 	_build_preview_tuner_ui()
 	_build_chat_ui()
+	_build_inventory_menu()
 	pause_menu.resume_requested.connect(_on_pause_resume_requested)
 	pause_menu.respawn_requested.connect(_on_pause_respawn_requested)
 	pause_menu.move_to_front()
 
-	_recipe_ids = _crafting_get_recipe_ids()
 	_on_inventory_updated()
 	_on_survival_changed(Inventory.health, Inventory.hunger, Inventory.thirst)
 	_on_game_state_changed(GameManager.current_state)
 
-var _active_drag_source_index: int = -1
-
-func _notification(what: int) -> void:
-	if what == NOTIFICATION_DRAG_END:
-		if _active_drag_source_index >= 0 and not get_viewport().gui_is_drag_successful():
-			_drop_item_to_world(_active_drag_source_index)
-		_active_drag_source_index = -1
-
-func _drop_item_to_world(slot_index: int) -> void:
-	if not inventory_panel.visible:
-		return
-	var slot := Inventory.get_slot_data(slot_index)
-	if String(slot.get("item_id", "")).is_empty() or int(slot.get("amount", 0)) <= 0:
-		return
-	var player_node := _get_local_player_controller()
-	if player_node == null:
-		return
-	var head: Node3D = player_node.get_node("Head")
-	var drop_pos := player_node.global_position + head.global_basis * Vector3(0, 0, -1.5)
-	Inventory.drop_slot(slot_index, -1, drop_pos)
 
 func _input(event: InputEvent) -> void:
 	if not visible:
@@ -189,8 +161,6 @@ func _process(delta: float) -> void:
 		time_label.text = "Nuit" if night else "Jour"
 		time_label.modulate = Color(0.6, 0.7, 1.0) if night else Color(1, 0.95, 0.7)
 
-	if item_tooltip_panel.visible:
-		_update_item_tooltip_position()
 
 
 func _find_nearest_chassis() -> Node:
@@ -290,8 +260,6 @@ func _get_signed_slope_degrees(node: Node3D) -> float:
 
 func _on_inventory_updated() -> void:
 	_refresh_hotbar_slots()
-	if inventory_panel.visible:
-		_update_inventory_panel()
 	_refresh_preview_tuner_preview()
 
 func _on_survival_changed(health: float, hunger: float, thirst: float) -> void:
@@ -300,9 +268,6 @@ func _on_survival_changed(health: float, hunger: float, thirst: float) -> void:
 
 func _on_hotbar_selected(_index: int, _item_id: String) -> void:
 	_refresh_hotbar_slots()
-
-func _on_recipe_crafted(_item_id: String) -> void:
-	_update_inventory_panel()
 
 func _on_build_entered() -> void:
 	build_panel.visible = true
@@ -370,7 +335,7 @@ func _hide_transient_menus_for_pause() -> void:
 		build_menu.hide_menu()
 	if settings_menu:
 		settings_menu.visible = false
-	if inventory_panel.visible:
+	if _inventory_menu and _inventory_menu.visible:
 		toggle_inventory_panel(false)
 	BuildSystem.hide_preview()
 
@@ -403,22 +368,29 @@ func _current_build_cost_text() -> String:
 
 
 func is_inventory_open() -> bool:
-	return inventory_panel.visible
+	return _inventory_menu != null and _inventory_menu.visible
 
 func toggle_inventory_panel(force_state: Variant = null) -> bool:
-	var new_state: bool = not inventory_panel.visible
+	if _inventory_menu == null:
+		return false
+	var new_state: bool = not _inventory_menu.visible
 	if force_state is bool:
 		new_state = force_state
-	inventory_panel.visible = new_state
+	_inventory_menu.visible = new_state
 	if _preview_tuner_panel != null:
 		_preview_tuner_panel.visible = new_state
 	if new_state:
 		_ensure_preview_tuner_selection(Inventory.get_selected_item())
-		_update_inventory_panel()
 		_refresh_preview_tuner_preview()
-	else:
-		_hide_item_tooltip()
-	return inventory_panel.visible
+	return _inventory_menu.visible
+
+
+func _build_inventory_menu() -> void:
+	_inventory_menu = InventoryMenu.new()
+	_inventory_menu.visible = false
+	_inventory_menu.z_index = 10
+	add_child(_inventory_menu)
+	_inventory_menu.closed.connect(func(): toggle_inventory_panel(false))
 
 func is_chat_open() -> bool:
 	return _chat_open
@@ -495,55 +467,18 @@ func _on_chat_message_received(_peer_id: int, player_name: String, message: Stri
 
 
 func select_next_recipe() -> void:
-	if _recipe_ids.is_empty(): return
-	_selected_recipe_index = (_selected_recipe_index + 1) % _recipe_ids.size()
-	_update_inventory_panel()
+	if _inventory_menu:
+		_inventory_menu.select_next_recipe()
 
 func select_previous_recipe() -> void:
-	if _recipe_ids.is_empty(): return
-	_selected_recipe_index = posmod(_selected_recipe_index - 1, _recipe_ids.size())
-	_update_inventory_panel()
+	if _inventory_menu:
+		_inventory_menu.select_previous_recipe()
 
 func craft_selected_recipe() -> void:
-	if _recipe_ids.is_empty(): return
-	_crafting_craft(_recipe_ids[_selected_recipe_index])
-	_update_inventory_panel()
+	if _inventory_menu:
+		_inventory_menu.craft_selected_recipe()
 
 
-func _update_inventory_panel() -> void:
-	_refresh_inventory_slots()
-	_update_recipe_panel()
-
-func _update_recipe_panel() -> void:
-	if _recipe_ids.is_empty():
-		inventory_recipes_label.text = "Aucune recette"
-		craft_preview_label.text = ""
-		return
-
-	_selected_recipe_index = clampi(_selected_recipe_index, 0, _recipe_ids.size() - 1)
-
-	var lines: Array[String] = []
-	for i in range(_recipe_ids.size()):
-		var recipe: Dictionary = _crafting_get_recipe(_recipe_ids[i])
-		var ok: bool = _crafting_can_craft(_recipe_ids[i])
-		var sel: String = "▶ " if i == _selected_recipe_index else "  "
-		var status: String = "✓" if ok else "✗"
-		lines.append("%s%s  [%s]" % [sel, recipe.get("display_name", _recipe_ids[i]), status])
-	inventory_recipes_label.text = "\n".join(lines)
-
-	var rid: String = _recipe_ids[_selected_recipe_index]
-	var recipe: Dictionary = _crafting_get_recipe(rid)
-	var ingredients: Dictionary = recipe.get("ingredients", {})
-	var ingr_lines: Array[String] = []
-	for item_id in ingredients:
-		var need: int = int(ingredients[item_id])
-		var have: int = Inventory.get_item_amount(item_id)
-		var ok_c: String = "✓" if have >= need else "✗"
-		ingr_lines.append("%s  %s × %d  (/%d)" % [ok_c, Inventory.get_item_name(item_id), need, have])
-	craft_preview_label.text = "─── %s ───\n%s\n\n[F] Crafter" % [
-		recipe.get("display_name", rid),
-		"\n".join(ingr_lines)
-	]
 
 
 func _build_hotbar_ui() -> void:
@@ -561,22 +496,6 @@ func _build_hotbar_ui() -> void:
 		hotbar_slots.add_child(slot)
 		_hotbar_ui.append(slot)
 
-func _build_inventory_slots_ui() -> void:
-	for child in inventory_items_grid.get_children():
-		child.queue_free()
-	_inventory_ui.clear()
-	inventory_items_grid.columns = 9
-	for i in range(Inventory.get_inventory_slot_count()):
-		var global_index: int = Inventory.HOTBAR_SIZE + i
-		var slot := InventorySlotUI.new()
-		slot.setup(global_index, "")
-		slot.slot_pressed.connect(_on_slot_pressed)
-		slot.slot_dropped.connect(_on_slot_dropped)
-		slot.slot_drag_started.connect(_on_slot_drag_started)
-		slot.slot_hovered.connect(_on_slot_hovered)
-		slot.slot_unhovered.connect(_on_slot_unhovered)
-		inventory_items_grid.add_child(slot)
-		_inventory_ui.append(slot)
 
 func _build_preview_tuner_ui() -> void:
 	_preview_tuner_panel = PanelContainer.new()
@@ -798,84 +717,27 @@ func _refresh_hotbar_slots() -> void:
 		var icon: Texture2D = Inventory.get_item_icon(item_id) if has_item else null
 		_hotbar_ui[i].set_slot_visual(icon, int(data.get("amount", 0)), i == Inventory.selected_hotbar_index, has_item, HOTBAR_KEY_LABELS[i], item_id)
 
-func _refresh_inventory_slots() -> void:
-	for i in range(_inventory_ui.size()):
-		var global_index: int = Inventory.HOTBAR_SIZE + i
-		var data: Dictionary = Inventory.get_slot_data(global_index)
-		var has_item: bool = String(data.get("item_id", "")) != "" and int(data.get("amount", 0)) > 0
-		var item_id: String = String(data.get("item_id", ""))
-		var icon: Texture2D = Inventory.get_item_icon(item_id) if has_item else null
-		_inventory_ui[i].set_slot_visual(icon, int(data.get("amount", 0)), false, has_item, "", item_id)
-
-
-func _on_slot_pressed(slot_index: int, button_index: int) -> void:
-	if button_index != MOUSE_BUTTON_LEFT:
-		return
-	if slot_index < Inventory.HOTBAR_SIZE:
-		Inventory.select_hotbar_slot(slot_index)
-
-func _on_slot_drag_started(slot_index: int) -> void:
-	_active_drag_source_index = slot_index
-
-func _on_slot_dropped(source_index: int, target_index: int) -> void:
-	_active_drag_source_index = -1
-	Inventory.move_slot(source_index, target_index)
-	_hide_item_tooltip()
-
-func _on_slot_hovered(slot_index: int, item_id: String) -> void:
-	if not inventory_panel.visible or slot_index < Inventory.HOTBAR_SIZE or item_id.is_empty():
-		_hide_item_tooltip()
-		return
-	item_tooltip_label.text = Inventory.get_item_name(item_id)
-	item_tooltip_panel.visible = true
-	_update_item_tooltip_position()
-
-func _on_slot_unhovered(_slot_index: int) -> void:
-	_hide_item_tooltip()
-
-func _hide_item_tooltip() -> void:
-	item_tooltip_panel.visible = false
-
-func _update_item_tooltip_position() -> void:
-	var viewport_rect: Rect2 = get_viewport_rect()
-	var tooltip_size: Vector2 = item_tooltip_panel.size
-	if tooltip_size == Vector2.ZERO:
-		tooltip_size = item_tooltip_panel.get_combined_minimum_size()
-	var mouse_pos: Vector2 = get_global_mouse_position() + TOOLTIP_OFFSET
-	mouse_pos.x = minf(mouse_pos.x, viewport_rect.size.x - tooltip_size.x - 8.0)
-	mouse_pos.y = minf(mouse_pos.y, viewport_rect.size.y - tooltip_size.y - 8.0)
-	item_tooltip_panel.position = mouse_pos
-
-
 # Compatibility — build_controller.gd calls these
 func select_next_recipe_compat() -> void:   select_next_recipe()
 func select_previous_recipe_compat() -> void: select_previous_recipe()
 func craft_selected_recipe_compat() -> void: craft_selected_recipe()
 
+func _on_slot_pressed(slot_index: int, button_index: int) -> void:
+	if button_index == MOUSE_BUTTON_LEFT and slot_index < Inventory.HOTBAR_SIZE:
+		Inventory.select_hotbar_slot(slot_index)
 
-func _crafting_get_recipe_ids() -> Array[String]:
-	if _crafting_system and _crafting_system.has_method("get_recipe_ids"):
-		var ids: Variant = _crafting_system.call("get_recipe_ids")
-		if ids is Array:
-			return ids
-	return []
+func _on_slot_drag_started(_slot_index: int) -> void:
+	pass
 
-func _crafting_get_recipe(recipe_id: String) -> Dictionary:
-	if _crafting_system and _crafting_system.has_method("get_recipe"):
-		var r: Variant = _crafting_system.call("get_recipe", recipe_id)
-		if r is Dictionary:
-			return r
-	return {}
+func _on_slot_dropped(source_index: int, target_index: int) -> void:
+	Inventory.move_slot(source_index, target_index)
 
-func _crafting_can_craft(recipe_id: String) -> bool:
-	if _crafting_system and _crafting_system.has_method("can_craft"):
-		return bool(_crafting_system.call("can_craft", recipe_id))
-	return false
+func _on_slot_hovered(_slot_index: int, _item_id: String) -> void:
+	pass
 
-func _crafting_craft(recipe_id: String) -> bool:
-	if _crafting_system and _crafting_system.has_method("craft"):
-		return bool(_crafting_system.call("craft", recipe_id))
-	return false
+func _on_slot_unhovered(_slot_index: int) -> void:
+	pass
+
 
 func _on_item_picked_up(item_id: String, amount: int) -> void:
 	var item_name: String = Inventory.ITEM_NAMES.get(item_id, item_id)
