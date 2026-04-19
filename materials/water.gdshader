@@ -21,6 +21,8 @@ uniform float fresnel_power : hint_range(0.1, 8.0) = 3.5;
 uniform float alpha_min : hint_range(0.0, 1.0) = 0.72;
 uniform float alpha_max : hint_range(0.0, 1.0) = 0.95;
 
+uniform sampler2D DEPTH_TEXTURE : hint_depth_texture, filter_linear_mipmap;
+
 varying float v_surface_y;
 
 float hash21(vec2 p) {
