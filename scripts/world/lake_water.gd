@@ -195,10 +195,7 @@ func _build_surface_mesh() -> ArrayMesh:
 	return mesh
 
 
-func _build_default_material() -> Material:
-	var shader_mat: Material = load("res://materials/M_lake_water.tres")
-	if shader_mat != null:
-		return shader_mat
+func _build_default_material() -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
