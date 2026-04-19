@@ -1,0 +1,54 @@
+[gd_scene load_steps=7 format=3 uid="uid://damb3dustfx01"]
+
+[ext_resource type="Shader" path="res://materials/dust_particle.gdshader" id="1_dustsh"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_dust_mat"]
+render_priority = 0
+shader = ExtResource("1_dustsh")
+shader_parameter/color = Color(1, 0.96, 0.86, 1)
+shader_parameter/softness = 1.6
+shader_parameter/emission_strength = 0.55
+
+[sub_resource type="QuadMesh" id="QuadMesh_dust_quad"]
+material = SubResource("ShaderMaterial_dust_mat")
+size = Vector2(0.04, 0.04)
+
+[sub_resource type="Curve" id="Curve_dust_alpha"]
+min_value = 0.0
+max_value = 1.0
+_data = [Vector2(0, 0), 0.0, 0.0, 0, 0, Vector2(0.15, 1), 0.0, 0.0, 0, 0, Vector2(0.85, 1), 0.0, 0.0, 0, 0, Vector2(1, 0), 0.0, 0.0, 0, 0]
+point_count = 4
+
+[sub_resource type="CurveTexture" id="CurveTexture_dust_alpha"]
+curve = SubResource("Curve_dust_alpha")
+
+[sub_resource type="ParticleProcessMaterial" id="ParticleProcessMaterial_dust"]
+emission_shape = 3
+emission_box_extents = Vector3(18, 6, 18)
+particle_flag_rotate_y = true
+direction = Vector3(0, 1, 0)
+spread = 180.0
+initial_velocity_min = 0.02
+initial_velocity_max = 0.12
+angular_velocity_min = -5.0
+angular_velocity_max = 5.0
+gravity = Vector3(0.05, -0.02, 0.03)
+linear_accel_min = -0.05
+linear_accel_max = 0.05
+turbulence_enabled = true
+turbulence_noise_strength = 0.6
+turbulence_noise_scale = 1.4
+turbulence_noise_speed = Vector3(0.2, 0.15, 0.25)
+scale_min = 0.6
+scale_max = 1.6
+alpha_curve = SubResource("CurveTexture_dust_alpha")
+color = Color(1, 0.96, 0.86, 0.9)
+
+[node name="AmbientDust" type="GPUParticles3D"]
+cast_shadow = 0
+amount = 180
+lifetime = 9.0
+visibility_aabb = AABB(-24, -8, -24, 48, 16, 48)
+local_coords = false
+process_material = SubResource("ParticleProcessMaterial_dust")
+draw_pass_1 = SubResource("QuadMesh_dust_quad")
