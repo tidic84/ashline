@@ -467,7 +467,7 @@ func _build_workbench_ui() -> void:
 func open_workbench() -> void:
 	if _workbench_ui == null:
 		return
-	if inventory_panel.visible:
+	if _inventory_menu and _inventory_menu.visible:
 		toggle_inventory_panel(false)
 	if build_menu:
 		build_menu.hide_menu()
