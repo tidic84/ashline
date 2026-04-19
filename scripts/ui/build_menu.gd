@@ -44,7 +44,7 @@ func _ready() -> void:
 	if Inventory.has_signal("inventory_updated"):
 		Inventory.inventory_updated.connect(_on_inventory_updated)
 	if Inventory.has_signal("selected_hotbar_changed"):
-		Inventory.selected_hotbar_changed.connect(_on_inventory_updated)
+		Inventory.selected_hotbar_changed.connect(_on_inventory_updated.unbind(2))
 	if BuildSystem.has_signal("buildable_selected"):
 		BuildSystem.buildable_selected.connect(_on_buildable_selected)
 	if BuildSystem.has_signal("build_mode_exited"):
