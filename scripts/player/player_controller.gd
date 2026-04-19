@@ -25,7 +25,10 @@ const PLAYER_SYNC_INTERVAL: float = 0.033
 const FOOTSTEP_WALK_INTERVAL: float = 0.46
 const FOOTSTEP_SPRINT_INTERVAL: float = 0.32
 const FOOTSTEP_CROUCH_INTERVAL: float = 0.62
-const BUILD_COLLISION_MASK: int = 137  # World (1) + Train (8) + BuildDetect (128)
+const BUILD_COLLISION_MASK: int = 153  # World (1) + Train (8) + built placeables (16) + BuildDetect (128)
+const MAX_WALKABLE_SLOPE_DEGREES: float = 55.0
+const WALKABLE_FLOOR_SNAP_LENGTH: float = 0.6
+const WALKABLE_PLATFORM_LAYERS: int = 24  # Train floor (8) + built placeables (16)
 const PLAYER_REMOTE_EXTRAPOLATION: float = 0.12
 const PLAYER_ANIM_IDLE: String = "idle"
 const PLAYER_ANIM_WALK: String = "walk"
@@ -142,7 +145,9 @@ func _ready() -> void:
 	_camera_default_roll = camera.rotation.z
 	_camera_default_fov = camera.fov
 	_pitch = camera.rotation.x
-	floor_snap_length = 0.3
+	floor_max_angle = deg_to_rad(MAX_WALKABLE_SLOPE_DEGREES)
+	floor_snap_length = WALKABLE_FLOOR_SNAP_LENGTH
+	platform_floor_layers = WALKABLE_PLATFORM_LAYERS
 	if collision_shape and collision_shape.shape is CapsuleShape3D:
 		_default_collision_height = collision_shape.shape.height
 	hud.settings_menu.closed.connect(func():

@@ -1107,7 +1107,15 @@ func try_place_item(hit_point: Vector3, chassis: Node, actor_peer_id: int = -1, 
 		var footprint: Vector2i = _get_buildable_footprint(current_buildable_data, preview_rotation) if current_buildable_data else Vector2i(1, 1)
 		instance.rotation.y = preview_rotation
 		instance.position = _get_item_local_position(chassis, grid_pos, footprint)
-		chassis.place_item(grid_pos, instance)
+		instance.set_meta("grid_pos_x", grid_pos.x)
+		instance.set_meta("grid_pos_y", grid_pos.y)
+		instance.set_meta("grid_pos_z", grid_pos.z)
+		instance.set_meta("footprint_w", footprint.x)
+		instance.set_meta("footprint_h", footprint.y)
+		if chassis.has_method("place_item_footprint"):
+			chassis.place_item_footprint(grid_pos, footprint, instance)
+		else:
+			chassis.place_item(grid_pos, instance)
 
 	_consume_build_tool_durability(peer_id)
 	_play_build_place_sfx()

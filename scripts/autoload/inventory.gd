@@ -47,6 +47,7 @@ const ITEM_NAMES: Dictionary = {
 	"bandage": "Bandage",
 	"primitive_flask": "Gourde primitive",
 	"repair_wrap": "Kit de réparation",
+	"torch": "Torche",
 }
 
 const ITEM_STACK_SIZES: Dictionary = {
@@ -66,6 +67,7 @@ const ITEM_STACK_SIZES: Dictionary = {
 	"bandage": 10,
 	"primitive_flask": 1,
 	"repair_wrap": 5,
+	"torch": 5,
 }
 
 const ITEM_ICON_COLORS: Dictionary = {
@@ -85,6 +87,7 @@ const ITEM_ICON_COLORS: Dictionary = {
 	"bandage": Color(0.92, 0.88, 0.78, 1.0),
 	"primitive_flask": Color(0.40, 0.55, 0.62, 1.0),
 	"repair_wrap": Color(0.70, 0.55, 0.30, 1.0),
+	"torch": Color(0.95, 0.52, 0.18, 1.0),
 }
 
 # 3D model paths for inventory icon rendering. If missing, falls back to a flat colored tile.
@@ -100,6 +103,11 @@ const ITEM_MODELS: Dictionary = {
 	"axe": "res://assets/fab/axe/fbx/AXE_01.fbx",
 	"hammer": "res://assets/fab/hammer/fbx/source/Sledge Hammer_extracted/Sledge Hammer/SledgeHammer.fbx",
 	"pickaxe": "res://assets/fab/pickaxe/SM_BasicPickaxe.fbx",
+	"hammer_crude": "res://assets/models/survival/craft/tool-hammer-crude.glb",
+	"bandage": "res://assets/models/survival/craft/bandage.glb",
+	"primitive_flask": "res://assets/models/survival/craft/primitive-flask.glb",
+	"repair_wrap": "res://assets/models/survival/craft/repair-wrap.glb",
+	"torch": "res://assets/models/survival/craft/torch.glb",
 }
 
 const ICON_TEXTURE_SIZE: Vector2i = Vector2i(96, 96)
@@ -112,6 +120,11 @@ const ITEM_ICON_SETTINGS: Dictionary = {
 	"axe":     { "rotation_deg": Vector3(-43.0, -45.0, 11.0), "scale_mult": 1.5 },
 	"pickaxe": { "rotation_deg": Vector3(-40.0, 50.0, -45.0), "scale_mult": 1.6 },
 	"hammer":  { "rotation_deg": Vector3(35.0, 102.0, -160.0), "scale_mult": 2 },
+	"hammer_crude": { "rotation_deg": Vector3(-35.0, 45.0, -18.0), "scale_mult": 1.45 },
+	"bandage": { "rotation_deg": Vector3(-22.0, -35.0, 8.0), "scale_mult": 1.15 },
+	"primitive_flask": { "rotation_deg": Vector3(-20.0, -35.0, 0.0), "scale_mult": 1.15 },
+	"repair_wrap": { "rotation_deg": Vector3(-24.0, 40.0, -8.0), "scale_mult": 1.10 },
+	"torch": { "rotation_deg": Vector3(-35.0, 50.0, -22.0), "scale_mult": 1.25 },
 }
 
 # Albedo textures to force-assign when FBX importer fails to link external textures.

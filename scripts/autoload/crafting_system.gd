@@ -39,6 +39,13 @@ const RECIPES: Dictionary = {
 		"craft_time": 2.0,
 		"station": STATION_INVENTORY,
 	},
+	"torch": {
+		"display_name": "Torche",
+		"ingredients": {"branch": 1, "fiber": 2},
+		"preview_color": Color(0.95, 0.52, 0.18, 1.0),
+		"craft_time": 1.5,
+		"station": STATION_INVENTORY,
+	},
 
 	# ── Workbench (real tools & progression) ────────────────────────────────
 	"components": {

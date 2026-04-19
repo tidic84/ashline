@@ -12,8 +12,9 @@ height = 1.8
 collision_layer = 2
 collision_mask = 29
 floor_constant_speed = true
-floor_snap_length = 0.3
-platform_floor_layers = 8
+floor_snap_length = 0.6
+floor_max_angle = 0.959931
+platform_floor_layers = 24
 script = ExtResource("1")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1838567541]

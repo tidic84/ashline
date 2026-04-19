@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="BuildableData" load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/building/placeable_stairs.tscn" id="1"]
+[ext_resource type="Script" path="res://scripts/building/buildable_data.gd" id="2"]
+
+[resource]
+script = ExtResource("2")
+id = "placeable_stairs"
+display_name = "Escalier"
+description = "Escalier compact pour relier deux niveaux du wagon."
+scene = ExtResource("1")
+category = 5
+health = 80.0
+build_weight = 2
+cost = { "wood": 8, "metal": 2 }
+can_rotate = true
+footprint_size = Vector2i(1, 2)
+required_hammer = "any"
