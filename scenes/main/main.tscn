@@ -29,7 +29,10 @@
 [ext_resource type="Script" uid="uid://c5qvicfnpmm3v" path="res://scripts/player/build_controller.gd" id="30_buildctrl"]
 [ext_resource type="PackedScene" uid="uid://cggqb75a8w8r" path="res://addons/debug_menu/debug_menu.tscn" id="31_debug"]
 [ext_resource type="Script" uid="uid://ck00bpv2e6qsb" path="res://scripts/world/resource_spawner.gd" id="32_spawner"]
-[ext_resource type="Script" uid="uid://xcgy8mm71kxo" path="res://scripts/world/lake_water.gd" id="33_lake"]
+[ext_resource type="Script" path="res://scripts/world/lake_water.gd" id="33_lake"]
+[ext_resource type="Material" uid="uid://dkwv8wy2l4xuh" path="res://materials/M_lake_water.tres" id="34_waterm"]
+[ext_resource type="PackedScene" uid="uid://damb3dustfx01" path="res://scenes/environment/ambient_dust.tscn" id="35_dust"]
+[ext_resource type="Script" path="res://scripts/world/follow_player.gd" id="36_follow"]
 
 [sub_resource type="CameraAttributesPractical" id="CameraAttributesPractical_001"]
 auto_exposure_enabled = true
@@ -167,13 +170,21 @@ script = ExtResource("1_main")
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1725955204]
 transform = Transform3D(-0.09382802, 0.82773817, -0.5532142, -0.35695884, 0.49075216, 0.79482245, 0.929396, 0.27205127, 0.24942213, 0, 0.5193932, -0.2882359)
 light_color = Color(1, 0.93054914, 0.84765625, 1)
-light_energy = 1.409
-light_indirect_energy = 0.925
-light_volumetric_fog_energy = 6.176
+light_temperature = 4500.0
+light_energy = 3.2
+light_indirect_energy = 1.6
+light_volumetric_fog_energy = 4.0
 light_angular_distance = 2.5
 shadow_enabled = true
-directional_shadow_mode = 1
-directional_shadow_max_distance = 120.0
+shadow_bias = 0.05
+shadow_blur = 0.5
+directional_shadow_mode = 2
+directional_shadow_split_1 = 0.02
+directional_shadow_split_2 = 0.06
+directional_shadow_split_3 = 0.25
+directional_shadow_blend_splits = true
+directional_shadow_fade_start = 0.9
+directional_shadow_max_distance = 300.0
 sky_mode = 1
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=871891078]
@@ -251,6 +262,7 @@ shore_width = 4.5
 blend_width = 5.0
 depth = 4.0
 water_level_offset = -0.9
+surface_material = ExtResource("34_waterm")
 
 [node name="RailGenerator" type="Node3D" parent="." unique_id=1492007744]
 script = ExtResource("28_railgen")
@@ -268,6 +280,15 @@ footstep_time_factor = 1.1
 bob_strength_factor = 0.3
 nervous = 0.3
 player_scale = 0.9
+
+[node name="AmbientDustRig" type="Node3D" parent="." unique_id=1234981201]
+script = ExtResource("36_follow")
+target_path = NodePath("../UP_FPSController_Prefab")
+follow_y = false
+y_offset = 2.0
+update_every = 0.1
+
+[node name="AmbientDust" parent="AmbientDustRig" instance=ExtResource("35_dust")]
 
 [node name="MouseCapture" type="Node" parent="." unique_id=1761050513]
 script = ExtResource("27_mouse")
