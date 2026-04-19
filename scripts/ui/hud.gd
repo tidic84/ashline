@@ -62,6 +62,8 @@ func _ready() -> void:
 	Inventory.survival_changed.connect(_on_survival_changed)
 	Inventory.item_icon_preview_settings_changed.connect(_on_item_icon_preview_settings_changed)
 	Inventory.item_picked_up.connect(_on_item_picked_up)
+	Inventory.tool_broke.connect(_on_tool_broke)
+	BuildSystem.build_tool_missing.connect(_on_build_tool_missing)
 	NetworkManager.chat_message_received.connect(_on_chat_message_received)
 
 	build_panel.visible = false
@@ -112,7 +114,7 @@ func _process(delta: float) -> void:
 	if BuildSystem.is_building:
 		var cost_text: String = _current_build_cost_text()
 		var drag_text: String = "\n%s" % _build_drag_text if not _build_drag_text.is_empty() else ""
-		build_label.text = "%s%s%s\n[B] Menu  [R] Rotation  [Clic] Placer  [X] Retirer  [Clic droit] Annuler" % [BuildSystem.get_mode_name(), cost_text, drag_text]
+		build_label.text = "%s%s%s\n[R] Rotation  [Clic] Placer  [X] Retirer  [Clic droit] Fermer" % [BuildSystem.get_mode_name(), cost_text, drag_text]
 		if BuildSystem.mode == BuildSystem.BuildMode.OFF:
 			crosshair.color = Color(1, 1, 1, 0.8)
 		elif BuildSystem.can_place:
@@ -739,7 +741,8 @@ func _refresh_hotbar_slots() -> void:
 		var has_item: bool = String(data.get("item_id", "")) != "" and int(data.get("amount", 0)) > 0
 		var item_id: String = String(data.get("item_id", ""))
 		var icon: Texture2D = Inventory.get_item_icon(item_id) if has_item else null
-		_hotbar_ui[i].set_slot_visual(icon, int(data.get("amount", 0)), i == Inventory.selected_hotbar_index, has_item, HOTBAR_KEY_LABELS[i], item_id)
+		var dur_pct: float = Inventory.get_tool_durability_pct(i) if has_item and Inventory.has_durability(item_id) else -1.0
+		_hotbar_ui[i].set_slot_visual(icon, int(data.get("amount", 0)), i == Inventory.selected_hotbar_index, has_item, HOTBAR_KEY_LABELS[i], item_id, dur_pct)
 
 # Compatibility — build_controller.gd calls these
 func select_next_recipe_compat() -> void:   select_next_recipe()
@@ -765,11 +768,21 @@ func _on_slot_unhovered(_slot_index: int) -> void:
 
 func _on_item_picked_up(item_id: String, amount: int) -> void:
 	var item_name: String = Inventory.ITEM_NAMES.get(item_id, item_id)
+	_show_pickup_notif("+ %d  %s" % [amount, item_name], Color(0.85, 1.0, 0.6, 1.0))
+
+func _on_tool_broke(item_id: String) -> void:
+	var item_name: String = Inventory.ITEM_NAMES.get(item_id, item_id)
+	_show_pickup_notif("%s cassé" % item_name, Color(0.95, 0.40, 0.30, 1.0))
+
+func _on_build_tool_missing(reason: String) -> void:
+	_show_pickup_notif(reason, Color(0.98, 0.70, 0.25, 1.0))
+
+func _show_pickup_notif(text: String, color: Color) -> void:
 	var label := Label.new()
-	label.text = "+ %d  %s" % [amount, item_name]
+	label.text = text
 	label.modulate = Color(1.0, 1.0, 1.0, 0.0)
 	label.add_theme_font_size_override("font_size", 18)
-	label.add_theme_color_override("font_color", Color(0.85, 1.0, 0.6, 1.0))
+	label.add_theme_color_override("font_color", color)
 	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 1.0))
 	label.add_theme_constant_override("shadow_offset_x", 2)
 	label.add_theme_constant_override("shadow_offset_y", 2)

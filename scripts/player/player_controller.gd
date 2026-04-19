@@ -214,16 +214,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		_pitch = clampf(_pitch - event.relative.y * MOUSE_SENSITIVITY, deg_to_rad(-89), deg_to_rad(89))
 		camera.rotation.x = _pitch
 
-	if event.is_action_pressed("build_mode"):
-		if BuildSystem.is_building:
-			if hud.build_menu.visible:
-				_close_build_menu()
-			else:
-				_open_build_menu()
-		else:
-			BuildSystem.enter_build_mode()
-			_open_build_menu()
-
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F10:
 		_toggle_settings_menu()
 		return
@@ -240,6 +230,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif BuildSystem.is_building:
 			_cancel_batch_build()
 			_on_build_exit_requested()
+		elif _is_holding_hammer():
+			BuildSystem.enter_build_mode()
+			_open_build_menu()
 		else:
 			_try_secondary_interact()
 
@@ -1000,6 +993,10 @@ func _is_chat_open() -> bool:
 
 func _is_build_menu_open() -> bool:
 	return hud != null and hud.build_menu != null and hud.build_menu.visible
+
+func _is_holding_hammer() -> bool:
+	var id := Inventory.get_selected_item()
+	return id in Inventory.HAMMER_ITEMS
 
 func _controls_blocked() -> bool:
 	return GameManager.current_state == GameManager.GameState.PAUSED or _is_chat_open()

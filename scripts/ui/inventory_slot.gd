@@ -14,6 +14,8 @@ var _content: Control
 var _icon: TextureRect
 var _amount_label: Label
 var _key_label: Label
+var _durability_bar: ColorRect
+var _durability_bar_bg: ColorRect
 
 func _ready() -> void:
 	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -26,7 +28,7 @@ func setup(index: int, key_text: String = "") -> void:
 		_build_ui()
 	_key_label.text = key_text
 
-func set_slot_visual(icon: Texture2D, amount: int, selected: bool, has_item: bool, key_text: String = "", item_id: String = "") -> void:
+func set_slot_visual(icon: Texture2D, amount: int, selected: bool, has_item: bool, key_text: String = "", item_id: String = "", durability_pct: float = -1.0) -> void:
 	if _icon == null:
 		_build_ui()
 	_has_item = has_item
@@ -36,6 +38,7 @@ func set_slot_visual(icon: Texture2D, amount: int, selected: bool, has_item: boo
 	_icon.modulate = Color(1, 1, 1, 1.0 if has_item else 0.0)
 	_amount_label.text = str(amount) if amount > 1 else ""
 	add_theme_stylebox_override("panel", _slot_style(selected))
+	_update_durability_bar(durability_pct if has_item else -1.0)
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
@@ -120,6 +123,47 @@ func _build_ui() -> void:
 	_amount_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	_amount_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_content.add_child(_amount_label)
+
+	_durability_bar_bg = ColorRect.new()
+	_durability_bar_bg.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_durability_bar_bg.offset_left = 4
+	_durability_bar_bg.offset_right = -4
+	_durability_bar_bg.offset_top = -5
+	_durability_bar_bg.offset_bottom = -2
+	_durability_bar_bg.color = Color(0.05, 0.04, 0.03, 0.85)
+	_durability_bar_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_durability_bar_bg.visible = false
+	_content.add_child(_durability_bar_bg)
+
+	_durability_bar = ColorRect.new()
+	_durability_bar.anchor_left = 0.0
+	_durability_bar.anchor_top = 0.0
+	_durability_bar.anchor_right = 1.0
+	_durability_bar.anchor_bottom = 1.0
+	_durability_bar.offset_left = 0
+	_durability_bar.offset_top = 0
+	_durability_bar.offset_bottom = 0
+	_durability_bar.offset_right = 0
+	_durability_bar.color = Color(0.45, 0.85, 0.35, 1.0)
+	_durability_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_durability_bar_bg.add_child(_durability_bar)
+
+func _update_durability_bar(pct: float) -> void:
+	if _durability_bar_bg == null or _durability_bar == null:
+		return
+	if pct < 0.0:
+		_durability_bar_bg.visible = false
+		return
+	_durability_bar_bg.visible = true
+	var clamped: float = clampf(pct, 0.0, 1.0)
+	_durability_bar.anchor_right = clamped
+	_durability_bar.offset_right = 0
+	if clamped > 0.5:
+		_durability_bar.color = Color(0.45, 0.85, 0.35, 1.0)
+	elif clamped > 0.2:
+		_durability_bar.color = Color(0.95, 0.80, 0.30, 1.0)
+	else:
+		_durability_bar.color = Color(0.90, 0.30, 0.25, 1.0)
 
 func _make_icon_preview(texture: Texture2D, panel_size: Vector2, icon_size: Vector2, modulate_color: Color = Color.WHITE) -> Control:
 	var wrapper := Control.new()

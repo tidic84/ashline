@@ -1135,7 +1135,8 @@ func _refresh_hotbar_slots() -> void:
 		var has_item: bool = String(data.get("item_id", "")) != "" and int(data.get("amount", 0)) > 0
 		var item_id: String = String(data.get("item_id", ""))
 		var icon: Texture2D = Inventory.get_item_icon(item_id) if has_item else null
-		_hotbar_ui[i].set_slot_visual(icon, int(data.get("amount", 0)), i == Inventory.selected_hotbar_index, has_item, HOTBAR_KEY_LABELS[i], item_id)
+		var dur_pct: float = Inventory.get_tool_durability_pct(i) if has_item and Inventory.has_durability(item_id) else -1.0
+		_hotbar_ui[i].set_slot_visual(icon, int(data.get("amount", 0)), i == Inventory.selected_hotbar_index, has_item, HOTBAR_KEY_LABELS[i], item_id, dur_pct)
 
 
 func _refresh_inventory_slots() -> void:
@@ -1145,7 +1146,8 @@ func _refresh_inventory_slots() -> void:
 		var has_item: bool = String(data.get("item_id", "")) != "" and int(data.get("amount", 0)) > 0
 		var item_id: String = String(data.get("item_id", ""))
 		var icon: Texture2D = Inventory.get_item_icon(item_id) if has_item else null
-		_inventory_ui[i].set_slot_visual(icon, int(data.get("amount", 0)), false, has_item, "", item_id)
+		var dur_pct: float = Inventory.get_tool_durability_pct(global_idx) if has_item and Inventory.has_durability(item_id) else -1.0
+		_inventory_ui[i].set_slot_visual(icon, int(data.get("amount", 0)), false, has_item, "", item_id, dur_pct)
 
 
 # ─── CRAFTING ACTIONS (called from HUD) ───────────────────────────────────────
@@ -1181,6 +1183,14 @@ func _do_craft(recipe_id: String) -> void:
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 func _get_recipe_ids() -> Array[String]:
+	# Inventory menu only exposes the emergency / bootstrap recipes.
+	if _crafting_system and _crafting_system.has_method("get_recipe_ids_for_station"):
+		var ids: Variant = _crafting_system.call("get_recipe_ids_for_station", "inventory")
+		if ids is Array:
+			var typed: Array[String] = []
+			for id in ids:
+				typed.append(String(id))
+			return typed
 	if _crafting_system and _crafting_system.has_method("get_recipe_ids"):
 		var ids: Variant = _crafting_system.call("get_recipe_ids")
 		if ids is Array:

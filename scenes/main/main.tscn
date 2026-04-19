@@ -29,7 +29,7 @@
 [ext_resource type="Script" uid="uid://c5qvicfnpmm3v" path="res://scripts/player/build_controller.gd" id="30_buildctrl"]
 [ext_resource type="PackedScene" uid="uid://cggqb75a8w8r" path="res://addons/debug_menu/debug_menu.tscn" id="31_debug"]
 [ext_resource type="Script" uid="uid://ck00bpv2e6qsb" path="res://scripts/world/resource_spawner.gd" id="32_spawner"]
-[ext_resource type="Script" path="res://scripts/world/lake_water.gd" id="33_lake"]
+[ext_resource type="Script" uid="uid://xcgy8mm71kxo" path="res://scripts/world/lake_water.gd" id="33_lake"]
 
 [sub_resource type="CameraAttributesPractical" id="CameraAttributesPractical_001"]
 auto_exposure_enabled = true

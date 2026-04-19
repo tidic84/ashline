@@ -12,6 +12,10 @@ extends Resource
 @export var cost: Dictionary = {}
 @export var can_rotate: bool = true
 @export var footprint_size: Vector2i = Vector2i(1, 1)
+# Hammer tier required to build this item.
+#  "any"        — any hammer (crude or reinforced)
+#  "reinforced" — reinforced hammer only
+@export var required_hammer: String = "any"
 
 enum Category {
 	WALL,

@@ -5,6 +5,7 @@ signal build_mode_exited
 signal item_placed(item: Node3D)
 signal item_removed(item: Node3D)
 signal buildable_selected(data: BuildableData)
+signal build_tool_missing(reason: String)
 
 enum BuildMode { OFF, CHASSIS, FLOOR, CEILING, ITEM, DEMOLISH }
 const DEMOLISH_FLOOR_EDGE: int = -3
@@ -54,8 +55,19 @@ const CHASSIS_COST: Dictionary = { "wood": 10, "metal": 15 }
 const FLOOR_COST: Dictionary = { "wood": 3 }
 const CEILING_COST: Dictionary = { "wood": 3 }
 
-func _has_build_tool() -> bool:
-	return Inventory.get_selected_item() == "hammer"
+const HAMMER_REINFORCED: String = "hammer"
+const HAMMER_CRUDE: String = "hammer_crude"
+
+# Structural basics the player can already attempt with a crude hammer.
+# Chassis/wagons accept any hammer so the starter loop can bootstrap
+# (crude hammer → wagon → workbench → reinforced hammer).
+# Coupler, levers and pump stay reinforced via their BuildableData.
+const CHASSIS_HAMMER: String = "any"
+const FLOOR_HAMMER: String = "any"
+const CEILING_HAMMER: String = "any"
+
+func _has_build_tool(required: String = "any") -> bool:
+	return _is_equipped_hammer_allowed(Inventory.get_selected_item(), required)
 
 func _resolve_actor_peer_id(actor_peer_id: int) -> int:
 	if actor_peer_id > 0:
@@ -64,10 +76,43 @@ func _resolve_actor_peer_id(actor_peer_id: int) -> int:
 		return multiplayer.get_unique_id()
 	return 1
 
-func _has_build_tool_for_peer(peer_id: int) -> bool:
+func _has_build_tool_for_peer(peer_id: int, required: String = "any") -> bool:
+	var equipped: String
 	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
-		return Inventory.server_get_selected_item(peer_id) == "hammer"
-	return _has_build_tool()
+		equipped = Inventory.server_get_selected_item(peer_id)
+	else:
+		equipped = Inventory.get_selected_item()
+	return _is_equipped_hammer_allowed(equipped, required)
+
+func _is_equipped_hammer_allowed(equipped: String, required: String) -> bool:
+	if equipped.is_empty():
+		return false
+	if required == "reinforced":
+		return equipped == HAMMER_REINFORCED
+	# "any" (or unknown) accepts either hammer tier.
+	return equipped == HAMMER_REINFORCED or equipped == HAMMER_CRUDE
+
+func _required_hammer_for_buildable(data: BuildableData) -> String:
+	if data == null:
+		return "any"
+	return String(data.required_hammer) if data.required_hammer != "" else "any"
+
+func _notify_tool_missing(required: String, label: String = "") -> void:
+	var reason: String
+	if required == "reinforced":
+		reason = "Marteau renforcé requis" if label.is_empty() else "Marteau renforcé requis pour %s" % label
+	else:
+		reason = "Outil insuffisant"
+	build_tool_missing.emit(reason)
+
+# Consume one durability tick on whichever hammer the peer has equipped.
+# Safe to call after any successful placement; does nothing on client (the
+# server path is the authoritative owner of inventory state).
+func _consume_build_tool_durability(peer_id: int) -> void:
+	if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+		Inventory.server_consume_selected_durability(peer_id)
+	elif not multiplayer.has_multiplayer_peer():
+		Inventory._consume_slot_durability(Inventory.selected_hotbar_index)
 
 func _spend_resources_for_peer(peer_id: int, cost: Dictionary) -> bool:
 	if cost.is_empty():
@@ -162,9 +207,11 @@ func enter_build_mode() -> void:
 	is_building = true
 	mode = BuildMode.OFF
 	preview_rotation = 0.0
-	# If the player already owns a hammer, equip it when entering build mode.
+	# Prefer the reinforced hammer; fall back to the crude one for early game.
 	if Inventory.has_item("hammer"):
 		Inventory.select_hotbar_item("hammer")
+	elif Inventory.has_item("hammer_crude"):
+		Inventory.select_hotbar_item("hammer_crude")
 	build_mode_entered.emit()
 
 func exit_build_mode() -> void:
@@ -304,7 +351,7 @@ func update_preview_on_ground(hit_point: Vector3, _hit_normal: Vector3) -> void:
 		var up: Vector3 = fwd.cross(right).normalized()
 		var sc: Vector3 = preview_instance.basis.get_scale()
 		preview_instance.basis = Basis(right, up, fwd).scaled(sc)
-	_set_preview_validity(near_rails and Inventory.has_resources(CHASSIS_COST) and _has_build_tool())
+	_set_preview_validity(near_rails and Inventory.has_resources(CHASSIS_COST) and _has_build_tool(CHASSIS_HAMMER))
 
 
 func _update_second_bogie_preview(hit_point: Vector3) -> void:
@@ -350,7 +397,7 @@ func _update_second_bogie_preview(hit_point: Vector3) -> void:
 	var up: Vector3 = fwd.cross(right).normalized()
 	var sc2: Vector3 = _second_bogie_preview.basis.get_scale()
 	_second_bogie_preview.basis = Basis(right, up, fwd).scaled(sc2)
-	var valid: bool = distance >= min_dist and Inventory.has_resources(CHASSIS_COST) and _has_build_tool()
+	var valid: bool = distance >= min_dist and Inventory.has_resources(CHASSIS_COST) and _has_build_tool(CHASSIS_HAMMER)
 	_apply_material(_second_bogie_preview, preview_material_valid if valid else preview_material_invalid)
 	can_place = valid
 
@@ -394,7 +441,7 @@ func _update_floor_preview(hit_point: Vector3, _hit_normal: Vector3, chassis: No
 	preview_instance.visible = true
 	preview_instance.global_position = world_pos
 	preview_instance.global_basis = chassis.global_basis
-	_set_preview_validity(chassis.can_place_floor(grid_pos) and Inventory.has_resources(FLOOR_COST) and _has_build_tool())
+	_set_preview_validity(chassis.can_place_floor(grid_pos) and Inventory.has_resources(FLOOR_COST) and _has_build_tool(FLOOR_HAMMER))
 
 func _update_ceiling_preview(hit_point: Vector3, _hit_normal: Vector3, chassis: Node) -> void:
 	if chassis == null or not chassis.has_method("get_ceiling_surface_local_y"):
@@ -418,7 +465,7 @@ func _update_ceiling_preview(hit_point: Vector3, _hit_normal: Vector3, chassis: 
 	preview_instance.visible = true
 	preview_instance.global_position = world_pos
 	preview_instance.global_basis = chassis.global_basis
-	_set_preview_validity(chassis.can_place_floor(ceiling_grid) and Inventory.has_resources(CEILING_COST) and _has_build_tool())
+	_set_preview_validity(chassis.can_place_floor(ceiling_grid) and Inventory.has_resources(CEILING_COST) and _has_build_tool(CEILING_HAMMER))
 
 func _update_item_preview(hit_point: Vector3, _hit_normal: Vector3, chassis: Node) -> void:
 	if preview_instance == null:
@@ -460,7 +507,7 @@ func _update_item_preview(hit_point: Vector3, _hit_normal: Vector3, chassis: Nod
 	preview_instance.scale = _sc
 	var cost: Dictionary = current_buildable_data.cost if current_buildable_data else {}
 	var has_cost: bool = cost.is_empty() or Inventory.has_resources(cost)
-	var has_tool: bool = _has_build_tool()
+	var has_tool: bool = _has_build_tool(_required_hammer_for_buildable(current_buildable_data))
 	if is_edge_item and _last_edge != EdgeSide.NONE:
 		_set_preview_validity(chassis.can_place_edge(grid_pos, _last_edge) and has_cost and has_tool)
 	else:
@@ -476,7 +523,7 @@ func show_batch_floor_preview(target: Node, grid_positions: Array[Vector3i]) -> 
 		preview_instance.visible = false
 
 	_prepare_batch_preview(floor_scene, grid_positions.size())
-	var has_tool: bool = _has_build_tool()
+	var has_tool: bool = _has_build_tool(FLOOR_HAMMER)
 	var has_batch_cost: bool = _has_batch_resources(FLOOR_COST, grid_positions.size())
 	var floor_order: Array[Vector3i] = get_batch_floor_order(target, grid_positions)
 	var valid_floor_set: Dictionary = _positions_to_set(floor_order)
@@ -565,7 +612,7 @@ func show_batch_ceiling_preview(target: Node, grid_positions: Array[Vector3i]) -
 
 	# Caller supplies ceiling-level positions (z >= 1) already.
 	_prepare_batch_preview(ceiling_scene, grid_positions.size())
-	var has_tool: bool = _has_build_tool()
+	var has_tool: bool = _has_build_tool(CEILING_HAMMER)
 	var has_batch_cost: bool = _has_batch_resources(CEILING_COST, grid_positions.size())
 	var ceiling_order: Array[Vector3i] = get_batch_floor_order(target, grid_positions)
 	var valid_ceiling_set: Dictionary = _positions_to_set(ceiling_order)
@@ -603,7 +650,7 @@ func show_batch_wall_preview(target: Node, grid_positions: Array[Vector3i], edge
 
 	_prepare_batch_preview(current_buildable, grid_positions.size())
 	var cost: Dictionary = current_buildable_data.cost if current_buildable_data else {}
-	var has_tool: bool = _has_build_tool()
+	var has_tool: bool = _has_build_tool(_required_hammer_for_buildable(current_buildable_data))
 	var has_batch_cost: bool = cost.is_empty() or _has_batch_resources(cost, grid_positions.size())
 	var all_valid: bool = has_tool and has_batch_cost
 	var rot_y: float = _edge_rotation(edge) + preview_rotation
@@ -675,7 +722,8 @@ func try_place_chassis(hit_point: Vector3, actor_peer_id: int = -1, replicate: b
 		WorldSync.request_place_chassis(hit_point)
 		return null
 	var peer_id := _resolve_actor_peer_id(actor_peer_id)
-	if not _has_build_tool_for_peer(peer_id):
+	if not _has_build_tool_for_peer(peer_id, CHASSIS_HAMMER):
+		_notify_tool_missing(CHASSIS_HAMMER, "le train")
 		return null
 
 	# Step 2: place second bogie + create WagonFrame
@@ -745,6 +793,7 @@ func try_place_chassis(hit_point: Vector3, actor_peer_id: int = -1, replicate: b
 	_first_bogie_rail_path = best_rp
 	# Hide step 1 preview
 	_clear_preview()
+	_consume_build_tool_durability(peer_id)
 	_play_build_place_sfx()
 	item_placed.emit(instance)
 	return instance
@@ -752,6 +801,9 @@ func try_place_chassis(hit_point: Vector3, actor_peer_id: int = -1, replicate: b
 
 func _place_second_bogie(hit_point: Vector3, actor_peer_id: int = -1, _replicate: bool = true) -> Node3D:
 	var peer_id := _resolve_actor_peer_id(actor_peer_id)
+	if not _has_build_tool_for_peer(peer_id, CHASSIS_HAMMER):
+		_notify_tool_missing(CHASSIS_HAMMER, "le train")
+		return null
 	var curve: Curve3D = _first_bogie_curve
 	var total: float = curve.get_baked_length()
 	var offset: float = curve.get_closest_offset(hit_point)
@@ -880,6 +932,7 @@ func _place_second_bogie(hit_point: Vector3, actor_peer_id: int = -1, _replicate
 	_first_bogie_curve = null
 	_first_bogie_rail_path = null
 
+	_consume_build_tool_durability(peer_id)
 	_play_build_place_sfx()
 	item_placed.emit(frame)
 	return frame
@@ -936,7 +989,8 @@ func try_place_floor(hit_point: Vector3, chassis: Node, actor_peer_id: int = -1,
 		WorldSync.request_place_floor(WorldSync.get_net_id(chassis), chassis.get_grid_position(hit_point))
 		return null
 	var peer_id := _resolve_actor_peer_id(actor_peer_id)
-	if not _has_build_tool_for_peer(peer_id):
+	if not _has_build_tool_for_peer(peer_id, FLOOR_HAMMER):
+		_notify_tool_missing(FLOOR_HAMMER, "un sol")
 		return null
 	var grid_pos: Vector3i = chassis.get_grid_position(hit_point)
 	if not chassis.is_grid_in_bounds(grid_pos):
@@ -953,6 +1007,7 @@ func try_place_floor(hit_point: Vector3, chassis: Node, actor_peer_id: int = -1,
 	instance.set_meta("grid_pos_y", grid_pos.y)
 	instance.set_meta("grid_pos_z", grid_pos.z)
 	chassis.place_floor(grid_pos, instance)
+	_consume_build_tool_durability(peer_id)
 	_play_build_place_sfx()
 	item_placed.emit(instance)
 	if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
@@ -966,7 +1021,8 @@ func try_place_ceiling(hit_point: Vector3, chassis: Node, actor_peer_id: int = -
 		WorldSync.request_place_ceiling(WorldSync.get_net_id(chassis), grid_pos)
 		return null
 	var peer_id := _resolve_actor_peer_id(actor_peer_id)
-	if not _has_build_tool_for_peer(peer_id):
+	if not _has_build_tool_for_peer(peer_id, CEILING_HAMMER):
+		_notify_tool_missing(CEILING_HAMMER, "un plafond")
 		return null
 	if grid_pos.z <= 0:
 		return null
@@ -985,6 +1041,7 @@ func try_place_ceiling(hit_point: Vector3, chassis: Node, actor_peer_id: int = -
 	instance.set_meta("grid_pos_y", grid_pos.y)
 	instance.set_meta("grid_pos_z", grid_pos.z)
 	chassis.place_floor(grid_pos, instance)
+	_consume_build_tool_durability(peer_id)
 	_play_build_place_sfx()
 	item_placed.emit(instance)
 	if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
@@ -1003,7 +1060,10 @@ func try_place_item(hit_point: Vector3, chassis: Node, actor_peer_id: int = -1, 
 		WorldSync.request_place_item(WorldSync.get_net_id(chassis), buildable_id, grid_pos, preview_rotation, requested_edge)
 		return null
 	var peer_id := _resolve_actor_peer_id(actor_peer_id)
-	if not _has_build_tool_for_peer(peer_id):
+	var required_hammer: String = _required_hammer_for_buildable(current_buildable_data)
+	if not _has_build_tool_for_peer(peer_id, required_hammer):
+		var label: String = current_buildable_data.display_name if current_buildable_data else ""
+		_notify_tool_missing(required_hammer, label)
 		return null
 	if current_buildable == null:
 		return null
@@ -1049,6 +1109,7 @@ func try_place_item(hit_point: Vector3, chassis: Node, actor_peer_id: int = -1, 
 		instance.position = _get_item_local_position(chassis, grid_pos, footprint)
 		chassis.place_item(grid_pos, instance)
 
+	_consume_build_tool_durability(peer_id)
 	_play_build_place_sfx()
 	item_placed.emit(instance)
 	if replicate and multiplayer.has_multiplayer_peer() and multiplayer.is_server():
@@ -1079,11 +1140,13 @@ func server_try_place_item(peer_id: int, target_net_id: int, buildable_id: Strin
 		return null
 	if not target.has_method("can_place_item") or not target.has_method("can_place_edge"):
 		return null
-	if not _has_build_tool_for_peer(peer_id):
-		return null
 	if not buildable_catalog.has(buildable_id):
 		return null
 	var data: BuildableData = buildable_catalog[buildable_id]
+	var required_hammer: String = _required_hammer_for_buildable(data)
+	if not _has_build_tool_for_peer(peer_id, required_hammer):
+		_notify_tool_missing(required_hammer, data.display_name if data else "")
+		return null
 	if not target.is_grid_in_bounds(grid_pos):
 		return null
 	var is_edge_item: bool = data.category in [
@@ -1100,6 +1163,7 @@ func server_try_place_item(peer_id: int, target_net_id: int, buildable_id: Strin
 		return null
 	var placed := _instantiate_buildable_on_target(target, data, grid_pos, rotation_y, edge)
 	if placed != null:
+		_consume_build_tool_durability(peer_id)
 		WorldSync.replicate_place_item(target_net_id, WorldSync.get_net_id(placed), buildable_id, grid_pos, rotation_y, edge)
 	return placed
 

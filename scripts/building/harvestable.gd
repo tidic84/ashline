@@ -46,6 +46,11 @@ func server_harvest(peer_id: int) -> void:
 	if not _consume_hit_cooldown():
 		return
 	hits_remaining -= 1
+	if required_tool_id != "" and Inventory.has_durability(selected_item):
+		if multiplayer.has_multiplayer_peer() and multiplayer.is_server():
+			Inventory.server_consume_selected_durability(peer_id)
+		elif not multiplayer.has_multiplayer_peer():
+			Inventory._consume_slot_durability(Inventory.selected_hotbar_index)
 	if _is_pickup_collectible():
 		if _should_play_pickup_sfx_for_peer(peer_id):
 			_play_pickup_sfx()

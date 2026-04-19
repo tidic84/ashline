@@ -720,6 +720,14 @@ func _lighter_style(base: StyleBoxFlat) -> StyleBoxFlat:
 
 
 func _get_recipe_ids() -> Array[String]:
+	# Workbench UI only lists recipes tagged for the workbench station.
+	if _crafting_system and _crafting_system.has_method("get_recipe_ids_for_station"):
+		var ids: Variant = _crafting_system.call("get_recipe_ids_for_station", "workbench")
+		if ids is Array:
+			var typed: Array[String] = []
+			for id in ids:
+				typed.append(String(id))
+			return typed
 	if _crafting_system and _crafting_system.has_method("get_recipe_ids"):
 		var ids: Variant = _crafting_system.call("get_recipe_ids")
 		if ids is Array:

@@ -14,3 +14,4 @@ health = 80.0
 build_weight = 2
 cost = { "metal": 10 }
 can_rotate = false
+required_hammer = "reinforced"

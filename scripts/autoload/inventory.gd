@@ -9,6 +9,7 @@ signal selected_hotbar_changed(index: int, item_id: String)
 signal survival_changed(health: float, hunger: float, thirst: float)
 signal inventory_capacity_changed(used_slots: int, max_slots: int)
 signal item_icon_preview_settings_changed(item_id: String, settings: Dictionary)
+signal tool_broke(item_id: String)
 
 enum ResourceType { WOOD, METAL, COMPONENTS, FUEL }
 
@@ -17,7 +18,17 @@ const INVENTORY_SLOT_COUNT: int = 27
 const MAX_STAT: float = 100.0
 const MAX_INVENTORY_SLOTS: int = HOTBAR_SIZE + INVENTORY_SLOT_COUNT
 
-const TOOL_ITEMS: Array[String] = ["axe", "pickaxe", "hammer"]
+const TOOL_ITEMS: Array[String] = ["axe", "pickaxe", "hammer", "hammer_crude"]
+const HAMMER_ITEMS: Array[String] = ["hammer", "hammer_crude"]
+
+# Durability per tool: max, and default loss per "use" event (strike / place).
+# Missing item_id means the item is not durability-tracked.
+const TOOL_DURABILITY: Dictionary = {
+	"axe":          { "max": 120, "loss": 1 },
+	"pickaxe":      { "max": 120, "loss": 1 },
+	"hammer":       { "max": 160, "loss": 1 },
+	"hammer_crude": { "max": 40,  "loss": 2 },
+}
 
 const ITEM_NAMES: Dictionary = {
 	"wood": "Wood",
@@ -31,7 +42,11 @@ const ITEM_NAMES: Dictionary = {
 	"metal_scrap": "Metal Scrap",
 	"axe": "Axe",
 	"pickaxe": "Pickaxe",
-	"hammer": "Hammer",
+	"hammer": "Marteau renforcé",
+	"hammer_crude": "Marteau rudimentaire",
+	"bandage": "Bandage",
+	"primitive_flask": "Gourde primitive",
+	"repair_wrap": "Kit de réparation",
 }
 
 const ITEM_STACK_SIZES: Dictionary = {
@@ -47,6 +62,10 @@ const ITEM_STACK_SIZES: Dictionary = {
 	"axe": 1,
 	"pickaxe": 1,
 	"hammer": 1,
+	"hammer_crude": 1,
+	"bandage": 10,
+	"primitive_flask": 1,
+	"repair_wrap": 5,
 }
 
 const ITEM_ICON_COLORS: Dictionary = {
@@ -62,6 +81,10 @@ const ITEM_ICON_COLORS: Dictionary = {
 	"axe": Color(0.74, 0.38, 0.28, 1.0),
 	"pickaxe": Color(0.42, 0.62, 0.74, 1.0),
 	"hammer": Color(0.84, 0.70, 0.30, 1.0),
+	"hammer_crude": Color(0.60, 0.48, 0.22, 1.0),
+	"bandage": Color(0.92, 0.88, 0.78, 1.0),
+	"primitive_flask": Color(0.40, 0.55, 0.62, 1.0),
+	"repair_wrap": Color(0.70, 0.55, 0.30, 1.0),
 }
 
 # 3D model paths for inventory icon rendering. If missing, falls back to a flat colored tile.
@@ -115,12 +138,14 @@ const STARTER_ITEMS: Dictionary = {
 	"branch": 180,
 	"log": 140,
 	"stone": 220,
+	"fiber": 40,
 	"metal_scrap": 160,
 	"axe": 1,
 	"pickaxe": 1,
-	"hammer": 1,
 }
-const STARTER_HOTBAR_ITEMS: Array[String] = ["axe", "pickaxe", "hammer"]
+# No starter hammer: player must craft hammer_crude in inventory, build the
+# workbench with it, then craft the reinforced hammer at the workbench.
+const STARTER_HOTBAR_ITEMS: Array[String] = ["axe", "pickaxe"]
 
 var _slots: Array[Dictionary] = []
 var _item_icons: Dictionary = {}
@@ -196,7 +221,7 @@ func grant_starter_inventory() -> void:
 	for i in range(STARTER_HOTBAR_ITEMS.size()):
 		var tool_id := STARTER_HOTBAR_ITEMS[i]
 		if STARTER_ITEMS.has(tool_id):
-			_slots[i] = {"item_id": tool_id, "amount": int(STARTER_ITEMS[tool_id])}
+			_slots[i] = _make_slot(tool_id, int(STARTER_ITEMS[tool_id]))
 	for item_id_key in STARTER_ITEMS:
 		var item_id := String(item_id_key)
 		if STARTER_HOTBAR_ITEMS.has(item_id):
@@ -206,7 +231,7 @@ func grant_starter_inventory() -> void:
 		if remaining > 0:
 			remaining = _fill_existing_stacks_in_range(item_id, remaining, 0, HOTBAR_SIZE)
 			_fill_empty_slots_in_range(item_id, remaining, 0, HOTBAR_SIZE)
-	selected_hotbar_index = maxi(0, find_hotbar_slot("hammer"))
+	selected_hotbar_index = maxi(0, find_hotbar_slot("axe"))
 	_suppress_notifications = was_suppressed
 	_notify_inventory_changed()
 
@@ -274,7 +299,7 @@ func _build_fresh_starter_state() -> Dictionary:
 	for i in range(STARTER_HOTBAR_ITEMS.size()):
 		var tool_id := STARTER_HOTBAR_ITEMS[i]
 		if STARTER_ITEMS.has(tool_id):
-			slots[i] = {"item_id": tool_id, "amount": int(STARTER_ITEMS[tool_id])}
+			slots[i] = _make_slot(tool_id, int(STARTER_ITEMS[tool_id]))
 	var slot_index := HOTBAR_SIZE
 	for item_id_key in STARTER_ITEMS:
 		var item_id := String(item_id_key)
@@ -284,12 +309,12 @@ func _build_fresh_starter_state() -> Dictionary:
 		var stack_max := get_stack_size(item_id)
 		while amount > 0 and slot_index < total:
 			var to_add := mini(amount, stack_max)
-			slots[slot_index] = {"item_id": item_id, "amount": to_add}
+			slots[slot_index] = _make_slot(item_id, to_add)
 			amount -= to_add
 			slot_index += 1
 	return {
 		"slots": slots,
-		"selected_hotbar_index": maxi(0, STARTER_HOTBAR_ITEMS.find("hammer")),
+		"selected_hotbar_index": maxi(0, STARTER_HOTBAR_ITEMS.find("axe")),
 		"health": MAX_STAT,
 		"hunger": MAX_STAT,
 		"thirst": MAX_STAT,
@@ -588,6 +613,104 @@ func get_item_name(item_id: String) -> String:
 func get_stack_size(item_id: String) -> int:
 	return int(ITEM_STACK_SIZES.get(item_id, 99))
 
+func get_tool_max_durability(item_id: String) -> int:
+	var entry: Dictionary = TOOL_DURABILITY.get(item_id, {})
+	return int(entry.get("max", 0))
+
+func get_tool_durability_loss(item_id: String) -> int:
+	var entry: Dictionary = TOOL_DURABILITY.get(item_id, {})
+	return int(entry.get("loss", 1))
+
+func has_durability(item_id: String) -> bool:
+	return TOOL_DURABILITY.has(item_id)
+
+func get_slot_durability(index: int) -> int:
+	if index < 0 or index >= _slots.size():
+		return 0
+	return _slot_durability_value(_slots[index])
+
+func get_selected_durability() -> int:
+	return get_slot_durability(selected_hotbar_index)
+
+func get_tool_durability_pct(index: int) -> float:
+	if index < 0 or index >= _slots.size():
+		return -1.0
+	var slot := _slots[index]
+	var item_id := String(slot.get("item_id", ""))
+	if not has_durability(item_id):
+		return -1.0
+	var max_d: int = get_tool_max_durability(item_id)
+	if max_d <= 0:
+		return -1.0
+	var cur: int = _slot_durability_value(slot)
+	return clampf(float(cur) / float(max_d), 0.0, 1.0)
+
+# Decrement durability on the currently selected tool slot (local path).
+# Returns true if the tool broke and was removed.
+func consume_selected_durability(amount: int = -1) -> bool:
+	if WorldSync.should_request_host():
+		WorldSync.request_consume_tool_durability(amount)
+		return false
+	return _consume_slot_durability(selected_hotbar_index, amount)
+
+func _consume_slot_durability(slot_index: int, amount: int = -1) -> bool:
+	if slot_index < 0 or slot_index >= _slots.size():
+		return false
+	var slot := _slots[slot_index]
+	var item_id := String(slot.get("item_id", ""))
+	if item_id.is_empty() or not has_durability(item_id):
+		return false
+	var loss: int = amount if amount > 0 else get_tool_durability_loss(item_id)
+	var cur: int = _slot_durability_value(slot)
+	cur = maxi(0, cur - loss)
+	if cur <= 0:
+		_slots[slot_index] = _empty_slot()
+		tool_broke.emit(item_id)
+		_notify_inventory_changed()
+		return true
+	slot["durability"] = cur
+	_slots[slot_index] = slot
+	inventory_updated.emit()
+	hotbar_updated.emit()
+	return false
+
+func server_consume_selected_durability(peer_id: int, amount: int = -1) -> bool:
+	if not multiplayer.is_server():
+		return false
+	ensure_peer_inventory(peer_id)
+	var state: Dictionary = (player_inventories[peer_id] as Dictionary).duplicate(true)
+	var selected := clampi(int(state.get("selected_hotbar_index", 0)), 0, HOTBAR_SIZE - 1)
+	var slots: Array = state.get("slots", [])
+	if selected < 0 or selected >= slots.size():
+		return false
+	var slot: Dictionary = (slots[selected] as Dictionary).duplicate(true)
+	var item_id := String(slot.get("item_id", ""))
+	if item_id.is_empty() or not has_durability(item_id):
+		return false
+	var loss: int = amount if amount > 0 else get_tool_durability_loss(item_id)
+	var cur: int = _slot_durability_value(slot)
+	cur = maxi(0, cur - loss)
+	var broke := false
+	if cur <= 0:
+		slots[selected] = _empty_slot()
+		broke = true
+	else:
+		slot["durability"] = cur
+		slots[selected] = slot
+	state["slots"] = slots
+	_commit_peer_state(peer_id, state)
+	if broke and peer_id == get_local_peer_id():
+		tool_broke.emit(item_id)
+	return broke
+
+func _slot_durability_value(slot: Dictionary) -> int:
+	var item_id := String(slot.get("item_id", ""))
+	if not has_durability(item_id):
+		return 0
+	if slot.has("durability"):
+		return int(slot["durability"])
+	return get_tool_max_durability(item_id)
+
 func get_used_slots() -> int:
 	var used: int = 0
 	for slot in _slots:
@@ -783,7 +906,7 @@ func _state_fill_empty_slots(slots: Array, item_id: String, amount: int, start_i
 		if not _is_slot_empty(slot):
 			continue
 		var to_add := mini(stack_max, remaining)
-		slots[i] = {"item_id": item_id, "amount": to_add}
+		slots[i] = _make_slot(item_id, to_add)
 		remaining -= to_add
 		if remaining <= 0:
 			break
@@ -1431,9 +1554,15 @@ func _fill_empty_slots_in_range(item_id: String, remaining: int, start_index: in
 		if not _is_slot_empty(_slots[i]):
 			continue
 		var add: int = mini(stack_max, remaining)
-		_slots[i] = {"item_id": item_id, "amount": add}
+		_slots[i] = _make_slot(item_id, add)
 		remaining -= add
 	return remaining
+
+func _make_slot(item_id: String, amount: int) -> Dictionary:
+	var slot: Dictionary = {"item_id": item_id, "amount": amount}
+	if has_durability(item_id):
+		slot["durability"] = get_tool_max_durability(item_id)
+	return slot
 
 func _notify_inventory_changed() -> void:
 	if _suppress_notifications:

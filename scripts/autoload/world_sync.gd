@@ -196,6 +196,11 @@ func request_damage(target_net_id: int, amount: float) -> void:
 		_request_damage.rpc_id(1, target_net_id, amount)
 
 
+func request_consume_tool_durability(amount: int = -1) -> void:
+	if should_request_host():
+		_request_consume_tool_durability.rpc_id(1, amount)
+
+
 func replicate_place_floor(target_net_id: int, floor_net_id: int, grid_pos: Vector3i) -> void:
 	if is_networked() and multiplayer.is_server():
 		_apply_place_floor.rpc(target_net_id, floor_net_id, grid_pos)
@@ -379,6 +384,13 @@ func _request_demolish(target_net_id: int, grid_pos: Vector3i, edge: int) -> voi
 	if not multiplayer.is_server():
 		return
 	BuildSystem.server_try_demolish(multiplayer.get_remote_sender_id(), target_net_id, grid_pos, edge)
+
+
+@rpc("any_peer", "reliable")
+func _request_consume_tool_durability(amount: int) -> void:
+	if not multiplayer.is_server():
+		return
+	Inventory.server_consume_selected_durability(multiplayer.get_remote_sender_id(), amount)
 
 
 @rpc("any_peer", "reliable")
