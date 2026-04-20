@@ -16,10 +16,14 @@ enum SegmentType { GROUND, BRIDGE, TUNNEL }
 @export var rail_gauge: float = 2.0
 @export_range(0.1, 10.0, 0.01, "or_greater") var rail_width_scale: float = 2.0
 ## Amount (meters) trimmed off the lower-priority path's end at each
-## junction (the other path stays full and fills the shared point).
-## Prevents overlapping ties without leaving a gap between rails. Only
-## the visual mesh is affected — the Curve3D used by trains is unchanged.
-@export_range(0.0, 5.0, 0.05) var junction_trim_length: float = 0.6
+## junction. A Y-junction between two separate RailPath nodes cannot
+## render a perfect merge (each path has its own perpendicular ties),
+## so this is a cosmetic compromise:
+##   0.0  → rails always meet, ties at both sides may overlap slightly.
+##   >0   → trims the secondary path's mesh back by this amount; removes
+##          tie overlap at the cost of a small gap in that path's rails.
+## Only the visual mesh is affected — the Curve3D used by trains is unchanged.
+@export_range(0.0, 5.0, 0.05) var junction_trim_length: float = 0.0
 @export var rail_follow_pitch: bool = true
 @export var rail_use_deformed_mesh: bool = true
 @export var rail_auto_section_length: bool = true
