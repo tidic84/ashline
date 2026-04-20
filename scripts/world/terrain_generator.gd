@@ -24,6 +24,10 @@ enum SegmentType { GROUND, BRIDGE, TUNNEL }
 @export_range(0.5, 12.0, 0.01) var rail_adaptive_max_step: float = 2.4
 @export_range(0.0, 6.0, 0.01) var rail_curve_influence: float = 2.2
 @export_range(0.0, 6.0, 0.01) var rail_pitch_influence: float = 1.8
+## Distance (meters) over which the mesh bends through a shared cubic Bezier
+## at a connected endpoint so two adjacent rail paths meet with matching
+## angle and curvature instead of snapping between straight segments.
+@export_range(0.0, 8.0, 0.05) var rail_junction_blend_length: float = 3.0
 @export var bridge_threshold: float = 2.0
 @export var tunnel_threshold: float = 3.5
 ## Optional explicit reference — if null, scans the "rail_path" group
@@ -40,6 +44,7 @@ var _rail_curve: Curve3D = null
 var _rail_points: Array[Vector3] = []
 var _rail_types: Array[int] = []
 var _generated := false
+var _current_rail_path_source: Path3D = null
 
 
 func _ready() -> void:
@@ -148,6 +153,7 @@ func _process_one_rail_path(path: Path3D, sculpt_terrain: bool, rebuild_meshes: 
 		var t_out: Vector3 = path.global_basis * path.curve.get_point_out(i)
 		world_curve.add_point(p, t_in, t_out)
 	_rail_curve = world_curve
+	_current_rail_path_source = path
 	_rail_points = _sample_curve_world_points(_rail_curve)
 	if sculpt_terrain and _terrain_patch and _terrain_patch.has_method("sculpt_terrain_for_rails"):
 		_terrain_patch.sculpt_terrain_for_rails(
@@ -156,6 +162,7 @@ func _process_one_rail_path(path: Path3D, sculpt_terrain: bool, rebuild_meshes: 
 	_classify_segments_from_curve()
 	if rebuild_meshes:
 		_build_rail_meshes(idx)
+	_current_rail_path_source = null
 	return true
 
 
@@ -227,20 +234,178 @@ func sample_rail_progress(world_pos: Vector3) -> float:
 func _sample_track_transform(offset: float) -> Transform3D:
 	var total: float = _rail_curve.get_baked_length()
 	var pos: Vector3 = _rail_curve.sample_baked(offset)
+	var fwd: Vector3 = _sample_curve_fwd(_rail_curve, offset, total)
+	return Transform3D(_basis_from_fwd(fwd), pos)
+
+
+func _sample_curve_fwd(sample_curve: Curve3D, offset: float, total: float) -> Vector3:
 	var ahead: float = minf(offset + 1.0, total)
 	var behind: float = maxf(offset - 1.0, 0.0)
-	var fwd: Vector3 = _rail_curve.sample_baked(ahead) - _rail_curve.sample_baked(behind)
+	var fwd: Vector3 = sample_curve.sample_baked(ahead) - sample_curve.sample_baked(behind)
 	if not rail_follow_pitch:
 		fwd.y = 0.0
 	if fwd.length_squared() < 0.0001:
-		fwd = Vector3.FORWARD
-	fwd = fwd.normalized()
-	var right := Vector3.UP.cross(fwd)
+		return Vector3.FORWARD
+	return fwd.normalized()
+
+
+func _basis_from_fwd(fwd: Vector3) -> Basis:
+	var f: Vector3 = fwd
+	if not rail_follow_pitch:
+		f.y = 0.0
+	if f.length_squared() < 0.0001:
+		f = Vector3.FORWARD
+	f = f.normalized()
+	var right: Vector3 = Vector3.UP.cross(f)
 	if right.length_squared() < 0.0001:
 		right = Vector3.RIGHT
 	right = right.normalized()
-	var up := Vector3.UP if not rail_follow_pitch else fwd.cross(right).normalized()
-	return Transform3D(Basis(right, up, fwd), pos)
+	var up: Vector3 = Vector3.UP if not rail_follow_pitch else f.cross(right).normalized()
+	return Basis(right, up, f)
+
+
+func _bezier_point(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, t: float) -> Vector3:
+	var u: float = 1.0 - t
+	return u * u * u * p0 + 3.0 * u * u * t * p1 + 3.0 * u * t * t * p2 + t * t * t * p3
+
+
+func _bezier_tangent(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, t: float) -> Vector3:
+	var u: float = 1.0 - t
+	return 3.0 * (u * u * (p1 - p0) + 2.0 * u * t * (p2 - p1) + t * t * (p3 - p2))
+
+
+func _compute_junction_basis(source_path: Path3D, offset: float) -> Dictionary:
+	# Shared cross-section orientation at a junction between connected rail paths.
+	# Both paths meeting at the same world point compute the same averaged fwd,
+	# so blending each mesh toward this basis makes their end caps line up.
+	if source_path == null or _rail_curve == null:
+		return {}
+	var total_len: float = _rail_curve.get_baked_length()
+	var endpoint: int
+	if offset <= 0.001:
+		endpoint = 0
+	elif offset >= total_len - 0.001:
+		endpoint = 1
+	else:
+		return {}
+	var connections_variant: Variant = (
+		source_path.get("connections_at_start") if endpoint == 0
+		else source_path.get("connections_at_end")
+	)
+	if not (connections_variant is Array):
+		return {}
+	var connections: Array = connections_variant
+	if connections.is_empty():
+		return {}
+	var self_pos: Vector3 = _rail_curve.sample_baked(offset)
+	var self_fwd: Vector3 = _sample_curve_fwd(_rail_curve, offset, total_len)
+	if self_fwd.length_squared() < 0.0001:
+		return {}
+	var sum_fwd: Vector3 = self_fwd
+	var count: int = 1
+	for np in connections:
+		var other := source_path.get_node_or_null(np)
+		if not (other is Path3D):
+			continue
+		var other_path := other as Path3D
+		if other_path.curve == null or other_path.curve.point_count < 2:
+			continue
+		var other_total: float = other_path.curve.get_baked_length()
+		if other_total <= 0.001:
+			continue
+		var other_start_world: Vector3 = other_path.to_global(other_path.curve.get_point_position(0))
+		var other_end_world: Vector3 = other_path.to_global(
+			other_path.curve.get_point_position(other_path.curve.point_count - 1)
+		)
+		var other_offset: float = 0.0
+		if self_pos.distance_squared_to(other_start_world) > self_pos.distance_squared_to(other_end_world):
+			other_offset = other_total
+		var other_fwd_local: Vector3 = _sample_curve_fwd(other_path.curve, other_offset, other_total)
+		if other_fwd_local.length_squared() < 0.0001:
+			continue
+		var other_fwd: Vector3 = (other_path.global_basis * other_fwd_local).normalized()
+		if other_fwd.dot(self_fwd) < 0.0:
+			other_fwd = -other_fwd
+		sum_fwd += other_fwd
+		count += 1
+	if count <= 1 or sum_fwd.length_squared() < 0.0001:
+		return {}
+	var junction_fwd: Vector3 = sum_fwd.normalized()
+	var basis := _basis_from_fwd(junction_fwd)
+	return {
+		"pos": self_pos,
+		"fwd": junction_fwd,
+		"right": basis.x,
+		"up": basis.y,
+	}
+
+
+func _endpoint_blend_weight(distance: float, max_distance: float) -> float:
+	if max_distance <= 0.001:
+		return 0.0
+	if distance <= 0.0:
+		return 1.0
+	if distance >= max_distance:
+		return 0.0
+	var t: float = 1.0 - distance / max_distance
+	return t * t * (3.0 - 2.0 * t)
+
+
+func _build_junction_bezier(junction: Dictionary, blend_dist: float, total_len: float, is_start: bool) -> Dictionary:
+	# Cubic Bezier that bridges the own rail's interior anchor to the shared
+	# junction point. u=0 sits at the anchor side (natural rail), u=1 at the
+	# junction (shared by both connected paths). Matches derivatives at both
+	# ends so the deformation blends seamlessly into the rest of the mesh.
+	if junction.is_empty() or blend_dist <= 0.001 or _rail_curve == null:
+		return {}
+	var anchor_offset: float = blend_dist if is_start else total_len - blend_dist
+	anchor_offset = clampf(anchor_offset, 0.0, total_len)
+	var anchor_pos: Vector3 = _rail_curve.sample_baked(anchor_offset)
+	var anchor_fwd: Vector3 = _sample_curve_fwd(_rail_curve, anchor_offset, total_len)
+	var junction_pos: Vector3 = junction.pos
+	var junction_fwd: Vector3 = junction.fwd
+	if junction_fwd.dot(anchor_fwd) < 0.0:
+		junction_fwd = -junction_fwd
+	var tangent_len: float = blend_dist / 3.0
+	var p0: Vector3
+	var p1: Vector3
+	var p2: Vector3
+	var p3: Vector3
+	if is_start:
+		# u=0 at anchor (along = blend_dist), u=1 at junction (along = 0)
+		p0 = anchor_pos
+		p1 = anchor_pos - anchor_fwd * tangent_len
+		p2 = junction_pos + junction_fwd * tangent_len
+		p3 = junction_pos
+	else:
+		# u=0 at anchor (along = total_len - blend_dist), u=1 at junction (along = total_len)
+		p0 = anchor_pos
+		p1 = anchor_pos + anchor_fwd * tangent_len
+		p2 = junction_pos - junction_fwd * tangent_len
+		p3 = junction_pos
+	return {
+		"p0": p0,
+		"p1": p1,
+		"p2": p2,
+		"p3": p3,
+		"is_start": is_start,
+	}
+
+
+func _sample_bezier_transform(bez: Dictionary, u: float) -> Transform3D:
+	# u here follows the Bezier (0=anchor, 1=junction). For the start blend the
+	# along axis travels from junction (along=0) toward anchor (along=blend_dist),
+	# so we flip u before evaluating to keep u=0=anchor / u=1=junction.
+	var bez_u: float = u
+	if bool(bez.get("is_start", false)):
+		bez_u = 1.0 - u
+	var pos: Vector3 = _bezier_point(bez.p0, bez.p1, bez.p2, bez.p3, bez_u)
+	var tangent: Vector3 = _bezier_tangent(bez.p0, bez.p1, bez.p2, bez.p3, bez_u)
+	if bool(bez.get("is_start", false)):
+		tangent = -tangent
+	if tangent.length_squared() < 0.0001:
+		tangent = Vector3.FORWARD
+	return Transform3D(_basis_from_fwd(tangent.normalized()), pos)
 
 
 func _adaptive_step_at_offset(offset: float, base_step: float, total_len: float) -> float:
@@ -457,6 +622,12 @@ func _build_deformed_rail_section_mesh(total_len: float, section_scene: PackedSc
 	if tile_count <= 0:
 		tile_count = 1
 
+	var junction_start: Dictionary = _compute_junction_basis(_current_rail_path_source, 0.0)
+	var junction_end: Dictionary = _compute_junction_basis(_current_rail_path_source, total_len)
+	var blend_dist: float = clampf(rail_junction_blend_length, 0.0, total_len * 0.45)
+	var start_bezier: Dictionary = _build_junction_bezier(junction_start, blend_dist, total_len, true)
+	var end_bezier: Dictionary = _build_junction_bezier(junction_end, blend_dist, total_len, false)
+
 	var out_mesh := ArrayMesh.new()
 	var surf_count: int = src_mesh.get_surface_count()
 	for surf in range(surf_count):
@@ -496,6 +667,12 @@ func _build_deformed_rail_section_mesh(total_len: float, section_scene: PackedSc
 				var lateral: float = -v_local.z * width_scale
 				var vertical: float = v_local.y
 				var t := _sample_track_transform(along)
+				if not start_bezier.is_empty() and along < blend_dist:
+					var u: float = clampf(along / blend_dist, 0.0, 1.0)
+					t = _sample_bezier_transform(start_bezier, u)
+				elif not end_bezier.is_empty() and along > total_len - blend_dist:
+					var u: float = clampf((along - (total_len - blend_dist)) / blend_dist, 0.0, 1.0)
+					t = _sample_bezier_transform(end_bezier, u)
 				var right: Vector3 = t.basis.x
 				var up: Vector3 = t.basis.y
 				var world_p: Vector3 = t.origin + right * lateral + up * vertical
@@ -523,10 +700,20 @@ func _build_deformed_rail_section_mesh(total_len: float, section_scene: PackedSc
 			out_arrays[Mesh.ARRAY_TEX_UV] = out_uvs
 		out_arrays[Mesh.ARRAY_INDEX] = out_idx
 		out_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, out_arrays)
-		var src_mat: Material = src_mesh.surface_get_material(surf)
-		if src_mat != null:
-			out_mesh.surface_set_material(surf, src_mat)
+		out_mesh.surface_set_material(out_mesh.get_surface_count() - 1, _make_visible_rail_section_material())
 	return out_mesh
+
+
+func _make_visible_rail_section_material() -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(1.18, 1.08, 0.96, 1.0)
+	if ResourceLoader.exists("res://assets/models/rails/rail_section_rail_basecolor.jpg"):
+		mat.albedo_texture = load("res://assets/models/rails/rail_section_rail_basecolor.jpg")
+	mat.metallic = 0.0
+	mat.roughness = 0.8
+	mat.normal_enabled = false
+	return mat
 
 
 
