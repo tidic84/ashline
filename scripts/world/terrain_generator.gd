@@ -15,6 +15,11 @@ enum SegmentType { GROUND, BRIDGE, TUNNEL }
 @export var roadbed_blend_width: float = 7.0
 @export var rail_gauge: float = 2.0
 @export_range(0.1, 10.0, 0.01, "or_greater") var rail_width_scale: float = 2.0
+## Amount (meters) trimmed off each end of a rail mesh when that endpoint
+## is connected to another RailPath. Prevents two paths from rendering
+## overlapping ties/rails at a shared junction point. Only the visual mesh
+## is affected — the underlying Curve3D used by trains is unchanged.
+@export_range(0.0, 5.0, 0.05) var junction_trim_length: float = 0.6
 @export var rail_follow_pitch: bool = true
 @export var rail_use_deformed_mesh: bool = true
 @export var rail_auto_section_length: bool = true
@@ -155,8 +160,43 @@ func _process_one_rail_path(path: Path3D, sculpt_terrain: bool, rebuild_meshes: 
 		)
 	_classify_segments_from_curve()
 	if rebuild_meshes:
-		_build_rail_meshes(idx)
+		var trim_start: float = _compute_junction_trim(path, 0)
+		var trim_end: float = _compute_junction_trim(path, 1)
+		_build_rail_meshes(idx, trim_start, trim_end)
 	return true
+
+
+func _compute_junction_trim(path: Path3D, endpoint: int) -> float:
+	if junction_trim_length <= 0.0:
+		return 0.0
+	var prop_name: String = "connections_at_start" if endpoint == 0 else "connections_at_end"
+	var conns_variant: Variant = path.get(prop_name)
+	var has_connection := conns_variant is Array and (conns_variant as Array).size() > 0
+	# Fallback: detect connection by proximity to any other RailPath endpoint.
+	if not has_connection:
+		has_connection = _endpoint_touches_other_path(path, endpoint)
+	return junction_trim_length if has_connection else 0.0
+
+
+func _endpoint_touches_other_path(path: Path3D, endpoint: int) -> bool:
+	if path.curve == null or path.curve.point_count < 2:
+		return false
+	var idx := 0 if endpoint == 0 else path.curve.point_count - 1
+	var my_pos: Vector3 = path.to_global(path.curve.get_point_position(idx))
+	var threshold_sq := 0.05 * 0.05
+	for other in get_tree().get_nodes_in_group("rail_path"):
+		if other == path or not (other is Path3D):
+			continue
+		var op := other as Path3D
+		if op.curve == null or op.curve.point_count == 0:
+			continue
+		var o_start: Vector3 = op.to_global(op.curve.get_point_position(0))
+		var o_end: Vector3 = op.to_global(op.curve.get_point_position(op.curve.point_count - 1))
+		if my_pos.distance_squared_to(o_start) <= threshold_sq:
+			return true
+		if my_pos.distance_squared_to(o_end) <= threshold_sq:
+			return true
+	return false
 
 
 func _sample_curve_world_points(sample_curve: Curve3D) -> Array[Vector3]:
@@ -284,7 +324,7 @@ func _pitch_of_vector(v: Vector3) -> float:
 
 var _rail_section_scene: PackedScene = null
 
-func _build_rail_meshes(idx: int = 0) -> void:
+func _build_rail_meshes(idx: int = 0, trim_start: float = 0.0, trim_end: float = 0.0) -> void:
 	if _rail_curve == null or _rail_curve.point_count < 2:
 		return
 
@@ -294,6 +334,10 @@ func _build_rail_meshes(idx: int = 0) -> void:
 	add_child(path)
 
 	var total_len: float = _rail_curve.get_baked_length()
+	# Clamp trims so the rendered range stays positive.
+	var max_trim: float = maxf(total_len * 0.45, 0.0)
+	trim_start = clampf(trim_start, 0.0, max_trim)
+	trim_end = clampf(trim_end, 0.0, max_trim)
 
 	var rail_container := Node3D.new()
 	rail_container.name = "Rails_%d" % idx
@@ -304,7 +348,7 @@ func _build_rail_meshes(idx: int = 0) -> void:
 		_rail_section_scene = load("res://assets/models/rails/rail_section.glb")
 
 	if rail_use_deformed_mesh and _rail_section_scene != null:
-		var deformed_mesh := _build_deformed_rail_section_mesh(total_len, _rail_section_scene)
+		var deformed_mesh := _build_deformed_rail_section_mesh(total_len, _rail_section_scene, trim_start, trim_end)
 		if deformed_mesh != null:
 			var mi_def := MeshInstance3D.new()
 			mi_def.name = "RailsDeformed"
@@ -324,13 +368,15 @@ func _build_rail_meshes(idx: int = 0) -> void:
 				section_length = _compute_section_length_from_instance(temp_instance, section_length)
 			temp_instance.queue_free()
 			if rail_mesh != null:
+				var range_start: float = trim_start
+				var range_end: float = total_len - trim_end
 				var offsets := PackedFloat32Array()
-				var o := section_length * 0.5
-				while o <= total_len + 0.0001:
-					offsets.push_back(minf(o, total_len))
+				var o := range_start + section_length * 0.5
+				while o <= range_end + 0.0001:
+					offsets.push_back(clampf(o, range_start, range_end))
 					o += _adaptive_step_at_offset(o, section_length, total_len)
-				if offsets.size() == 0:
-					offsets.push_back(total_len * 0.5)
+				if offsets.size() == 0 and range_end > range_start:
+					offsets.push_back((range_start + range_end) * 0.5)
 				var section_count: int = offsets.size()
 				var mm := MultiMesh.new()
 				mm.transform_format = MultiMesh.TRANSFORM_3D
@@ -348,19 +394,23 @@ func _build_rail_meshes(idx: int = 0) -> void:
 				rail_container.add_child(mmi)
 				return
 
-	_build_fallback_rails(rail_container, total_len)
+	_build_fallback_rails(rail_container, total_len, trim_start, trim_end)
 
 
-func _build_fallback_rails(rail_container: Node3D, total_len: float) -> void:
+func _build_fallback_rails(rail_container: Node3D, total_len: float, trim_start: float = 0.0, trim_end: float = 0.0) -> void:
 	var width_scale: float = maxf(rail_width_scale, 0.1)
+	var range_start: float = clampf(trim_start, 0.0, total_len)
+	var range_end: float = clampf(total_len - trim_end, range_start, total_len)
+	if range_end - range_start <= 0.05:
+		return
 	var step: float = maxf(rail_section_length * 0.25, 0.2)
 	var samples: Array[Transform3D] = []
-	var offset: float = 0.0
-	while offset <= total_len:
+	var offset: float = range_start
+	while offset <= range_end:
 		samples.append(_sample_track_transform(offset))
 		offset += _adaptive_step_at_offset(offset, step, total_len)
-	if samples.size() == 0 or samples[-1].origin.distance_to(_rail_curve.sample_baked(total_len)) > 0.01:
-		samples.append(_sample_track_transform(total_len))
+	if samples.size() == 0 or samples[-1].origin.distance_to(_rail_curve.sample_baked(range_end)) > 0.01:
+		samples.append(_sample_track_transform(range_end))
 	if samples.size() < 2:
 		return
 
@@ -375,7 +425,8 @@ func _build_fallback_rails(rail_container: Node3D, total_len: float) -> void:
 	if tie_mat == null:
 		tie_mat = StandardMaterial3D.new()
 	var tie_spacing: float = 0.55
-	var tie_count: int = int(total_len / tie_spacing)
+	var rendered_len: float = range_end - range_start
+	var tie_count: int = int(rendered_len / tie_spacing)
 	if tie_count > 0:
 		var tm := BoxMesh.new()
 		tm.size = Vector3(1.6 * width_scale, 0.08, 0.12)
@@ -385,7 +436,7 @@ func _build_fallback_rails(rail_container: Node3D, total_len: float) -> void:
 		tmm.mesh = tm
 		tmm.instance_count = tie_count
 		for i in range(tie_count):
-			var t := _sample_track_transform(float(i) * tie_spacing)
+			var t := _sample_track_transform(range_start + float(i) * tie_spacing)
 			tmm.set_instance_transform(i, t)
 		var tmmi := MultiMeshInstance3D.new()
 		tmmi.name = "Ties"
@@ -437,10 +488,15 @@ func _find_first_mesh_and_xf(node: Node, parent_xf: Transform3D) -> Array:
 	return []
 
 
-func _build_deformed_rail_section_mesh(total_len: float, section_scene: PackedScene) -> ArrayMesh:
+func _build_deformed_rail_section_mesh(total_len: float, section_scene: PackedScene, trim_start: float = 0.0, trim_end: float = 0.0) -> ArrayMesh:
 	if _rail_curve == null or total_len <= 0.001:
 		return null
 	var width_scale: float = maxf(rail_width_scale, 0.1)
+	var range_start: float = clampf(trim_start, 0.0, total_len)
+	var range_end: float = clampf(total_len - trim_end, range_start, total_len)
+	var effective_len: float = range_end - range_start
+	if effective_len <= 0.001:
+		return null
 	var temp: Node = section_scene.instantiate()
 	var found := _find_first_mesh_and_xf(temp, Transform3D.IDENTITY)
 	if found.size() == 0:
@@ -453,7 +509,7 @@ func _build_deformed_rail_section_mesh(total_len: float, section_scene: PackedSc
 	var src_aabb: AABB = _transform_aabb(src_mesh.get_aabb(), src_xf)
 	var tile_len: float = maxf(src_aabb.size.x, 0.05)
 	var x_min: float = src_aabb.position.x
-	var tile_count: int = int(ceil(total_len / tile_len))
+	var tile_count: int = int(ceil(effective_len / tile_len))
 	if tile_count <= 0:
 		tile_count = 1
 
@@ -482,17 +538,18 @@ func _build_deformed_rail_section_mesh(total_len: float, section_scene: PackedSc
 		for tile in range(tile_count):
 			var base_arc: float = float(tile) * tile_len
 			# Scale the last (partial) tile along X so its end exactly meets
-			# total_len. Without this, clamping end-side vertices to total_len
-			# collapses them to a single point and pinches the mesh.
-			var this_tile_len: float = minf(tile_len, total_len - base_arc)
+			# the effective rendered length. Without this, clamping end-side
+			# vertices collapses them to a single point and pinches the mesh.
+			var this_tile_len: float = minf(tile_len, effective_len - base_arc)
 			if this_tile_len < 0.001:
 				continue
 			var x_scale: float = this_tile_len / tile_len
 			var base_idx: int = out_verts.size()
 			for i in range(vc):
 				var v_local: Vector3 = src_xf * src_verts[i]
-				var along: float = base_arc + (v_local.x - x_min) * x_scale
-				along = clampf(along, 0.0, total_len)
+				var along_local: float = base_arc + (v_local.x - x_min) * x_scale
+				along_local = clampf(along_local, 0.0, effective_len)
+				var along: float = range_start + along_local
 				var lateral: float = -v_local.z * width_scale
 				var vertical: float = v_local.y
 				var t := _sample_track_transform(along)
