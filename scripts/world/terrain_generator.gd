@@ -15,10 +15,10 @@ enum SegmentType { GROUND, BRIDGE, TUNNEL }
 @export var roadbed_blend_width: float = 7.0
 @export var rail_gauge: float = 2.0
 @export_range(0.1, 10.0, 0.01, "or_greater") var rail_width_scale: float = 2.0
-## Amount (meters) trimmed off each end of a rail mesh when that endpoint
-## is connected to another RailPath. Prevents two paths from rendering
-## overlapping ties/rails at a shared junction point. Only the visual mesh
-## is affected — the underlying Curve3D used by trains is unchanged.
+## Amount (meters) trimmed off the lower-priority path's end at each
+## junction (the other path stays full and fills the shared point).
+## Prevents overlapping ties without leaving a gap between rails. Only
+## the visual mesh is affected — the Curve3D used by trains is unchanged.
 @export_range(0.0, 5.0, 0.05) var junction_trim_length: float = 0.6
 @export var rail_follow_pitch: bool = true
 @export var rail_use_deformed_mesh: bool = true
@@ -169,13 +169,41 @@ func _process_one_rail_path(path: Path3D, sculpt_terrain: bool, rebuild_meshes: 
 func _compute_junction_trim(path: Path3D, endpoint: int) -> float:
 	if junction_trim_length <= 0.0:
 		return 0.0
+	if path.curve == null or path.curve.point_count < 2:
+		return 0.0
+	# At each junction, only the path with the highest instance_id trims
+	# back — the other path extends fully to the shared point. This avoids
+	# both the overlap (two full meshes at once) and the gap (both trimmed).
+	var my_idx := 0 if endpoint == 0 else path.curve.point_count - 1
+	var my_pos: Vector3 = path.to_global(path.curve.get_point_position(my_idx))
+	var my_id: int = path.get_instance_id()
+	var threshold_sq := 0.05 * 0.05
+	var should_trim := false
+	# First pass: explicit connections listed on the RailPath node.
 	var prop_name: String = "connections_at_start" if endpoint == 0 else "connections_at_end"
 	var conns_variant: Variant = path.get(prop_name)
-	var has_connection := conns_variant is Array and (conns_variant as Array).size() > 0
-	# Fallback: detect connection by proximity to any other RailPath endpoint.
-	if not has_connection:
-		has_connection = _endpoint_touches_other_path(path, endpoint)
-	return junction_trim_length if has_connection else 0.0
+	if conns_variant is Array:
+		for np in (conns_variant as Array):
+			var other := path.get_node_or_null(np)
+			if other is Path3D and other.get_instance_id() < my_id:
+				should_trim = true
+				break
+	# Fallback: proximity-based detection against every other RailPath.
+	if not should_trim:
+		for other in get_tree().get_nodes_in_group("rail_path"):
+			if other == path or not (other is Path3D):
+				continue
+			var op := other as Path3D
+			if op.curve == null or op.curve.point_count == 0:
+				continue
+			var o_start: Vector3 = op.to_global(op.curve.get_point_position(0))
+			var o_end: Vector3 = op.to_global(op.curve.get_point_position(op.curve.point_count - 1))
+			var touches: bool = my_pos.distance_squared_to(o_start) <= threshold_sq \
+					or my_pos.distance_squared_to(o_end) <= threshold_sq
+			if touches and op.get_instance_id() < my_id:
+				should_trim = true
+				break
+	return junction_trim_length if should_trim else 0.0
 
 
 func _endpoint_touches_other_path(path: Path3D, endpoint: int) -> bool:
