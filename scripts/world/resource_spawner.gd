@@ -41,7 +41,7 @@ func _collect_tree_positions() -> void:
 	var trees: Node = parent_node.get_node_or_null("Trees")
 	if trees == null or not trees.has_method("get_generated_world_positions"):
 		return
-	for attempt in range(30):
+	for attempt in range(120):
 		var positions: PackedVector3Array = trees.call("get_generated_world_positions")
 		if positions.size() > 0:
 			_tree_positions = positions
@@ -70,10 +70,12 @@ func _spawn_batch(count: int, item_id: String, amount_min: int, amount_max: int,
 		add_child(node)
 		WorldSync.register_entity(node, _next_resource_net_id)
 		_next_resource_net_id += 1
+		var spawn_position: Vector3 = Vector3.ZERO
 		if near_trees and _tree_positions.size() > 0:
-			node.position = _pick_position_near_tree(tree_radius_min, tree_radius_max)
+			spawn_position = _pick_position_near_tree(tree_radius_min, tree_radius_max)
 		else:
-			node.position = _pick_position()
+			spawn_position = _pick_position()
+		node.global_position = spawn_position
 		_match_visual(node, item_id, required_tool_id)
 
 func _spawn_pickup_test_cluster() -> void:

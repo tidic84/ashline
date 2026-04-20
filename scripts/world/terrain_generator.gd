@@ -16,14 +16,17 @@ enum SegmentType { GROUND, BRIDGE, TUNNEL }
 @export var rail_gauge: float = 2.0
 @export_range(0.1, 10.0, 0.01, "or_greater") var rail_width_scale: float = 2.0
 @export var rail_follow_pitch: bool = true
+@export var rail_use_model_sections: bool = true
 @export var rail_use_deformed_mesh: bool = true
 @export var rail_auto_section_length: bool = true
 @export_range(0.2, 10.0, 0.01) var rail_section_length: float = 2.4
+@export_range(0.1, 2.0, 0.05) var rail_deform_subdivision_length: float = 0.45
 @export var rail_adaptive_sampling: bool = true
 @export_range(0.2, 5.0, 0.01) var rail_adaptive_min_step: float = 0.45
 @export_range(0.5, 12.0, 0.01) var rail_adaptive_max_step: float = 2.4
 @export_range(0.0, 6.0, 0.01) var rail_curve_influence: float = 2.2
 @export_range(0.0, 6.0, 0.01) var rail_pitch_influence: float = 1.8
+@export_range(0.0, 5.0, 0.05) var rail_connection_snap_distance: float = 1.5
 @export var bridge_threshold: float = 2.0
 @export var tunnel_threshold: float = 3.5
 ## Optional explicit reference — if null, scans the "rail_path" group
@@ -147,6 +150,7 @@ func _process_one_rail_path(path: Path3D, sculpt_terrain: bool, rebuild_meshes: 
 		var t_in: Vector3 = path.global_basis * path.curve.get_point_in(i)
 		var t_out: Vector3 = path.global_basis * path.curve.get_point_out(i)
 		world_curve.add_point(p, t_in, t_out)
+	_align_world_curve_connected_endpoints(path, world_curve)
 	_rail_curve = world_curve
 	_rail_points = _sample_curve_world_points(_rail_curve)
 	if sculpt_terrain and _terrain_patch and _terrain_patch.has_method("sculpt_terrain_for_rails"):
@@ -157,6 +161,45 @@ func _process_one_rail_path(path: Path3D, sculpt_terrain: bool, rebuild_meshes: 
 	if rebuild_meshes:
 		_build_rail_meshes(idx)
 	return true
+
+
+func _align_world_curve_connected_endpoints(path: Path3D, world_curve: Curve3D) -> void:
+	if world_curve == null or world_curve.point_count < 2:
+		return
+	_align_world_curve_connected_endpoint(path, world_curve, 0)
+	_align_world_curve_connected_endpoint(path, world_curve, world_curve.point_count - 1)
+
+
+func _align_world_curve_connected_endpoint(path: Path3D, world_curve: Curve3D, point_idx: int) -> void:
+	var endpoint := 0 if point_idx == 0 else 1
+	var connections_variant: Variant = path.get("connections_at_start") if endpoint == 0 else path.get("connections_at_end")
+	if not (connections_variant is Array):
+		return
+	var connections: Array = connections_variant
+	if connections.is_empty():
+		return
+	var source_pos: Vector3 = world_curve.get_point_position(point_idx)
+	var target_sum := source_pos
+	var target_count := 1
+	var max_dist_sq := rail_connection_snap_distance * rail_connection_snap_distance
+	for np in connections:
+		var other := path.get_node_or_null(np)
+		if not (other is Path3D):
+			continue
+		var other_path := other as Path3D
+		if other_path.curve == null or other_path.curve.point_count < 1:
+			continue
+		var other_start: Vector3 = other_path.to_global(other_path.curve.get_point_position(0))
+		var other_end_idx := other_path.curve.point_count - 1
+		var other_end: Vector3 = other_path.to_global(other_path.curve.get_point_position(other_end_idx))
+		var other_pos := other_start if source_pos.distance_squared_to(other_start) <= source_pos.distance_squared_to(other_end) else other_end
+		if source_pos.distance_squared_to(other_pos) > max_dist_sq:
+			continue
+		target_sum += other_pos
+		target_count += 1
+	if target_count <= 1:
+		return
+	world_curve.set_point_position(point_idx, target_sum / float(target_count))
 
 
 func _sample_curve_world_points(sample_curve: Curve3D) -> Array[Vector3]:
@@ -303,7 +346,7 @@ func _build_rail_meshes(idx: int = 0) -> void:
 	if ResourceLoader.exists("res://assets/models/rails/rail_section.glb"):
 		_rail_section_scene = load("res://assets/models/rails/rail_section.glb")
 
-	if rail_use_deformed_mesh and _rail_section_scene != null:
+	if rail_use_model_sections and rail_use_deformed_mesh and _rail_section_scene != null:
 		var deformed_mesh := _build_deformed_rail_section_mesh(total_len, _rail_section_scene)
 		if deformed_mesh != null:
 			var mi_def := MeshInstance3D.new()
@@ -314,7 +357,7 @@ func _build_rail_meshes(idx: int = 0) -> void:
 			mi_def.global_transform = Transform3D.IDENTITY
 			return
 
-	if _rail_section_scene != null:
+	if rail_use_model_sections and _rail_section_scene != null:
 		var width_scale: float = maxf(rail_width_scale, 0.1)
 		var section_length: float = maxf(rail_section_length, 0.2)
 		if total_len > 0.0:
@@ -365,9 +408,9 @@ func _build_fallback_rails(rail_container: Node3D, total_len: float) -> void:
 		return
 
 	var rail_mat := StandardMaterial3D.new()
-	rail_mat.albedo_color = Color(0.28, 0.26, 0.24)
-	rail_mat.metallic = 0.88
-	rail_mat.roughness = 0.28
+	rail_mat.albedo_color = Color(0.46, 0.32, 0.24)
+	rail_mat.metallic = 0.72
+	rail_mat.roughness = 0.34
 
 	var tie_mat: Material = null
 	if ResourceLoader.exists("res://textures/rails/wood_tie/M_wood_tie.tres"):
@@ -441,6 +484,7 @@ func _build_deformed_rail_section_mesh(total_len: float, section_scene: PackedSc
 	if _rail_curve == null or total_len <= 0.001:
 		return null
 	var width_scale: float = maxf(rail_width_scale, 0.1)
+	var subdivision_length: float = maxf(rail_deform_subdivision_length, 0.05)
 	var temp: Node = section_scene.instantiate()
 	var found := _find_first_mesh_and_xf(temp, Transform3D.IDENTITY)
 	if found.size() == 0:
@@ -452,7 +496,7 @@ func _build_deformed_rail_section_mesh(total_len: float, section_scene: PackedSc
 
 	var src_aabb: AABB = _transform_aabb(src_mesh.get_aabb(), src_xf)
 	var tile_len: float = maxf(src_aabb.size.x, 0.05)
-	var x_min: float = src_aabb.position.x
+	var along_min: float = src_aabb.position.x
 	var tile_count: int = int(ceil(total_len / tile_len))
 	if tile_count <= 0:
 		tile_count = 1
@@ -467,53 +511,69 @@ func _build_deformed_rail_section_mesh(total_len: float, section_scene: PackedSc
 		var vc: int = src_verts.size()
 		if vc == 0:
 			continue
-		var has_norms: bool = arrays[Mesh.ARRAY_NORMAL] != null
-		var src_norms: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL] if has_norms else PackedVector3Array()
-		var has_uvs: bool = arrays[Mesh.ARRAY_TEX_UV] != null
-		var src_uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV] if has_uvs else PackedVector2Array()
-		var has_idx: bool = arrays[Mesh.ARRAY_INDEX] != null
-		var src_idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if has_idx else PackedInt32Array()
+		var src_norms: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL] if arrays[Mesh.ARRAY_NORMAL] != null else PackedVector3Array()
+		var has_norms: bool = src_norms.size() == vc
+		var src_uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV] if arrays[Mesh.ARRAY_TEX_UV] != null else PackedVector2Array()
+		var has_uvs: bool = src_uvs.size() == vc
+		var src_tangents: PackedFloat32Array = arrays[Mesh.ARRAY_TANGENT] if arrays[Mesh.ARRAY_TANGENT] != null else PackedFloat32Array()
+		var has_tangents: bool = src_tangents.size() >= vc * 4
+		var src_idx: PackedInt32Array = arrays[Mesh.ARRAY_INDEX] if arrays[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+		var has_idx: bool = src_idx.size() >= 3
 
 		var out_verts := PackedVector3Array()
 		var out_norms := PackedVector3Array()
 		var out_uvs := PackedVector2Array()
+		var out_tangents := PackedFloat32Array()
 		var out_idx := PackedInt32Array()
 
 		for tile in range(tile_count):
 			var base_arc: float = float(tile) * tile_len
-			# Scale the last (partial) tile along X so its end exactly meets
+			# Scale the last (partial) tile along the source forward axis (local X) so its end exactly meets
 			# total_len. Without this, clamping end-side vertices to total_len
 			# collapses them to a single point and pinches the mesh.
 			var this_tile_len: float = minf(tile_len, total_len - base_arc)
 			if this_tile_len < 0.001:
 				continue
-			var x_scale: float = this_tile_len / tile_len
-			var base_idx: int = out_verts.size()
-			for i in range(vc):
-				var v_local: Vector3 = src_xf * src_verts[i]
-				var along: float = base_arc + (v_local.x - x_min) * x_scale
-				along = clampf(along, 0.0, total_len)
-				var lateral: float = -v_local.z * width_scale
-				var vertical: float = v_local.y
-				var t := _sample_track_transform(along)
-				var right: Vector3 = t.basis.x
-				var up: Vector3 = t.basis.y
-				var world_p: Vector3 = t.origin + right * lateral + up * vertical
-				out_verts.push_back(world_p)
-				if has_norms:
-					var n_local: Vector3 = (src_xf.basis * src_norms[i]).normalized()
-					var n_track := Vector3(-n_local.z, n_local.y, n_local.x)
-					var world_n: Vector3 = (t.basis * n_track).normalized()
-					out_norms.push_back(world_n)
-				if has_uvs:
-					out_uvs.push_back(src_uvs[i])
+			var along_scale: float = this_tile_len / tile_len
 			if has_idx:
-				for i in range(src_idx.size()):
-					out_idx.push_back(base_idx + src_idx[i])
+				var indexed_tri_count := int(src_idx.size() / 3)
+				for tri in range(indexed_tri_count):
+					var ia: int = src_idx[tri * 3]
+					var ib: int = src_idx[tri * 3 + 1]
+					var ic: int = src_idx[tri * 3 + 2]
+					_append_deformed_rail_triangle(
+						out_verts, out_norms, out_uvs, out_tangents, out_idx,
+						src_xf * src_verts[ia], src_xf * src_verts[ib], src_xf * src_verts[ic],
+						(src_xf.basis * src_norms[ia]).normalized() if has_norms else Vector3.UP,
+						(src_xf.basis * src_norms[ib]).normalized() if has_norms else Vector3.UP,
+						(src_xf.basis * src_norms[ic]).normalized() if has_norms else Vector3.UP,
+						src_uvs[ia] if has_uvs else Vector2.ZERO,
+						src_uvs[ib] if has_uvs else Vector2.ZERO,
+						src_uvs[ic] if has_uvs else Vector2.ZERO,
+						has_norms, has_uvs, has_tangents, base_arc, along_scale, along_min, total_len,
+						width_scale, subdivision_length
+					)
 			else:
-				for i in range(vc):
-					out_idx.push_back(base_idx + i)
+				var raw_tri_count := int(vc / 3)
+				for tri in range(raw_tri_count):
+					var ia := tri * 3
+					var ib := ia + 1
+					var ic := ia + 2
+					_append_deformed_rail_triangle(
+						out_verts, out_norms, out_uvs, out_tangents, out_idx,
+						src_xf * src_verts[ia], src_xf * src_verts[ib], src_xf * src_verts[ic],
+						(src_xf.basis * src_norms[ia]).normalized() if has_norms else Vector3.UP,
+						(src_xf.basis * src_norms[ib]).normalized() if has_norms else Vector3.UP,
+						(src_xf.basis * src_norms[ic]).normalized() if has_norms else Vector3.UP,
+						src_uvs[ia] if has_uvs else Vector2.ZERO,
+						src_uvs[ib] if has_uvs else Vector2.ZERO,
+						src_uvs[ic] if has_uvs else Vector2.ZERO,
+						has_norms, has_uvs, has_tangents, base_arc, along_scale, along_min, total_len,
+						width_scale, subdivision_length
+					)
 
+		if out_verts.is_empty():
+			continue
 		var out_arrays: Array = []
 		out_arrays.resize(Mesh.ARRAY_MAX)
 		out_arrays[Mesh.ARRAY_VERTEX] = out_verts
@@ -521,12 +581,125 @@ func _build_deformed_rail_section_mesh(total_len: float, section_scene: PackedSc
 			out_arrays[Mesh.ARRAY_NORMAL] = out_norms
 		if out_uvs.size() > 0:
 			out_arrays[Mesh.ARRAY_TEX_UV] = out_uvs
+		if out_tangents.size() > 0:
+			out_arrays[Mesh.ARRAY_TANGENT] = out_tangents
 		out_arrays[Mesh.ARRAY_INDEX] = out_idx
 		out_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, out_arrays)
-		var src_mat: Material = src_mesh.surface_get_material(surf)
+		var src_mat: Material = _get_safe_rail_section_material(src_mesh.surface_get_material(surf))
 		if src_mat != null:
-			out_mesh.surface_set_material(surf, src_mat)
+			out_mesh.surface_set_material(out_mesh.get_surface_count() - 1, src_mat)
+	if out_mesh.get_surface_count() == 0:
+		return null
 	return out_mesh
+
+
+func _get_safe_rail_section_material(_source_material: Material = null) -> Material:
+	var mat := StandardMaterial3D.new()
+	if ResourceLoader.exists("res://assets/models/rails/rail_section_rail_basecolor.jpg"):
+		mat.albedo_texture = load("res://assets/models/rails/rail_section_rail_basecolor.jpg")
+	else:
+		mat.albedo_color = Color(0.72, 0.68, 0.61, 1.0)
+	mat.metallic = 0.35
+	mat.roughness = 0.62
+	mat.normal_enabled = false
+	return mat
+
+
+func _append_deformed_rail_triangle(
+	out_verts: PackedVector3Array,
+	out_norms: PackedVector3Array,
+	out_uvs: PackedVector2Array,
+	out_tangents: PackedFloat32Array,
+	out_idx: PackedInt32Array,
+	p0: Vector3,
+	p1: Vector3,
+	p2: Vector3,
+	n0: Vector3,
+	n1: Vector3,
+	n2: Vector3,
+	uv0: Vector2,
+	uv1: Vector2,
+	uv2: Vector2,
+	has_norms: bool,
+	has_uvs: bool,
+	has_tangents: bool,
+	base_arc: float,
+	along_scale: float,
+	along_min: float,
+	total_len: float,
+	width_scale: float,
+	subdivision_length: float
+) -> void:
+	var along_span := (maxf(p0.x, maxf(p1.x, p2.x)) - minf(p0.x, minf(p1.x, p2.x))) * along_scale
+	var subdivisions := clampi(int(ceil(along_span / subdivision_length)), 1, 6)
+	var grid := {}
+	for i in range(subdivisions + 1):
+		for j in range(subdivisions - i + 1):
+			var key := "%d:%d" % [i, j]
+			var u := float(i) / float(subdivisions)
+			var v := float(j) / float(subdivisions)
+			var w := 1.0 - u - v
+			var p := p0 * w + p1 * u + p2 * v
+			var normal := (n0 * w + n1 * u + n2 * v).normalized()
+			var uv := uv0 * w + uv1 * u + uv2 * v
+			grid[key] = _append_deformed_rail_vertex(
+				out_verts, out_norms, out_uvs, out_tangents, p, normal, uv, has_norms, has_uvs, has_tangents,
+				base_arc, along_scale, along_min, total_len, width_scale
+			)
+	for i in range(subdivisions):
+		for j in range(subdivisions - i):
+			var a: int = grid["%d:%d" % [i, j]]
+			var b: int = grid["%d:%d" % [i + 1, j]]
+			var c: int = grid["%d:%d" % [i, j + 1]]
+			out_idx.push_back(a)
+			out_idx.push_back(b)
+			out_idx.push_back(c)
+			if j < subdivisions - i - 1:
+				var d: int = grid["%d:%d" % [i + 1, j]]
+				var e: int = grid["%d:%d" % [i + 1, j + 1]]
+				var f: int = grid["%d:%d" % [i, j + 1]]
+				out_idx.push_back(d)
+				out_idx.push_back(e)
+				out_idx.push_back(f)
+
+
+func _append_deformed_rail_vertex(
+	out_verts: PackedVector3Array,
+	out_norms: PackedVector3Array,
+	out_uvs: PackedVector2Array,
+	out_tangents: PackedFloat32Array,
+	v_local: Vector3,
+	n_local: Vector3,
+	uv: Vector2,
+	has_norms: bool,
+	has_uvs: bool,
+	has_tangents: bool,
+	base_arc: float,
+	along_scale: float,
+	along_min: float,
+	total_len: float,
+	width_scale: float
+) -> int:
+	var along: float = base_arc + (v_local.x - along_min) * along_scale
+	along = clampf(along, 0.0, total_len)
+	var lateral: float = v_local.z * width_scale
+	var vertical: float = v_local.y
+	var t := _sample_track_transform(along)
+	var right: Vector3 = t.basis.x
+	var up: Vector3 = t.basis.y
+	out_verts.push_back(t.origin + right * lateral + up * vertical)
+	if has_norms:
+		var fwd: Vector3 = t.basis.z
+		out_norms.push_back((fwd * n_local.x + up * n_local.y + right * n_local.z).normalized())
+	if has_tangents:
+		var tangent: Vector3 = t.basis.z.normalized()
+		out_tangents.push_back(tangent.x)
+		out_tangents.push_back(tangent.y)
+		out_tangents.push_back(tangent.z)
+		out_tangents.push_back(1.0)
+	if has_uvs:
+		out_uvs.push_back(uv)
+	return out_verts.size() - 1
 
 
 
