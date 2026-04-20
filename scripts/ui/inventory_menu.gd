@@ -99,7 +99,7 @@ func _get_local_player() -> CharacterBody3D:
 func _build_ui() -> void:
 	var bg := ColorRect.new()
 	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0.0, 0.0, 0.0, 0.80)
+	bg.color = Color(0.0, 0.0, 0.0, 0.72)
 	bg.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(bg)
 
@@ -108,22 +108,10 @@ func _build_ui() -> void:
 	center.mouse_filter = Control.MOUSE_FILTER_PASS
 	add_child(center)
 
-	# Outer wrapper: 2px amber top accent bar
-	var wrapper := VBoxContainer.new()
-	wrapper.custom_minimum_size = Vector2(1080, 640)
-	wrapper.add_theme_constant_override("separation", 0)
-	center.add_child(wrapper)
-
-	var top_accent := ColorRect.new()
-	top_accent.custom_minimum_size = Vector2(0, 2)
-	top_accent.color = C_ACCENT
-	top_accent.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	wrapper.add_child(top_accent)
-
 	var main_panel := PanelContainer.new()
-	main_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main_panel.custom_minimum_size = Vector2(1080, 640)
 	_apply_panel_style(main_panel, C_BG, C_BORDER, 1)
-	wrapper.add_child(main_panel)
+	center.add_child(main_panel)
 
 	var outer_margin := MarginContainer.new()
 	_set_margins(outer_margin, 18, 14, 18, 18)
@@ -178,20 +166,15 @@ func _make_legend_entry(key_text: String, label_text: String) -> Control:
 	row.add_theme_constant_override("separation", 6)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
-	# Key pill — small rounded panel with uppercase glyph
 	var pill := PanelContainer.new()
 	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.050, 0.040, 0.028, 1.0)
+	sb.bg_color = Color(0.032, 0.034, 0.038, 1.0)
 	sb.border_width_top    = 1
 	sb.border_width_left   = 1
 	sb.border_width_right  = 1
 	sb.border_width_bottom = 1
 	sb.border_color = C_BORDER
-	sb.corner_radius_top_left     = 3
-	sb.corner_radius_top_right    = 3
-	sb.corner_radius_bottom_left  = 3
-	sb.corner_radius_bottom_right = 3
 	sb.content_margin_left   = 8
 	sb.content_margin_right  = 8
 	sb.content_margin_top    = 2
@@ -259,21 +242,8 @@ func _build_tab_bar(parent: VBoxContainer) -> void:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(spacer)
 
-	# Right — player name pill followed by a gold diamond level badge
-	var name_lbl := Label.new()
-	name_lbl.text = "UZUMAKI"
-	name_lbl.add_theme_font_size_override("font_size", 14)
-	name_lbl.add_theme_color_override("font_color", C_TEXT_HI)
-	name_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(name_lbl)
-
-	var level_badge := _make_level_badge(4)
-	row.add_child(level_badge)
-
-	# Subtle close button styled as a glyph on the right edge
 	var close_btn := Button.new()
-	close_btn.text = "Fermer  [Echap]"
+	close_btn.text = "Fermer  [Échap]"
 	close_btn.add_theme_font_size_override("font_size", 10)
 	close_btn.focus_mode = Control.FOCUS_NONE
 	close_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
@@ -293,42 +263,6 @@ func _build_tab_bar(parent: VBoxContainer) -> void:
 	close_btn.add_theme_color_override("font_hover_color", Color(0.95, 0.68, 0.58, 1.0))
 	close_btn.pressed.connect(func(): closed.emit())
 	row.add_child(close_btn)
-
-
-func _make_level_badge(level: int) -> Control:
-	# Diamond-shaped gold badge (rotated square) with the level number.
-	var holder := Control.new()
-	holder.custom_minimum_size = Vector2(34, 30)
-	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-	var diamond := Panel.new()
-	diamond.custom_minimum_size = Vector2(22, 22)
-	diamond.size = Vector2(22, 22)
-	diamond.position = Vector2(6, 4)
-	diamond.rotation = PI / 4.0
-	diamond.pivot_offset = Vector2(11, 11)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.20, 0.15, 0.08, 1.0)
-	sb.border_width_top    = 2
-	sb.border_width_left   = 2
-	sb.border_width_right  = 2
-	sb.border_width_bottom = 2
-	sb.border_color = C_ACCENT
-	diamond.add_theme_stylebox_override("panel", sb)
-	diamond.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	holder.add_child(diamond)
-
-	var lvl_lbl := Label.new()
-	lvl_lbl.text = str(level)
-	lvl_lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	lvl_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lvl_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	lvl_lbl.add_theme_font_size_override("font_size", 13)
-	lvl_lbl.add_theme_color_override("font_color", C_ACCENT_HI)
-	lvl_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	holder.add_child(lvl_lbl)
-
-	return holder
 
 
 func _switch_tab(index: int) -> void:
@@ -445,27 +379,26 @@ func _build_equipment_section() -> VBoxContainer:
 	armor_grid.add_theme_constant_override("v_separation", 8)
 	vbox.add_child(armor_grid)
 
-	# Unicode silhouettes evoke the armor piece without needing icon assets.
-	armor_grid.add_child(_make_equip_slot("⛑"))   # Helm
-	armor_grid.add_child(_make_equip_slot("🛡"))   # Cuirass
-	armor_grid.add_child(_make_equip_slot("👖"))   # Legs
-	armor_grid.add_child(_make_equip_slot("👢"))   # Boots
+	armor_grid.add_child(_make_equip_slot("TÊTE"))
+	armor_grid.add_child(_make_equip_slot("TORSE"))
+	armor_grid.add_child(_make_equip_slot("JAMBES"))
+	armor_grid.add_child(_make_equip_slot("PIEDS"))
 
 	_add_section_label(vbox, "Accessoires")
 
 	var acc_row := HBoxContainer.new()
 	acc_row.add_theme_constant_override("separation", 8)
 	vbox.add_child(acc_row)
-	acc_row.add_child(_make_equip_slot("◈"))  # Ring
-	acc_row.add_child(_make_equip_slot("⚜"))  # Necklace
+	acc_row.add_child(_make_equip_slot("SAC"))
+	acc_row.add_child(_make_equip_slot("CEINT."))
 
 	_add_section_label(vbox, "Munitions")
 
 	var ammo_row := HBoxContainer.new()
 	ammo_row.add_theme_constant_override("separation", 8)
 	vbox.add_child(ammo_row)
-	ammo_row.add_child(_make_equip_slot("◉"))
-	ammo_row.add_child(_make_equip_slot("◉"))
+	ammo_row.add_child(_make_equip_slot("MUN."))
+	ammo_row.add_child(_make_equip_slot("MUN."))
 
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -474,8 +407,7 @@ func _build_equipment_section() -> VBoxContainer:
 	return vbox
 
 
-func _make_equip_slot(icon_char: String) -> PanelContainer:
-	# Single-slot panel: warm recessed well, soft silhouette glyph when empty.
+func _make_equip_slot(tag_text: String) -> PanelContainer:
 	var slot_bg := PanelContainer.new()
 	slot_bg.custom_minimum_size = Vector2(72, 62)
 	var sb := StyleBoxFlat.new()
@@ -485,19 +417,15 @@ func _make_equip_slot(icon_char: String) -> PanelContainer:
 	sb.border_width_right  = 1
 	sb.border_width_bottom = 1
 	sb.border_color = C_BORDER
-	sb.corner_radius_top_left     = 3
-	sb.corner_radius_top_right    = 3
-	sb.corner_radius_bottom_left  = 3
-	sb.corner_radius_bottom_right = 3
 	slot_bg.add_theme_stylebox_override("panel", sb)
 
 	var glyph := Label.new()
 	glyph.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	glyph.text = icon_char
+	glyph.text = tag_text
 	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	glyph.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	glyph.add_theme_font_size_override("font_size", 24)
-	glyph.add_theme_color_override("font_color", Color(C_MUTED.r, C_MUTED.g, C_MUTED.b, 0.55))
+	glyph.add_theme_font_size_override("font_size", 10)
+	glyph.add_theme_color_override("font_color", Color(C_MUTED.r, C_MUTED.g, C_MUTED.b, 0.65))
 	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	slot_bg.add_child(glyph)
 
@@ -530,11 +458,6 @@ func _build_character_section() -> VBoxContainer:
 	loading_lbl.name = "LoadingLabel"
 	char_panel.add_child(loading_lbl)
 
-	# Compact stat icon strip (reference-inspired: eye, spark, heart, blade with numeric values)
-	var stat_strip := _build_stat_icon_strip()
-	vbox.add_child(stat_strip)
-
-	# Slim bars below for survival (health / hunger / thirst)
 	var stats_panel := PanelContainer.new()
 	stats_panel.add_theme_stylebox_override("panel", _make_inset_style())
 	vbox.add_child(stats_panel)
@@ -558,47 +481,6 @@ func _build_character_section() -> VBoxContainer:
 	_stat_thirst_empty = t[1] as ColorRect
 
 	return vbox
-
-
-func _build_stat_icon_strip() -> Control:
-	# Four-stat strip: Observation (👁), Agility (⚡), Vigor (♥), Blade (🗡).
-	# Values are cosmetic placeholders matching the reference look.
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 18)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-	var stats: Array = [
-		{"glyph": "👁", "value": "0"},
-		{"glyph": "⚡", "value": "0"},
-		{"glyph": "♥", "value": "9"},
-		{"glyph": "🗡", "value": "4"},
-	]
-	for s in stats:
-		var col := VBoxContainer.new()
-		col.alignment = BoxContainer.ALIGNMENT_CENTER
-		col.add_theme_constant_override("separation", 0)
-		col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-		var g := Label.new()
-		g.text = s["glyph"]
-		g.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		g.add_theme_font_size_override("font_size", 18)
-		g.add_theme_color_override("font_color", C_ACCENT)
-		g.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		col.add_child(g)
-
-		var v := Label.new()
-		v.text = s["value"]
-		v.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		v.add_theme_font_size_override("font_size", 13)
-		v.add_theme_color_override("font_color", C_TEXT_HI)
-		v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		col.add_child(v)
-
-		row.add_child(col)
-
-	return row
 
 
 func _add_stat_bar(parent: VBoxContainer, label_text: String, bar_color: Color) -> Array:
@@ -706,10 +588,6 @@ func _build_craft_view() -> Control:
 	sb_craft.border_width_right  = 1
 	sb_craft.border_width_bottom = 1
 	sb_craft.border_color = C_ACCENT_HI
-	sb_craft.corner_radius_top_left     = 4
-	sb_craft.corner_radius_top_right    = 4
-	sb_craft.corner_radius_bottom_left  = 4
-	sb_craft.corner_radius_bottom_right = 4
 	sb_craft.content_margin_left   = 14
 	sb_craft.content_margin_right  = 14
 	sb_craft.content_margin_top    = 6
@@ -719,11 +597,11 @@ func _build_craft_view() -> Control:
 	sb_craft_h.bg_color = C_ACCENT_HI
 	_craft_button.add_theme_stylebox_override("hover", sb_craft_h)
 	var sb_craft_d := sb_craft.duplicate() as StyleBoxFlat
-	sb_craft_d.bg_color = Color(0.18, 0.15, 0.11, 1.0)
+	sb_craft_d.bg_color = Color(0.12, 0.12, 0.13, 1.0)
 	sb_craft_d.border_color = C_BORDER
 	_craft_button.add_theme_stylebox_override("disabled", sb_craft_d)
-	_craft_button.add_theme_color_override("font_color", Color(0.10, 0.06, 0.02, 1.0))
-	_craft_button.add_theme_color_override("font_hover_color", Color(0.10, 0.06, 0.02, 1.0))
+	_craft_button.add_theme_color_override("font_color", Color(0.06, 0.06, 0.06, 1.0))
+	_craft_button.add_theme_color_override("font_hover_color", Color(0.06, 0.06, 0.06, 1.0))
 	_craft_button.add_theme_color_override("font_color_disabled", C_MUTED)
 	_craft_button.pressed.connect(_on_craft_pressed)
 	detail_inner.add_child(_craft_button)
@@ -916,7 +794,6 @@ func _exit_tree() -> void:
 # ─── TOOLTIP ─────────────────────────────────────────────────────────────────
 
 func _build_tooltip() -> void:
-	# Parchment-card tooltip: gold title, muted subtitle, italic flavor, meta + hint footer.
 	_tooltip_panel = PanelContainer.new()
 	_tooltip_panel.visible = false
 	_tooltip_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -924,19 +801,12 @@ func _build_tooltip() -> void:
 	add_child(_tooltip_panel)
 
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.088, 0.070, 0.050, 0.98)
+	sb.bg_color = Color(0.055, 0.058, 0.063, 0.98)
 	sb.border_width_top    = 1
 	sb.border_width_left   = 1
 	sb.border_width_right  = 1
 	sb.border_width_bottom = 1
 	sb.border_color = C_BORDER_LT
-	sb.corner_radius_top_left     = 4
-	sb.corner_radius_top_right    = 4
-	sb.corner_radius_bottom_left  = 4
-	sb.corner_radius_bottom_right = 4
-	sb.shadow_color = Color(0, 0, 0, 0.75)
-	sb.shadow_size = 10
-	sb.shadow_offset = Vector2(0, 3)
 	_tooltip_panel.add_theme_stylebox_override("panel", sb)
 
 	var tooltip_margin := MarginContainer.new()
@@ -989,16 +859,12 @@ func _build_tooltip() -> void:
 	var hint_bg := Panel.new()
 	hint_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var hint_sb := StyleBoxFlat.new()
-	hint_sb.bg_color = Color(0.050, 0.040, 0.028, 1.0)
+	hint_sb.bg_color = Color(0.032, 0.034, 0.038, 1.0)
 	hint_sb.border_width_top    = 1
 	hint_sb.border_width_left   = 1
 	hint_sb.border_width_right  = 1
 	hint_sb.border_width_bottom = 1
 	hint_sb.border_color = C_BORDER
-	hint_sb.corner_radius_top_left     = 3
-	hint_sb.corner_radius_top_right    = 3
-	hint_sb.corner_radius_bottom_left  = 3
-	hint_sb.corner_radius_bottom_right = 3
 	hint_bg.add_theme_stylebox_override("panel", hint_sb)
 	hint_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_tooltip_hint_row.add_child(hint_bg)
@@ -1059,30 +925,21 @@ func _on_slot_hovered(slot_index: int, item_id: String) -> void:
 
 
 func _item_subtitle(item_id: String) -> String:
-	# Best-effort classification for the card's subline (e.g. "Ressource, Commun").
-	var kind: String = "Objet"
 	match item_id:
-		"axe", "pickaxe", "hammer": kind = "Outil"
-		"wood", "log", "branch", "stone": kind = "Ressource"
-		"metal", "metal_scrap": kind = "Matériau"
-		"fuel": kind = "Consommable"
-		"components": kind = "Composant"
-	return "%s, Commun" % kind
+		"axe", "pickaxe", "hammer", "hammer_crude":
+			return "Outil"
+		"wood", "log", "branch", "stone":
+			return "Ressource"
+		"metal", "metal_scrap":
+			return "Matériau"
+		"fuel":
+			return "Consommable"
+		"components":
+			return "Composant"
+	return "Objet"
 
 
-func _item_flavor(item_id: String) -> String:
-	match item_id:
-		"axe":         return "Affûtée par l'usage, fendue par l'ambition."
-		"pickaxe":     return "Les cieux n'attendent pas ceux qui ne creusent pas."
-		"hammer":      return "Le son d'un chantier, la patience d'un forgeron."
-		"wood":        return "Planches brutes, à la sève encore tendre."
-		"log":         return "Grumes fraîchement abattues, prêtes à être fendues."
-		"branch":      return "De petits fagots parfaits pour le foyer."
-		"stone":       return "Pierres des terres basses, lourdes et sûres."
-		"metal":       return "Lingots polis, dignes d'une bonne lame."
-		"metal_scrap": return "Fragments rouillés que l'on recycle volontiers."
-		"fuel":        return "Huile épaisse qui brûle longtemps dans la nuit."
-		"components":  return "Rouages et ressorts — le cœur de toute mécanique."
+func _item_flavor(_item_id: String) -> String:
 	return ""
 
 
@@ -1210,22 +1067,21 @@ func _can_craft(recipe_id: String) -> bool:
 	return false
 
 
-# ─── PALETTE (warm parchment + aged gold, RPG / pirate feel) ────────────────
-const C_BG        := Color(0.095, 0.078, 0.060, 0.985)  # main panel — warm dark brown
-const C_BG_TOP    := Color(0.135, 0.108, 0.078, 0.985)  # panel top gradient tint
-const C_DEEP      := Color(0.055, 0.045, 0.034, 1.00)   # inner wells (tobacco dark)
-const C_DEEP_EDGE := Color(0.030, 0.024, 0.018, 1.00)   # inner well shadow edge
-const C_SLOT      := Color(0.115, 0.095, 0.072, 1.00)   # item slot fill
-const C_SLOT_EMPTY:= Color(0.070, 0.057, 0.042, 1.00)   # empty slot fill
-const C_BORDER    := Color(0.245, 0.195, 0.130, 1.00)   # warm wood border
-const C_BORDER_LT := Color(0.360, 0.282, 0.180, 1.00)   # brighter wood border
-const C_ACCENT    := Color(0.860, 0.650, 0.260, 1.00)   # aged gold
-const C_ACCENT2   := Color(0.860, 0.650, 0.260, 0.28)   # aged gold, translucent
-const C_ACCENT_HI := Color(0.985, 0.830, 0.430, 1.00)   # bright gold highlight
-const C_TEXT      := Color(0.905, 0.855, 0.745, 1.00)   # warm parchment
-const C_TEXT_HI   := Color(0.985, 0.955, 0.880, 1.00)   # bright parchment (titles)
-const C_MUTED     := Color(0.555, 0.490, 0.395, 1.00)   # warm muted
-const C_DANGER    := Color(0.765, 0.235, 0.210, 1.00)   # ember red
+# ─── PALETTE — industrial survival, muted steel with a single rust accent ───
+const C_BG        := Color(0.080, 0.082, 0.088, 0.96)
+const C_DEEP      := Color(0.048, 0.050, 0.055, 1.00)
+const C_DEEP_EDGE := Color(0.020, 0.022, 0.026, 1.00)
+const C_SLOT      := Color(0.110, 0.115, 0.122, 1.00)
+const C_SLOT_EMPTY:= Color(0.070, 0.074, 0.080, 1.00)
+const C_BORDER    := Color(0.185, 0.195, 0.210, 1.00)
+const C_BORDER_LT := Color(0.275, 0.290, 0.310, 1.00)
+const C_ACCENT    := Color(0.820, 0.420, 0.180, 1.00)
+const C_ACCENT2   := Color(0.820, 0.420, 0.180, 0.22)
+const C_ACCENT_HI := Color(0.950, 0.560, 0.280, 1.00)
+const C_TEXT      := Color(0.820, 0.830, 0.840, 1.00)
+const C_TEXT_HI   := Color(0.955, 0.960, 0.965, 1.00)
+const C_MUTED     := Color(0.480, 0.495, 0.520, 1.00)
+const C_DANGER    := Color(0.780, 0.260, 0.230, 1.00)
 
 
 func _apply_panel_style(panel: Control, bg: Color, border: Color, border_w: int) -> void:
@@ -1236,20 +1092,10 @@ func _apply_panel_style(panel: Control, bg: Color, border: Color, border_w: int)
 	sb.border_width_right  = border_w
 	sb.border_width_bottom = border_w
 	sb.border_color = border
-	sb.border_blend = true
-	sb.corner_radius_top_left     = 4
-	sb.corner_radius_top_right    = 4
-	sb.corner_radius_bottom_left  = 4
-	sb.corner_radius_bottom_right = 4
-	# soft outer shadow for depth
-	sb.shadow_color = Color(0, 0, 0, 0.55)
-	sb.shadow_size = 8
-	sb.shadow_offset = Vector2(0, 2)
 	panel.add_theme_stylebox_override("panel", sb)
 
 
 func _make_inset_style(bg: Color = C_DEEP) -> StyleBoxFlat:
-	# Recessed "leather" well with warm two-tone border
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
 	sb.border_width_top    = 1
@@ -1257,10 +1103,6 @@ func _make_inset_style(bg: Color = C_DEEP) -> StyleBoxFlat:
 	sb.border_width_right  = 1
 	sb.border_width_bottom = 1
 	sb.border_color = C_DEEP_EDGE
-	sb.corner_radius_top_left     = 3
-	sb.corner_radius_top_right    = 3
-	sb.corner_radius_bottom_left  = 3
-	sb.corner_radius_bottom_right = 3
 	sb.content_margin_left   = 2
 	sb.content_margin_right  = 2
 	sb.content_margin_top    = 2
