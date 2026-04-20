@@ -5,6 +5,7 @@ signal closed
 
 const HOTBAR_KEY_LABELS: Array[String] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
 const TOOLTIP_OFFSET := Vector2(14.0, 14.0)
+const CHARACTER_PREVIEW_SCALE := 1.25
 
 var _hotbar_ui: Array[InventorySlotUI] = []
 var _inventory_ui: Array[InventorySlotUI] = []
@@ -21,6 +22,7 @@ var _char_viewport: SubViewport = null
 var _char_camera: Camera3D = null
 var _char_model: Node3D = null
 var _char_texture_rect: TextureRect = null
+var _char_animation_player: AnimationPlayer = null
 
 var _tooltip_panel: PanelContainer
 var _tooltip_title: Label
@@ -631,10 +633,10 @@ func _setup_character_viewport() -> void:
 	_char_viewport.add_child(back_light)
 
 	_char_camera = Camera3D.new()
-	_char_camera.position = Vector3(0.0, 1.0, 2.6)
+	_char_camera.position = Vector3(0.0, 1.05, 2.6)
 	_char_camera.rotation_degrees = Vector3(-5.0, 0.0, 0.0)
 	_char_camera.projection = Camera3D.PROJECTION_PERSPECTIVE
-	_char_camera.fov = 48.0
+	_char_camera.fov = 44.0
 	_char_camera.near = 0.1
 	_char_camera.far = 20.0
 	_char_viewport.add_child(_char_camera)
@@ -645,8 +647,10 @@ func _setup_character_viewport() -> void:
 		if _char_model:
 			_char_viewport.add_child(_char_model)
 			_char_model.position = Vector3(0.0, 0.0, 0.0)
+			_char_model.scale = Vector3.ONE * CHARACTER_PREVIEW_SCALE
 
 	get_tree().root.add_child(_char_viewport)
+	_play_character_idle_animation()
 	await get_tree().process_frame
 
 	if _char_texture_rect and is_instance_valid(_char_viewport):
@@ -656,10 +660,47 @@ func _setup_character_viewport() -> void:
 			loading_lbl.visible = false
 
 
+func _play_character_idle_animation() -> void:
+	_char_animation_player = _find_character_animation_player(_char_model)
+	if _char_animation_player == null:
+		return
+	var animation_names := _char_animation_player.get_animation_list()
+	if animation_names.is_empty():
+		return
+	var idle_animation := _select_character_idle_animation(animation_names)
+	var animation := _char_animation_player.get_animation(idle_animation)
+	if animation:
+		animation.loop_mode = Animation.LOOP_LINEAR
+	_char_animation_player.play(idle_animation)
+
+
+func _select_character_idle_animation(animation_names: PackedStringArray) -> StringName:
+	for animation_name in animation_names:
+		if String(animation_name).to_lower().contains("idle"):
+			return StringName(animation_name)
+	for animation_name in animation_names:
+		if String(animation_name).to_lower() != "reset":
+			return StringName(animation_name)
+	return StringName(animation_names[0])
+
+
+func _find_character_animation_player(node: Node) -> AnimationPlayer:
+	if node == null:
+		return null
+	if node is AnimationPlayer:
+		return node as AnimationPlayer
+	for child in node.get_children():
+		var found := _find_character_animation_player(child)
+		if found != null:
+			return found
+	return null
+
+
 func _exit_tree() -> void:
 	if _char_viewport and is_instance_valid(_char_viewport):
 		_char_viewport.queue_free()
 		_char_viewport = null
+	_char_animation_player = null
 
 
 # ─── TOOLTIP ─────────────────────────────────────────────────────────────────
