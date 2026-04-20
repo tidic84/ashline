@@ -28,7 +28,6 @@ var _tooltip_subtitle: Label
 var _tooltip_flavor: Label
 var _tooltip_meta: Label
 var _tooltip_hint: Label
-var _tooltip_hint_row: Control
 
 var _tab_buttons: Array[Button] = []
 var _inventory_view: Control
@@ -122,7 +121,6 @@ func _build_ui() -> void:
 	outer_margin.add_child(root_vbox)
 
 	_build_tab_bar(root_vbox)
-	_add_divider(root_vbox)
 
 	var content_stack := Control.new()
 	content_stack.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -137,90 +135,13 @@ func _build_ui() -> void:
 	_craft_view.visible = false
 	content_stack.add_child(_craft_view)
 
-	_add_divider(root_vbox)
-	_build_legend(root_vbox)
-
 	_build_tooltip()
-
-
-func _build_legend(parent: VBoxContainer) -> void:
-	# Keybind hint row along the bottom of the panel — mirrors the reference legend.
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 18)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	parent.add_child(row)
-
-	var entries: Array = [
-		{"key": "Clic G.", "label": "Utiliser / Équiper"},
-		{"key": "Glisser", "label": "Déplacer"},
-		{"key": "Alt",     "label": "Diviser la pile"},
-		{"key": "Clic D.", "label": "Jeter"},
-		{"key": "Échap",   "label": "Fermer"},
-	]
-	for e in entries:
-		row.add_child(_make_legend_entry(e["key"], e["label"]))
-
-
-func _make_legend_entry(key_text: String, label_text: String) -> Control:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 6)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-	var pill := PanelContainer.new()
-	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.032, 0.034, 0.038, 1.0)
-	sb.border_width_top    = 1
-	sb.border_width_left   = 1
-	sb.border_width_right  = 1
-	sb.border_width_bottom = 1
-	sb.border_color = C_BORDER
-	sb.content_margin_left   = 8
-	sb.content_margin_right  = 8
-	sb.content_margin_top    = 2
-	sb.content_margin_bottom = 2
-	pill.add_theme_stylebox_override("panel", sb)
-
-	var key_lbl := Label.new()
-	key_lbl.text = key_text
-	key_lbl.add_theme_font_size_override("font_size", 10)
-	key_lbl.add_theme_color_override("font_color", C_TEXT_HI)
-	key_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pill.add_child(key_lbl)
-	row.add_child(pill)
-
-	var desc := Label.new()
-	desc.text = label_text
-	desc.add_theme_font_size_override("font_size", 10)
-	desc.add_theme_color_override("font_color", C_MUTED)
-	desc.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(desc)
-
-	return row
 
 
 func _build_tab_bar(parent: VBoxContainer) -> void:
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 4)
+	row.add_theme_constant_override("separation", 12)
 	parent.add_child(row)
-
-	# Left — screen title "CHARACTER" styled as a bold small-caps header.
-	var title_lbl := Label.new()
-	title_lbl.text = "PERSONNAGE"
-	title_lbl.add_theme_font_size_override("font_size", 15)
-	title_lbl.add_theme_color_override("font_color", C_ACCENT)
-	title_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	title_lbl.custom_minimum_size = Vector2(130, 0)
-	title_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(title_lbl)
-
-	# Thin gold vertical separator between title and tabs
-	var sep := ColorRect.new()
-	sep.custom_minimum_size = Vector2(1, 20)
-	sep.color = C_BORDER
-	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(sep)
 
 	_tab_buttons.clear()
 	for i in range(2):
@@ -243,24 +164,21 @@ func _build_tab_bar(parent: VBoxContainer) -> void:
 	row.add_child(spacer)
 
 	var close_btn := Button.new()
-	close_btn.text = "Fermer  [Échap]"
-	close_btn.add_theme_font_size_override("font_size", 10)
+	close_btn.text = "[Échap]"
+	close_btn.add_theme_font_size_override("font_size", 11)
 	close_btn.focus_mode = Control.FOCUS_NONE
 	close_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	var sb_close := StyleBoxFlat.new()
 	sb_close.bg_color = Color(0, 0, 0, 0)
-	sb_close.content_margin_left   = 10
-	sb_close.content_margin_right  = 10
-	sb_close.content_margin_top    = 6
-	sb_close.content_margin_bottom = 6
+	sb_close.content_margin_left   = 8
+	sb_close.content_margin_right  = 8
+	sb_close.content_margin_top    = 4
+	sb_close.content_margin_bottom = 4
 	close_btn.add_theme_stylebox_override("normal", sb_close)
-	var sb_close_h := sb_close.duplicate() as StyleBoxFlat
-	sb_close_h.bg_color = Color(C_DANGER.r, C_DANGER.g, C_DANGER.b, 0.12)
-	sb_close_h.border_width_bottom = 2
-	sb_close_h.border_color = C_DANGER
-	close_btn.add_theme_stylebox_override("hover", sb_close_h)
-	close_btn.add_theme_color_override("font_color", Color(0.72, 0.38, 0.32, 1.0))
-	close_btn.add_theme_color_override("font_hover_color", Color(0.95, 0.68, 0.58, 1.0))
+	close_btn.add_theme_stylebox_override("hover", sb_close)
+	close_btn.add_theme_stylebox_override("pressed", sb_close)
+	close_btn.add_theme_color_override("font_color", C_MUTED)
+	close_btn.add_theme_color_override("font_hover_color", C_TEXT_HI)
 	close_btn.pressed.connect(func(): closed.emit())
 	row.add_child(close_btn)
 
@@ -797,30 +715,30 @@ func _build_tooltip() -> void:
 	_tooltip_panel = PanelContainer.new()
 	_tooltip_panel.visible = false
 	_tooltip_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_tooltip_panel.custom_minimum_size = Vector2(232, 0)
+	_tooltip_panel.custom_minimum_size = Vector2(220, 0)
 	add_child(_tooltip_panel)
 
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.055, 0.058, 0.063, 0.98)
+	sb.bg_color = Color(0.040, 0.042, 0.046, 0.97)
 	sb.border_width_top    = 1
 	sb.border_width_left   = 1
 	sb.border_width_right  = 1
 	sb.border_width_bottom = 1
-	sb.border_color = C_BORDER_LT
+	sb.border_color = C_BORDER
 	_tooltip_panel.add_theme_stylebox_override("panel", sb)
 
 	var tooltip_margin := MarginContainer.new()
-	_set_margins(tooltip_margin, 12, 10, 12, 10)
+	_set_margins(tooltip_margin, 10, 8, 10, 8)
 	_tooltip_panel.add_child(tooltip_margin)
 
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 4)
+	vbox.add_theme_constant_override("separation", 2)
 	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tooltip_margin.add_child(vbox)
 
 	_tooltip_title = Label.new()
-	_tooltip_title.add_theme_font_size_override("font_size", 15)
-	_tooltip_title.add_theme_color_override("font_color", C_ACCENT_HI)
+	_tooltip_title.add_theme_font_size_override("font_size", 13)
+	_tooltip_title.add_theme_color_override("font_color", C_TEXT_HI)
 	_tooltip_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(_tooltip_title)
 
@@ -830,18 +748,12 @@ func _build_tooltip() -> void:
 	_tooltip_subtitle.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(_tooltip_subtitle)
 
-	# Thin rule
-	var rule := ColorRect.new()
-	rule.custom_minimum_size = Vector2(0, 1)
-	rule.color = C_BORDER
-	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(rule)
-
 	_tooltip_flavor = Label.new()
+	_tooltip_flavor.visible = false
 	_tooltip_flavor.add_theme_font_size_override("font_size", 11)
 	_tooltip_flavor.add_theme_color_override("font_color", C_TEXT)
 	_tooltip_flavor.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_tooltip_flavor.custom_minimum_size = Vector2(208, 0)
+	_tooltip_flavor.custom_minimum_size = Vector2(200, 0)
 	_tooltip_flavor.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(_tooltip_flavor)
 
@@ -851,32 +763,11 @@ func _build_tooltip() -> void:
 	_tooltip_meta.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(_tooltip_meta)
 
-	_tooltip_hint_row = Control.new()
-	_tooltip_hint_row.custom_minimum_size = Vector2(0, 22)
-	_tooltip_hint_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(_tooltip_hint_row)
-
-	var hint_bg := Panel.new()
-	hint_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var hint_sb := StyleBoxFlat.new()
-	hint_sb.bg_color = Color(0.032, 0.034, 0.038, 1.0)
-	hint_sb.border_width_top    = 1
-	hint_sb.border_width_left   = 1
-	hint_sb.border_width_right  = 1
-	hint_sb.border_width_bottom = 1
-	hint_sb.border_color = C_BORDER
-	hint_bg.add_theme_stylebox_override("panel", hint_sb)
-	hint_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_tooltip_hint_row.add_child(hint_bg)
-
 	_tooltip_hint = Label.new()
-	_tooltip_hint.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_tooltip_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_tooltip_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_tooltip_hint.add_theme_font_size_override("font_size", 10)
-	_tooltip_hint.add_theme_color_override("font_color", C_TEXT_HI)
+	_tooltip_hint.add_theme_color_override("font_color", C_ACCENT)
 	_tooltip_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_tooltip_hint_row.add_child(_tooltip_hint)
+	vbox.add_child(_tooltip_hint)
 
 
 func _process(_delta: float) -> void:
@@ -1111,27 +1002,17 @@ func _make_inset_style(bg: Color = C_DEEP) -> StyleBoxFlat:
 
 
 func _style_tab_button(btn: Button, active: bool) -> void:
-	# Reference-inspired tabs: active has a small gold underline dot + brighter label.
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0, 0, 0, 0)
-	sb.border_width_top    = 0
-	sb.border_width_left   = 0
-	sb.border_width_right  = 0
-	sb.border_width_bottom = 2 if active else 0
-	sb.border_color = C_ACCENT if active else C_BORDER
-	sb.content_margin_left   = 14
-	sb.content_margin_right  = 14
-	sb.content_margin_top    = 6
-	sb.content_margin_bottom = 6
+	sb.content_margin_left   = 2
+	sb.content_margin_right  = 2
+	sb.content_margin_top    = 4
+	sb.content_margin_bottom = 4
 	btn.add_theme_stylebox_override("normal", sb)
 	btn.add_theme_stylebox_override("pressed", sb)
+	btn.add_theme_stylebox_override("hover", sb)
 
-	var sb_h := sb.duplicate() as StyleBoxFlat
-	sb_h.bg_color = Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.10)
-	sb_h.border_width_bottom = 2
-	sb_h.border_color = C_ACCENT2
-	btn.add_theme_stylebox_override("hover", sb_h)
-
+	btn.text = ("> " + btn.text.lstrip("> ")) if active else btn.text.lstrip("> ")
 	btn.add_theme_color_override("font_color", C_TEXT_HI if active else C_MUTED)
 	btn.add_theme_color_override("font_hover_color", C_TEXT_HI)
 	btn.add_theme_color_override("font_pressed_color", C_TEXT_HI)
@@ -1149,17 +1030,6 @@ func _add_section_label(parent: Control, text: String) -> Label:
 	return lbl
 
 
-func _add_divider(parent: VBoxContainer) -> void:
-	# Thin two-tone gold rule for section separation
-	var sep := HSeparator.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = C_BORDER
-	sb.content_margin_top    = 0
-	sb.content_margin_bottom = 0
-	sep.add_theme_stylebox_override("separator", sb)
-	sep.add_theme_constant_override("separation", 1)
-	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	parent.add_child(sep)
 
 
 func _set_margins(c: MarginContainer, left: int, top: int, right: int, bottom: int) -> void:
