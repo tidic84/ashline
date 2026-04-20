@@ -32,6 +32,7 @@ var _editor_state_signature := ""
 var _mask_image_cache: Image
 var _mask_cache_key := ""
 var _generated_chunk_render_lods: Array[Dictionary] = []
+var _generated_world_positions: PackedVector3Array = PackedVector3Array()
 
 @export_group("Generator")
 @export var entries: Array[BiomeScatterEntry] = []:
@@ -370,9 +371,14 @@ func _runtime_regenerate_after_settle() -> void:
     regenerate()
 
 
+func get_generated_world_positions() -> PackedVector3Array:
+    return _generated_world_positions.duplicate()
+
+
 func _generate() -> void:
     _clear_generated()
     _generated_chunk_render_lods.clear()
+    _generated_world_positions = PackedVector3Array()
     var world := get_world_3d()
     if world == null:
         return
@@ -480,6 +486,7 @@ func _generate() -> void:
             var yaw := TAU * _hash01(seed, cell_x, cell_z, 37)
             var basis := Basis.IDENTITY.rotated(Vector3.UP, yaw).scaled(instance_scale)
             var transform := Transform3D(basis, hit_position)
+            _generated_world_positions.append(to_global(hit_position))
             var chunk_coords := Vector2i(
                 int(floor(hit_position.x / chunk_size)),
                 int(floor(hit_position.z / chunk_size))
