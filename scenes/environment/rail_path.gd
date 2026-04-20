@@ -1322,10 +1322,20 @@ func _build_preview_deformed_section_mesh(world_curve: Curve3D, total_len: float
 			out_arrays[Mesh.ARRAY_TEX_UV] = out_uvs
 		out_arrays[Mesh.ARRAY_INDEX] = out_idx
 		out_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, out_arrays)
-		var src_mat: Material = src_mesh.surface_get_material(surf)
-		if src_mat != null:
-			out_mesh.surface_set_material(surf, src_mat)
+		out_mesh.surface_set_material(out_mesh.get_surface_count() - 1, _make_visible_preview_rail_section_material())
 	return out_mesh
+
+
+func _make_visible_preview_rail_section_material() -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(1.18, 1.08, 0.96, 1.0)
+	if ResourceLoader.exists("res://assets/models/rails/rail_section_rail_basecolor.jpg"):
+		mat.albedo_texture = load("res://assets/models/rails/rail_section_rail_basecolor.jpg")
+	mat.metallic = 0.0
+	mat.roughness = 0.8
+	mat.normal_enabled = false
+	return mat
 
 
 func _get_preview_section_scene() -> PackedScene:

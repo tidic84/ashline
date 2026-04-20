@@ -1,7 +1,6 @@
 [gd_scene format=3 uid="uid://player001"]
 
 [ext_resource type="Script" uid="uid://ci3jmp5jho7oe" path="res://scripts/player/player_controller.gd" id="1"]
-[ext_resource type="PackedScene" uid="uid://shlinehud01" path="res://scenes/ui/hud.tscn" id="hud_scene"]
 [ext_resource type="PackedScene" uid="uid://sf0sg8htuyik" path="res://assets/models/player/animations/Idle.glb" id="player_model"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_001"]
@@ -48,7 +47,3 @@ billboard = 1
 text = "Player"
 font_size = 36
 outline_size = 6
-
-[node name="HUD" parent="." unique_id=1546886367 instance=ExtResource("hud_scene")]
-grow_horizontal = 2
-grow_vertical = 2

@@ -58,12 +58,16 @@ func _ready() -> void:
 
 	_ray_exclude = [_fps.get_rid()]
 
-	# Spawn HUD on its own CanvasLayer so it isn't tied to the player transform
-	_hud_layer = CanvasLayer.new()
-	_hud_layer.name = "HUDLayer"
-	add_child(_hud_layer)
-	_hud = hud_scene.instantiate() as Control
-	_hud_layer.add_child(_hud)
+	_hud = _find_existing_hud()
+	if _hud == null:
+		_hud_layer = CanvasLayer.new()
+		_hud_layer.name = "HUDLayer"
+		add_child(_hud_layer)
+		_hud = hud_scene.instantiate() as Control
+		_hud_layer.add_child(_hud)
+	else:
+		_hud_layer = _hud.get_parent() as CanvasLayer
+	_hud.visible = true
 	_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if _hud.has_signal("inventory_toggle_requested"):
 		_hud.connect("inventory_toggle_requested", _on_inventory_toggle_requested)
@@ -87,6 +91,18 @@ func _ready() -> void:
 	AudioManager.stop_ambient()
 	if _fps.has_signal("footstep"):
 		_fps.connect("footstep", Callable(self, "_on_footstep"))
+
+
+func _find_existing_hud() -> Control:
+	var scene := get_tree().current_scene
+	if scene:
+		var scene_hud := scene.get_node_or_null("HUDLayer/HUD") as Control
+		if scene_hud:
+			return scene_hud
+	var sibling_hud := get_node_or_null("../HUDLayer/HUD") as Control
+	if sibling_hud:
+		return sibling_hud
+	return null
 
 
 func _on_footstep(_leg: int) -> void:
@@ -195,6 +211,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				BuildSystem.set_mode(BuildSystem.BuildMode.OFF)
 			else:
 				_on_build_exit_requested()
+		elif not _is_inventory_open():
+			_try_secondary_interact()
 
 	# X key: deconstruct whatever build piece we're looking at
 	if event.is_action_pressed("deconstruct"):
@@ -250,6 +268,15 @@ func _try_interact() -> void:
 		collider.interact_at(_fps, hit)
 	elif collider and collider.has_method("interact"):
 		collider.interact(_fps)
+
+
+func _try_secondary_interact() -> void:
+	var hit := _camera_ray(INTERACT_RAY_LENGTH, INTERACT_COLLISION_MASK)
+	if hit.is_empty():
+		return
+	var collider: Object = hit.get("collider")
+	if collider and collider.has_method("secondary_interact"):
+		collider.secondary_interact(_fps)
 
 
 func _try_use_equipped_tool() -> bool:

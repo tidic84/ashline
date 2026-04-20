@@ -30,6 +30,7 @@
 [ext_resource type="PackedScene" uid="uid://cggqb75a8w8r" path="res://addons/debug_menu/debug_menu.tscn" id="31_debug"]
 [ext_resource type="Script" uid="uid://ck00bpv2e6qsb" path="res://scripts/world/resource_spawner.gd" id="32_spawner"]
 [ext_resource type="Script" uid="uid://xcgy8mm71kxo" path="res://scripts/world/lake_water.gd" id="33_lake"]
+[ext_resource type="PackedScene" uid="uid://shlinehud01" path="res://scenes/ui/hud.tscn" id="34_hud"]
 
 [sub_resource type="CameraAttributesPractical" id="CameraAttributesPractical_001"]
 auto_exposure_enabled = true
@@ -161,6 +162,20 @@ _data = {
 }
 point_count = 23
 
+[sub_resource type="Curve3D" id="Curve3D_ii537"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, -66.43732, 2.9249098, 25.796246, 1.0214016, 0.33831772, -3.4305806, -1.0214016, -0.33831772, 3.4305806, -68.08829, 2.020731, 33.561028, 0.65532684, 0.11011124, -1.1771584, -0.65532684, -0.11011124, 1.1771584, -71.308426, 1.3545718, 41.88902),
+"tilts": PackedFloat32Array(0, 0, 0)
+}
+point_count = 3
+
+[sub_resource type="Curve3D" id="Curve3D_rofvo"]
+_data = {
+"points": PackedVector3Array(0, 0, 0, 0, 0, 0, -87.18846, 1.252444, 58.690826, -2.8025336, 0.08235494, 2.7035499, 2.8025336, -0.08235494, -2.7035499, -80.15525, 0.14044988, 53.77028, -0.51013184, -0.085715055, 0.9163513, 0.51013184, 0.08571458, -0.9163513, -71.36688, 1.4126751, 42.1407),
+"tilts": PackedFloat32Array(0, 0, 0)
+}
+point_count = 3
+
 [node name="Main" type="Node3D" unique_id=1921519102]
 script = ExtResource("1_main")
 
@@ -258,6 +273,7 @@ rail_adaptive_min_step = 0.4
 rail_adaptive_max_step = 2.2
 rail_curve_influence = 2.6
 rail_pitch_influence = 2.0
+rail_junction_blend_length = null
 
 [node name="UP_FPSController_Prefab" parent="." unique_id=1209285326 instance=ExtResource("26_fps")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -38.93445, 4.8396044, -40.59617)
@@ -275,6 +291,11 @@ script = ExtResource("27_mouse")
 [node name="BuildController" type="Node" parent="." unique_id=1843772001]
 script = ExtResource("30_buildctrl")
 fps_controller_path = NodePath("../UP_FPSController_Prefab")
+
+[node name="HUDLayer" type="CanvasLayer" parent="." unique_id=1670402201]
+layer = 10
+
+[node name="HUD" parent="HUDLayer" unique_id=1670402202 instance=ExtResource("34_hud")]
 
 [node name="Players" type="Node3D" parent="." unique_id=632363353]
 
@@ -329,3 +350,23 @@ rail_path = NodePath("../RailPath")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -35.322296, -2.9430847, -48.04425)
 rail_path = NodePath("../RailPath")
 endpoint = 0
+
+[node name="RailPath5" type="Path3D" parent="." unique_id=1994672152]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3, -72)
+curve = SubResource("Curve3D_ii537")
+script = ExtResource("29_railpath")
+smoothing_mode = 2
+smooth_length = 39.0
+max_curvature_deg_per_m = 0.1
+max_pitch_curvature_deg_per_m = 0.30000000000000004
+connections_at_end = Array[NodePath]([NodePath("../RailPath6"), NodePath("")])
+
+[node name="RailPath6" type="Path3D" parent="." unique_id=287346004]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3, -72)
+curve = SubResource("Curve3D_rofvo")
+script = ExtResource("29_railpath")
+smoothing_mode = 2
+smooth_length = 39.0
+max_curvature_deg_per_m = 0.1
+max_pitch_curvature_deg_per_m = 0.30000000000000004
+connections_at_end = Array[NodePath]([NodePath("../RailPath5"), NodePath("")])

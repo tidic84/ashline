@@ -5,108 +5,126 @@ var health: float = 100.0
 var hunger: float = 100.0
 var thirst: float = 100.0
 
-const UNITS: int = 10       # icons per stat
-const W: int = 9            # icon pixel width (before scale)
-const H: int = 8            # icon pixel height
-const S: int = 2            # pixel scale
-const GAP: int = 1          # gap between icons
-const ROW_GAP: int = 3      # gap between rows
+const MAX_STAT: float = 100.0
+
+# Subnautica-inspired minimal survival meters.
+const METER_RADIUS: float = 24.0
+const RING_WIDTH: float = 7.0
+
+const HEALTH_CENTER: Vector2 = Vector2(28.0, 30.0)
+const FOOD_CENTER: Vector2 = Vector2(82.0, 30.0)
+const WATER_CENTER: Vector2 = Vector2(136.0, 30.0)
+
+const PANEL_SIZE: Vector2 = Vector2(164.0, 60.0)
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(
-		(W * S + GAP) * UNITS,
-		(H * S + ROW_GAP) * 3
-	)
+	custom_minimum_size = PANEL_SIZE
+	if size.x <= 0.0 or size.y <= 0.0:
+		size = PANEL_SIZE
+	z_index = 4
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	queue_redraw()
 
 func set_stats(h: float, food: float, water: float) -> void:
-	health = h
-	hunger = food
-	thirst = water
+	health = clampf(h, 0.0, MAX_STAT)
+	hunger = clampf(food, 0.0, MAX_STAT)
+	thirst = clampf(water, 0.0, MAX_STAT)
 	queue_redraw()
 
 func _draw() -> void:
-	var row_h: int = H * S + ROW_GAP
-	_draw_hearts(0)
-	_draw_food(row_h)
-	_draw_water(row_h * 2)
+	_draw_meter(
+		HEALTH_CENTER,
+		METER_RADIUS,
+		health / MAX_STAT,
+		Color(0.95, 0.42, 0.35, 1.0),
+		Color(0.38, 0.12, 0.11, 1.0),
+		RING_WIDTH,
+		"health"
+	)
 
-func _draw_hearts(oy: int) -> void:
-	var full := Color(0.93, 0.12, 0.12)
-	var empty := Color(0.25, 0.06, 0.06)
-	var units: float = health / (100.0 / UNITS)
-	for i in range(UNITS):
-		var x: int = i * (W * S + GAP)
-		var t: float = clampf(units - i, 0.0, 1.0)
-		_heart(x, oy, full.lerp(empty, 1.0 - t))
+	_draw_meter(
+		FOOD_CENTER,
+		METER_RADIUS,
+		hunger / MAX_STAT,
+		Color(0.95, 0.73, 0.23, 1.0),
+		Color(0.33, 0.24, 0.09, 1.0),
+		RING_WIDTH,
+		"food"
+	)
 
-func _draw_food(oy: int) -> void:
-	var full := Color(0.91, 0.56, 0.20)
-	var empty := Color(0.22, 0.12, 0.04)
-	var units: float = hunger / (100.0 / UNITS)
-	for i in range(UNITS):
-		var x: int = i * (W * S + GAP)
-		var t: float = clampf(units - i, 0.0, 1.0)
-		_drumstick(x, oy, full.lerp(empty, 1.0 - t))
+	_draw_meter(
+		WATER_CENTER,
+		METER_RADIUS,
+		thirst / MAX_STAT,
+		Color(0.37, 0.86, 0.97, 1.0),
+		Color(0.10, 0.22, 0.32, 1.0),
+		RING_WIDTH,
+		"water"
+	)
 
-func _draw_water(oy: int) -> void:
-	var full := Color(0.24, 0.60, 0.97)
-	var empty := Color(0.05, 0.10, 0.25)
-	var units: float = thirst / (100.0 / UNITS)
-	for i in range(UNITS):
-		var x: int = i * (W * S + GAP)
-		var t: float = clampf(units - i, 0.0, 1.0)
-		_drop(x, oy, full.lerp(empty, 1.0 - t))
+func _draw_meter(
+	center: Vector2,
+	radius: float,
+	ratio: float,
+	full_color: Color,
+	empty_color: Color,
+	ring_width: float,
+	icon: String
+) -> void:
+	var r := clampf(ratio, 0.0, 1.0)
+	var fill_angle := TAU * r
+	var start_angle := -PI * 0.5
 
-# ----- Shape drawers -----
-# Each works on W*S wide × H*S tall canvas offset by (ox, oy)
+	_draw_arc_band(center, radius - ring_width * 0.5, start_angle, TAU, ring_width, empty_color)
+	_draw_arc_band(center, radius - ring_width * 0.5, start_angle, fill_angle, ring_width, full_color)
 
-func _px(ox: int, oy: int, col: int, row: int, c: Color, w: int = 1, h: int = 1) -> void:
-	draw_rect(Rect2(ox + col * S, oy + row * S, w * S, h * S), c)
+	_draw_small_icon(icon, center)
 
-func _heart(ox: int, oy: int, c: Color) -> void:
-	# 9 wide × 7 tall heart pattern
-	#  .##..##.
-	#  ########
-	#  ########
-	#  .######.
-	#  ..####..
-	#  ...##...
-	#  ........ (empty row)
-	var sh := _shine(c)
-	_px(ox, oy, 1, 0, c, 2); _px(ox, oy, 5, 0, c, 2)
-	_px(ox, oy, 0, 1, c, 8); _px(ox, oy, 0, 2, c, 8)
-	_px(ox, oy, 1, 3, c, 6)
-	_px(ox, oy, 2, 4, c, 4)
-	_px(ox, oy, 3, 5, c, 2)
-	# shine
-	_px(ox, oy, 1, 1, sh, 2); _px(ox, oy, 5, 1, sh, 2)
+func _draw_arc_band(center: Vector2, radius: float, start_angle: float, angle_len: float, width: float, color: Color) -> void:
+	var segments := maxi(24, int(64.0 * absf(angle_len) / TAU))
+	var points := PackedVector2Array()
+	for i in range(segments + 1):
+		var t := float(i) / float(segments)
+		var a := start_angle + angle_len * t
+		points.append(center + Vector2(cos(a), sin(a)) * radius)
+	draw_polyline(points, color, width, true)
 
-func _drumstick(ox: int, oy: int, c: Color) -> void:
-	# meat body (top) + handle (bottom)
-	var sh := _shine(c)
-	var bone := Color(0.84, 0.80, 0.72)
-	# Meat
-	_px(ox, oy, 2, 0, c, 4)
-	_px(ox, oy, 1, 1, c, 6); _px(ox, oy, 1, 2, c, 6)
-	_px(ox, oy, 2, 3, c, 4)
-	# shine
-	_px(ox, oy, 1, 1, sh, 2)
-	# bone handle
-	_px(ox, oy, 4, 4, bone); _px(ox, oy, 4, 5, bone)
-	_px(ox, oy, 3, 6, bone, 2); _px(ox, oy, 4, 7, bone)
+func _draw_small_icon(icon: String, center: Vector2) -> void:
+	match icon:
+		"health":
+			_draw_heart(center, 8.0, Color.WHITE)
+		"food":
+			_draw_apple(center, 8.0, Color.WHITE)
+		"water":
+			_draw_drop(center, 8.0, Color.WHITE)
+		_:
+			pass
 
-func _drop(ox: int, oy: int, c: Color) -> void:
-	# teardrop shape, point at top
-	var sh := _shine(c)
-	_px(ox, oy, 4, 0, c)
-	_px(ox, oy, 3, 1, c, 2)
-	_px(ox, oy, 2, 2, c, 4)
-	_px(ox, oy, 1, 3, c, 6); _px(ox, oy, 1, 4, c, 6); _px(ox, oy, 1, 5, c, 6)
-	_px(ox, oy, 2, 6, c, 4)
-	_px(ox, oy, 3, 7, c, 2)
-	# shine
-	_px(ox, oy, 2, 3, sh); _px(ox, oy, 2, 4, sh)
+func _draw_heart(center: Vector2, s: float, color: Color) -> void:
+	var pts := PackedVector2Array([
+		center + Vector2(0.0, s * 0.65),
+		center + Vector2(-s, -s * 0.2),
+		center + Vector2(-s * 0.35, -s),
+		center + Vector2(0.0, -s * 0.55),
+		center + Vector2(s * 0.35, -s),
+		center + Vector2(s, -s * 0.2)
+	])
+	draw_colored_polygon(pts, color)
 
-func _shine(c: Color) -> Color:
-	return Color(minf(c.r + 0.38, 1.0), minf(c.g + 0.38, 1.0), minf(c.b + 0.38, 1.0), 1.0)
+func _draw_drop(center: Vector2, s: float, color: Color) -> void:
+	var pts := PackedVector2Array([
+		center + Vector2(0.0, -s),
+		center + Vector2(-s * 0.7, -s * 0.1),
+		center + Vector2(-s * 0.58, s * 0.72),
+		center + Vector2(0.0, s),
+		center + Vector2(s * 0.58, s * 0.72),
+		center + Vector2(s * 0.7, -s * 0.1)
+	])
+	draw_colored_polygon(pts, color)
+
+func _draw_apple(center: Vector2, s: float, color: Color) -> void:
+	draw_circle(center + Vector2(-s * 0.28, 0.0), s * 0.56, color)
+	draw_circle(center + Vector2(s * 0.28, 0.0), s * 0.56, color)
+	draw_rect(Rect2(center + Vector2(-s * 0.68, -s * 0.06), Vector2(s * 1.36, s * 0.78)), color)
+	draw_line(center + Vector2(0.0, -s * 0.7), center + Vector2(0.0, -s * 1.08), Color(0.60, 0.95, 0.60, 1.0), 2.0)
+	draw_circle(center + Vector2(s * 0.42, -s * 0.92), s * 0.24, Color(0.60, 0.95, 0.60, 1.0))

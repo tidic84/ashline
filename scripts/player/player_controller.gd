@@ -68,11 +68,11 @@ const PLAYER_ANIMATION_SOURCES: Dictionary = {
 @onready var interact_ray: RayCast3D = $Head/Camera3D/InteractRay
 @onready var build_ray: RayCast3D = $Head/Camera3D/BuildRay
 @onready var weapon_holder: Node3D = $Head/Camera3D/WeaponHolder
-@onready var hud: Control = $HUD
 @onready var name_label: Label3D = $NameLabel
 @onready var visual_root: Node3D = $VisualRoot
 @onready var multiplayer_sync: MultiplayerSynchronizer = get_node_or_null("MultiplayerSynchronizer") as MultiplayerSynchronizer
 
+var hud: Control = null
 var current_speed: float = WALK_SPEED
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var current_weapon: Node3D = null
@@ -120,7 +120,6 @@ func _ready() -> void:
 	add_to_group("player")
 	if multiplayer_sync != null:
 		multiplayer_sync.set_multiplayer_authority(get_multiplayer_authority())
-	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_apply_display_name()
 	_update_visual_visibility()
 	_setup_player_model_animation()
@@ -128,10 +127,15 @@ func _ready() -> void:
 	if not is_local:
 		camera.current = false
 		set_process_unhandled_input(false)
-		hud.visible = false
 		name_label.visible = true
 		return
 
+	hud = _resolve_hud()
+	if hud == null:
+		push_error("PlayerController: HUD introuvable dans la scene main")
+		return
+	hud.visible = true
+	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	camera.current = true
 	hud.visible = true
 	name_label.visible = false
@@ -163,6 +167,18 @@ func _ready() -> void:
 	hud.build_menu.exit_build_requested.connect(_on_build_exit_requested)
 	hud.build_menu.close_requested.connect(_close_build_menu)
 	_broadcast_network_state()
+
+
+func _resolve_hud() -> Control:
+	var scene := get_tree().current_scene
+	if scene:
+		var main_hud := scene.get_node_or_null("HUDLayer/HUD") as Control
+		if main_hud:
+			return main_hud
+	var layered_hud := get_node_or_null("HUDLayer/HUD") as Control
+	if layered_hud:
+		return layered_hud
+	return get_node_or_null("HUD") as Control
 
 func _process(delta: float) -> void:
 	_update_visual_rotation()
