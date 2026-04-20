@@ -15,15 +15,15 @@ enum SegmentType { GROUND, BRIDGE, TUNNEL }
 @export var roadbed_blend_width: float = 7.0
 @export var rail_gauge: float = 2.0
 @export_range(0.1, 10.0, 0.01, "or_greater") var rail_width_scale: float = 2.0
-## Amount (meters) trimmed off the lower-priority path's end at each
-## junction. A Y-junction between two separate RailPath nodes cannot
-## render a perfect merge (each path has its own perpendicular ties),
-## so this is a cosmetic compromise:
-##   0.0  → rails always meet, ties at both sides may overlap slightly.
-##   >0   → trims the secondary path's mesh back by this amount; removes
-##          tie overlap at the cost of a small gap in that path's rails.
-## Only the visual mesh is affected — the Curve3D used by trains is unchanged.
+## Optional trim off each endpoint that connects to another path. Kept for
+## the non-deformed (tiled MultiMesh / fallback) render paths. When the
+## deformed mesh is used, junction blending replaces trim — leave at 0.
 @export_range(0.0, 5.0, 0.05) var junction_trim_length: float = 0.0
+## Distance (m) over which the deformed mesh bends near a junction so its
+## rails and ties align with the neighbor path(s). Both sides converge to
+## a shared right/up basis at the shared endpoint, so the two paths' rails
+## meet seamlessly instead of overlapping or leaving a gap.
+@export_range(0.0, 10.0, 0.05) var junction_blend_length: float = 2.0
 @export var rail_follow_pitch: bool = true
 @export var rail_use_deformed_mesh: bool = true
 @export var rail_auto_section_length: bool = true
