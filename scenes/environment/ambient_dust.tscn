@@ -7,7 +7,7 @@ render_priority = 0
 shader = ExtResource("1_dustsh")
 shader_parameter/color = Color(1, 0.96, 0.86, 1)
 shader_parameter/softness = 1.6
-shader_parameter/emission_strength = 1.2
+shader_parameter/emission_strength = 0.55
 
 [sub_resource type="QuadMesh" id="QuadMesh_dust_quad"]
 material = SubResource("ShaderMaterial_dust_mat")

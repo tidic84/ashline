@@ -1,9 +1,9 @@
 shader_type spatial;
-render_mode blend_add, depth_draw_opaque, cull_disabled, unshaded, shadows_disabled;
+render_mode blend_add, depth_draw_never, cull_disabled, unshaded, shadows_disabled;
 
 uniform vec4 color : source_color = vec4(1.0, 0.96, 0.86, 1.0);
 uniform float softness : hint_range(0.05, 4.0) = 1.6;
-uniform float emission_strength : hint_range(0.0, 8.0) = 1.4;
+uniform float emission_strength : hint_range(0.0, 8.0) = 0.6;
 
 void vertex() {
 	// Face the camera (billboard in view space).

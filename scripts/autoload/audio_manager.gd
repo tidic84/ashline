@@ -230,9 +230,9 @@ func play_sfx_3d(name: String, world_position: Vector3, volume_db: float = 0.0, 
 	player.pitch_scale = pitch
 	player.unit_size = SFX_3D_UNIT_SIZE
 	player.max_distance = SFX_3D_MAX_DISTANCE
-	player.global_position = world_position
 	player.finished.connect(player.queue_free)
 	add_child(player)
+	player.global_position = world_position
 	player.play()
 
 func play_train_move_sound(speed: float = 0.0, world_position: Vector3 = Vector3.ZERO) -> void:
