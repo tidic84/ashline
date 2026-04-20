@@ -32,6 +32,7 @@ var _staged: Dictionary = {}
 var _crafting_system: Node = null
 
 # ── UI refs ────────────────────────────────────────────────────────────────────
+var _tablet:        TabletFrame
 var _tab_bar:       HBoxContainer
 var _canvas:        Control          # blueprint draw area
 var _slot_nodes:    Array[Control]   # one per ingredient slot
@@ -101,36 +102,34 @@ func _build_ui() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
-	# Dim overlay
-	var bg := ColorRect.new()
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0, 0, 0, 0.60)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bg)
+	_tablet = TabletFrame.new()
+	_tablet.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(_tablet)
+	_tablet.closed.connect(close)
 
-	# Main panel
-	var panel := _make_panel()
-	panel.anchor_left   = 0.5;  panel.anchor_right  = 0.5
-	panel.anchor_top    = 0.5;  panel.anchor_bottom = 0.5
-	panel.offset_left   = -420; panel.offset_right  = 420
-	panel.offset_top    = -280; panel.offset_bottom = 280
-	add_child(panel)
-
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left",   18)
-	margin.add_theme_constant_override("margin_top",    14)
-	margin.add_theme_constant_override("margin_right",  18)
-	margin.add_theme_constant_override("margin_bottom", 16)
-	panel.add_child(margin)
+	var content := Control.new()
+	content.mouse_filter = Control.MOUSE_FILTER_PASS
+	_tablet.set_content(content)
 
 	var vbox := VBoxContainer.new()
+	vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	vbox.add_theme_constant_override("separation", 10)
-	margin.add_child(vbox)
+	content.add_child(vbox)
 
 	_add_title_bar(vbox)
 	_add_tab_bar(vbox)
 	_add_canvas_area(vbox)
 	_add_bottom_bar(vbox)
+
+	_tablet.add_tab("craft", "Atelier", "⚒", "Établi — schéma technique")
+	_tablet.add_close_button()
+	_tablet.set_active_tab("craft", false)
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_VISIBILITY_CHANGED:
+		if visible and _tablet:
+			_tablet.open()
 
 
 func _make_panel() -> PanelContainer:
@@ -170,9 +169,6 @@ func _add_title_bar(parent: VBoxContainer) -> void:
 	rev.add_theme_color_override("font_color", C_DIM)
 	rev.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(rev)
-
-	var x_btn := _make_close_button()
-	row.add_child(x_btn)
 
 	var sep := _make_separator()
 	parent.add_child(sep)

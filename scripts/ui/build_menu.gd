@@ -1,4 +1,4 @@
-extends PanelContainer
+extends Control
 class_name BuildMenu
 
 signal item_selected(buildable_id: String)
@@ -6,11 +6,12 @@ signal mode_selected(mode: int)
 signal close_requested
 signal exit_build_requested
 
-@onready var list_container: VBoxContainer = $Margin/VBox/Body/Scroll/ItemList
-@onready var preview_panel: PanelContainer = $Margin/VBox/Body/PreviewPanel
-@onready var exit_button: Button = $Margin/VBox/ExitButton
-@onready var close_button: Button = $Margin/VBox/TitleBar/CloseButton
-@onready var title_label: Label = $Margin/VBox/TitleBar/Title
+@onready var content_root: Control = $Content
+@onready var list_container: VBoxContainer = $Content/VBox/Body/Scroll/ItemList
+@onready var preview_panel: PanelContainer = $Content/VBox/Body/PreviewPanel
+@onready var exit_button: Button = $Content/VBox/ExitButton
+@onready var title_label: Label = $Content/VBox/TitleBar/Title
+var _tablet: TabletFrame = null
 
 const C_BG_PANEL   := Color(0.082, 0.085, 0.090, 0.96)
 const C_BG_CARD    := Color(0.110, 0.115, 0.122, 1.0)
@@ -44,12 +45,23 @@ var _preview_empty_label: Label = null
 var _preview_rotation: float = 0.0
 
 func _ready() -> void:
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	mouse_filter = Control.MOUSE_FILTER_STOP
 	visible = false
 	exit_button.pressed.connect(func(): exit_build_requested.emit())
-	close_button.pressed.connect(func(): close_requested.emit())
-	_apply_panel_style()
+
+	# Re-parent content into a TabletFrame host
+	remove_child(content_root)
+	_tablet = TabletFrame.new()
+	_tablet.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(_tablet)
+	_tablet.closed.connect(func(): close_requested.emit())
+	_tablet.set_content(content_root)
+	_tablet.add_tab("build", "Build", "⌂", "Structures et défenses")
+	_tablet.add_close_button()
+	_tablet.set_active_tab("build", false)
+
 	_style_title()
-	_style_close_button()
 	_style_exit_button()
 	_build_preview_panel()
 	if Inventory.has_signal("inventory_updated"):
@@ -61,30 +73,11 @@ func _ready() -> void:
 	if BuildSystem.has_signal("build_mode_exited"):
 		BuildSystem.build_mode_exited.connect(_on_build_mode_exited)
 
-func _apply_panel_style() -> void:
-	var s := StyleBoxFlat.new()
-	s.bg_color = C_BG_PANEL
-	s.border_color = C_BORDER
-	s.set_border_width_all(1)
-	s.content_margin_left = 6
-	s.content_margin_right = 6
-	s.content_margin_top = 6
-	s.content_margin_bottom = 6
-	add_theme_stylebox_override("panel", s)
-
 func _style_title() -> void:
 	title_label.text = "Construction"
-	title_label.add_theme_font_size_override("font_size", 16)
+	title_label.add_theme_font_size_override("font_size", 18)
 	title_label.add_theme_color_override("font_color", C_TEXT_HI)
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-
-func _style_close_button() -> void:
-	close_button.text = "×"
-	close_button.flat = true
-	close_button.focus_mode = Control.FOCUS_NONE
-	close_button.add_theme_font_size_override("font_size", 18)
-	close_button.add_theme_color_override("font_color", C_TEXT_DIM)
-	close_button.add_theme_color_override("font_hover_color", C_TEXT_HI)
 
 func _style_exit_button() -> void:
 	exit_button.text = "Quitter la construction"
@@ -363,6 +356,11 @@ func show_menu() -> void:
 func hide_menu() -> void:
 	visible = false
 	set_process(false)
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_VISIBILITY_CHANGED:
+		if visible and _tablet:
+			_tablet.open()
 
 
 # ─── PREVIEW PANEL ───────────────────────────────────────────────────────────

@@ -29,10 +29,12 @@ var _tooltip_flavor: Label
 var _tooltip_meta: Label
 var _tooltip_hint: Label
 
-var _tab_buttons: Array[Button] = []
+var _tablet: TabletFrame = null
+var _view_stack: Control = null
 var _inventory_view: Control
 var _craft_view: Control
-var _current_tab: int = 0
+var _skills_view: Control
+var _current_tab: String = "inventory"
 
 var _stat_health_fill: ColorRect
 var _stat_health_empty: ColorRect
@@ -70,6 +72,9 @@ func _notification(what: int) -> void:
 		if _active_drag_source_index >= 0 and not get_viewport().gui_is_drag_successful():
 			_drop_item_to_world(_active_drag_source_index)
 		_active_drag_source_index = -1
+	elif what == NOTIFICATION_VISIBILITY_CHANGED:
+		if visible and _tablet:
+			_tablet.open()
 
 
 func _drop_item_to_world(slot_index: int) -> void:
@@ -96,101 +101,49 @@ func _get_local_player() -> CharacterBody3D:
 # ─── UI BUILD ─────────────────────────────────────────────────────────────────
 
 func _build_ui() -> void:
-	var bg := ColorRect.new()
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0.0, 0.0, 0.0, 0.72)
-	bg.mouse_filter = Control.MOUSE_FILTER_STOP
-	add_child(bg)
+	_tablet = TabletFrame.new()
+	_tablet.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(_tablet)
+	_tablet.closed.connect(func(): closed.emit())
+	_tablet.tab_selected.connect(_on_tab_selected)
 
-	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	center.mouse_filter = Control.MOUSE_FILTER_PASS
-	add_child(center)
-
-	var main_panel := PanelContainer.new()
-	main_panel.custom_minimum_size = Vector2(1080, 640)
-	_apply_panel_style(main_panel, C_BG, C_BORDER, 1)
-	center.add_child(main_panel)
-
-	var outer_margin := MarginContainer.new()
-	_set_margins(outer_margin, 18, 14, 18, 18)
-	main_panel.add_child(outer_margin)
-
-	var root_vbox := VBoxContainer.new()
-	root_vbox.add_theme_constant_override("separation", 10)
-	outer_margin.add_child(root_vbox)
-
-	_build_tab_bar(root_vbox)
-
-	var content_stack := Control.new()
-	content_stack.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	root_vbox.add_child(content_stack)
+	_view_stack = Control.new()
+	_view_stack.mouse_filter = Control.MOUSE_FILTER_PASS
+	_tablet.set_content(_view_stack)
 
 	_inventory_view = _build_inventory_view()
 	_inventory_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	content_stack.add_child(_inventory_view)
+	_view_stack.add_child(_inventory_view)
 
 	_craft_view = _build_craft_view()
 	_craft_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_craft_view.visible = false
-	content_stack.add_child(_craft_view)
+	_view_stack.add_child(_craft_view)
+
+	_skills_view = _build_skills_view()
+	_skills_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_skills_view.visible = false
+	_view_stack.add_child(_skills_view)
+
+	_tablet.add_tab("inventory", "Sac", "▦", "Inventaire et équipement")
+	_tablet.add_tab("craft", "Craft", "⚒", "Artisanat de base")
+	_tablet.add_tab("skills", "Skills", "✦", "Arbre de compétence")
+	_tablet.add_close_button()
+	_tablet.set_active_tab("inventory", false)
 
 	_build_tooltip()
 
 
-func _build_tab_bar(parent: VBoxContainer) -> void:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	parent.add_child(row)
-
-	_tab_buttons.clear()
-	for i in range(2):
-		var label: String = ["Inventaire", "Artisanat"][i]
-		var btn := Button.new()
-		btn.text = label
-		btn.add_theme_font_size_override("font_size", 13)
-		btn.toggle_mode = true
-		btn.button_pressed = (i == 0)
-		btn.focus_mode = Control.FOCUS_NONE
-		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		var idx := i
-		btn.pressed.connect(func(): _switch_tab(idx))
-		_style_tab_button(btn, i == 0)
-		row.add_child(btn)
-		_tab_buttons.append(btn)
-
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(spacer)
-
-	var close_btn := Button.new()
-	close_btn.text = "[Échap]"
-	close_btn.add_theme_font_size_override("font_size", 11)
-	close_btn.focus_mode = Control.FOCUS_NONE
-	close_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	var sb_close := StyleBoxFlat.new()
-	sb_close.bg_color = Color(0, 0, 0, 0)
-	sb_close.content_margin_left   = 8
-	sb_close.content_margin_right  = 8
-	sb_close.content_margin_top    = 4
-	sb_close.content_margin_bottom = 4
-	close_btn.add_theme_stylebox_override("normal", sb_close)
-	close_btn.add_theme_stylebox_override("hover", sb_close)
-	close_btn.add_theme_stylebox_override("pressed", sb_close)
-	close_btn.add_theme_color_override("font_color", C_MUTED)
-	close_btn.add_theme_color_override("font_hover_color", C_TEXT_HI)
-	close_btn.pressed.connect(func(): closed.emit())
-	row.add_child(close_btn)
+func _on_tab_selected(tab_id: String) -> void:
+	_switch_tab(tab_id)
 
 
-func _switch_tab(index: int) -> void:
-	_current_tab = index
-	_inventory_view.visible = (index == 0)
-	_craft_view.visible = (index == 1)
-	for i in range(_tab_buttons.size()):
-		_style_tab_button(_tab_buttons[i], i == index)
-		_tab_buttons[i].button_pressed = (i == index)
-	if index == 1:
+func _switch_tab(tab_id: String) -> void:
+	_current_tab = tab_id
+	_inventory_view.visible = (tab_id == "inventory")
+	_craft_view.visible = (tab_id == "craft")
+	_skills_view.visible = (tab_id == "skills")
+	if tab_id == "craft":
 		_update_craft_view()
 
 
@@ -849,7 +802,7 @@ func _on_slot_unhovered(_slot_index: int) -> void:
 func _on_inventory_updated() -> void:
 	_refresh_hotbar_slots()
 	_refresh_inventory_slots()
-	if _current_tab == 1:
+	if _current_tab == "craft":
 		_update_craft_view()
 	else:
 		_update_craft_detail()
@@ -1001,22 +954,147 @@ func _make_inset_style(bg: Color = C_DEEP) -> StyleBoxFlat:
 	return sb
 
 
-func _style_tab_button(btn: Button, active: bool) -> void:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0, 0, 0, 0)
-	sb.content_margin_left   = 2
-	sb.content_margin_right  = 2
-	sb.content_margin_top    = 4
-	sb.content_margin_bottom = 4
-	btn.add_theme_stylebox_override("normal", sb)
-	btn.add_theme_stylebox_override("pressed", sb)
-	btn.add_theme_stylebox_override("hover", sb)
+func _build_skills_view() -> Control:
+	# Placeholder skill tree — a cyan-wired blueprint of constellations.
+	# Tabs exist, content is stubbed until the skill system is wired in.
+	var root := Control.new()
+	root.mouse_filter = Control.MOUSE_FILTER_PASS
 
-	btn.text = ("> " + btn.text.lstrip("> ")) if active else btn.text.lstrip("> ")
-	btn.add_theme_color_override("font_color", C_TEXT_HI if active else C_MUTED)
-	btn.add_theme_color_override("font_hover_color", C_TEXT_HI)
-	btn.add_theme_color_override("font_pressed_color", C_TEXT_HI)
-	btn.add_theme_constant_override("outline_size", 0)
+	var header := Label.new()
+	header.text = "ARBRE DE COMPÉTENCE"
+	header.add_theme_font_size_override("font_size", 16)
+	header.add_theme_color_override("font_color", C_TEXT_HI)
+	header.anchor_left = 0.0
+	header.anchor_right = 1.0
+	header.offset_top = 0
+	header.offset_bottom = 26
+	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(header)
+
+	var subtitle := Label.new()
+	subtitle.text = "3 points disponibles  ·  Sélectionnez un nœud pour débloquer"
+	subtitle.add_theme_font_size_override("font_size", 11)
+	subtitle.add_theme_color_override("font_color", C_MUTED)
+	subtitle.anchor_left = 0.0
+	subtitle.anchor_right = 1.0
+	subtitle.offset_top = 28
+	subtitle.offset_bottom = 50
+	subtitle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(subtitle)
+
+	# Canvas area with blueprint-style nodes
+	var canvas_panel := PanelContainer.new()
+	canvas_panel.anchor_left = 0.0
+	canvas_panel.anchor_right = 1.0
+	canvas_panel.anchor_top = 0.0
+	canvas_panel.anchor_bottom = 1.0
+	canvas_panel.offset_top = 60
+	canvas_panel.offset_bottom = -8
+	var cp_sb := StyleBoxFlat.new()
+	cp_sb.bg_color = Color(0.012, 0.025, 0.045, 1.0)
+	cp_sb.border_width_top    = 1
+	cp_sb.border_width_left   = 1
+	cp_sb.border_width_right  = 1
+	cp_sb.border_width_bottom = 1
+	cp_sb.border_color = Color(0.22, 0.55, 0.72, 0.6)
+	cp_sb.set_corner_radius_all(8)
+	canvas_panel.add_theme_stylebox_override("panel", cp_sb)
+	root.add_child(canvas_panel)
+
+	var canvas := Control.new()
+	canvas.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	canvas.mouse_filter = Control.MOUSE_FILTER_PASS
+	canvas_panel.add_child(canvas)
+
+	var nodes := [
+		{"pos": Vector2(0.18, 0.50), "label": "Survie",       "glyph": "✦", "unlocked": true},
+		{"pos": Vector2(0.35, 0.30), "label": "Endurance",    "glyph": "⚡", "unlocked": true},
+		{"pos": Vector2(0.35, 0.70), "label": "Métabolisme",  "glyph": "♥", "unlocked": false},
+		{"pos": Vector2(0.55, 0.18), "label": "Course",       "glyph": "➤", "unlocked": false},
+		{"pos": Vector2(0.55, 0.42), "label": "Récolte",      "glyph": "⛏", "unlocked": false},
+		{"pos": Vector2(0.55, 0.62), "label": "Regen",        "glyph": "❋", "unlocked": false},
+		{"pos": Vector2(0.55, 0.82), "label": "Immunité",     "glyph": "◈", "unlocked": false},
+		{"pos": Vector2(0.78, 0.30), "label": "Vitesse 2",    "glyph": "➤➤", "unlocked": false},
+		{"pos": Vector2(0.78, 0.62), "label": "Artisan",      "glyph": "✚", "unlocked": false},
+	]
+	var connections := [[0, 1], [0, 2], [1, 3], [1, 4], [2, 5], [2, 6], [4, 7], [5, 8]]
+
+	var wires := Control.new()
+	wires.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	wires.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wires.set_script(load("res://scripts/ui/skill_tree_wires.gd"))
+	wires.set("nodes_data", nodes)
+	wires.set("connections_data", connections)
+	canvas.add_child(wires)
+
+	for i in range(nodes.size()):
+		var nd: Dictionary = nodes[i]
+		var node_btn := _make_skill_node(nd)
+		node_btn.anchor_left = nd["pos"].x
+		node_btn.anchor_right = nd["pos"].x
+		node_btn.anchor_top = nd["pos"].y
+		node_btn.anchor_bottom = nd["pos"].y
+		node_btn.offset_left = -32
+		node_btn.offset_right = 32
+		node_btn.offset_top = -32
+		node_btn.offset_bottom = 32
+		canvas.add_child(node_btn)
+
+	return root
+
+
+func _make_skill_node(nd: Dictionary) -> Control:
+	var unlocked: bool = bool(nd.get("unlocked", false))
+	var wrap := Control.new()
+	wrap.custom_minimum_size = Vector2(64, 64)
+	wrap.mouse_filter = Control.MOUSE_FILTER_PASS
+
+	var panel := Panel.new()
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var sb := StyleBoxFlat.new()
+	if unlocked:
+		sb.bg_color = Color(0.10, 0.35, 0.48, 1.0)
+		sb.border_color = Color(0.35, 0.85, 1.00, 1.0)
+		sb.shadow_color = Color(0.35, 0.85, 1.0, 0.55)
+		sb.shadow_size = 10
+	else:
+		sb.bg_color = Color(0.04, 0.08, 0.12, 1.0)
+		sb.border_color = Color(0.22, 0.55, 0.72, 0.6)
+	sb.border_width_top    = 2
+	sb.border_width_left   = 2
+	sb.border_width_right  = 2
+	sb.border_width_bottom = 2
+	sb.set_corner_radius_all(32)
+	panel.add_theme_stylebox_override("panel", sb)
+	wrap.add_child(panel)
+
+	var lbl := Label.new()
+	lbl.text = String(nd.get("glyph", "✦"))
+	lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 22)
+	lbl.add_theme_color_override("font_color", Color(0.92, 0.97, 1.0, 1.0) if unlocked else Color(0.45, 0.62, 0.72, 1.0))
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(lbl)
+
+	var caption := Label.new()
+	caption.text = String(nd.get("label", ""))
+	caption.add_theme_font_size_override("font_size", 9)
+	caption.add_theme_color_override("font_color", Color(0.92, 0.97, 1.0, 1.0) if unlocked else Color(0.55, 0.72, 0.82, 0.9))
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	caption.anchor_left = 0.0
+	caption.anchor_right = 1.0
+	caption.anchor_top = 1.0
+	caption.anchor_bottom = 1.0
+	caption.offset_left = -24
+	caption.offset_right = 24
+	caption.offset_top = 2
+	caption.offset_bottom = 18
+	caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(caption)
+
+	return wrap
 
 
 func _add_section_label(parent: Control, text: String) -> Label:
