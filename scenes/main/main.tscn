@@ -30,6 +30,7 @@
 [ext_resource type="PackedScene" uid="uid://cggqb75a8w8r" path="res://addons/debug_menu/debug_menu.tscn" id="31_debug"]
 [ext_resource type="Script" uid="uid://ck00bpv2e6qsb" path="res://scripts/world/resource_spawner.gd" id="32_spawner"]
 [ext_resource type="Script" uid="uid://xcgy8mm71kxo" path="res://scripts/world/lake_water.gd" id="33_lake"]
+[ext_resource type="PackedScene" uid="uid://shlinehud01" path="res://scenes/ui/hud.tscn" id="34_hud"]
 
 [sub_resource type="CameraAttributesPractical" id="CameraAttributesPractical_001"]
 auto_exposure_enabled = true
@@ -290,6 +291,11 @@ script = ExtResource("27_mouse")
 [node name="BuildController" type="Node" parent="." unique_id=1843772001]
 script = ExtResource("30_buildctrl")
 fps_controller_path = NodePath("../UP_FPSController_Prefab")
+
+[node name="HUDLayer" type="CanvasLayer" parent="." unique_id=1670402201]
+layer = 10
+
+[node name="HUD" parent="HUDLayer" unique_id=1670402202 instance=ExtResource("34_hud")]
 
 [node name="Players" type="Node3D" parent="." unique_id=632363353]
 

@@ -2,6 +2,7 @@ extends Control
 
 signal inventory_toggle_requested
 
+const StatsDisplayScript = preload("res://scripts/ui/stats_display.gd")
 const HOTBAR_KEY_LABELS: Array[String] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
 
 @onready var build_panel: PanelContainer = $BuildPanel
@@ -18,7 +19,7 @@ const HOTBAR_KEY_LABELS: Array[String] = ["1", "2", "3", "4", "5", "6", "7", "8"
 @onready var build_menu: BuildMenu = $BuildMenu
 @onready var settings_menu: SettingsMenu = $SettingsMenu
 @onready var pause_menu: PauseMenu = $PauseMenu
-@onready var stats_display: Control = $StatsDisplay
+@onready var stats_display: Control = get_node_or_null("StatsDisplay") as Control
 @onready var hotbar_slots: HBoxContainer = $HotbarPanel/HotbarSlots
 @onready var item_tooltip_panel: PanelContainer = $ItemTooltip
 @onready var item_tooltip_label: Label = $ItemTooltip/Name
@@ -53,6 +54,7 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	if get_viewport():
 		get_viewport().size_changed.connect(func(): set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT))
+	_ensure_stats_display()
 	GameManager.game_state_changed.connect(_on_game_state_changed)
 	BuildSystem.build_mode_entered.connect(_on_build_entered)
 	BuildSystem.build_mode_exited.connect(_on_build_exited)
@@ -92,6 +94,26 @@ func _ready() -> void:
 	_build_workbench_ui()
 
 var _workbench_ui: Control = null
+
+func _ensure_stats_display() -> void:
+	if stats_display == null:
+		stats_display = StatsDisplayScript.new()
+		stats_display.name = "StatsDisplay"
+		add_child(stats_display)
+	stats_display.visible = true
+	stats_display.modulate = Color.WHITE
+	stats_display.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stats_display.z_index = 4
+	stats_display.anchor_left = 0.0
+	stats_display.anchor_top = 1.0
+	stats_display.anchor_right = 0.0
+	stats_display.anchor_bottom = 1.0
+	stats_display.offset_left = 16.0
+	stats_display.offset_top = -94.0
+	stats_display.offset_right = 180.0
+	stats_display.offset_bottom = -34.0
+	if stats_display.has_method("set_stats"):
+		stats_display.call("set_stats", Inventory.health, Inventory.hunger, Inventory.thirst)
 
 func _input(event: InputEvent) -> void:
 	if not visible:
@@ -427,9 +449,9 @@ func _build_chat_ui() -> void:
 	_chat_panel.anchor_right = 0.0
 	_chat_panel.anchor_bottom = 1.0
 	_chat_panel.offset_left = 14.0
-	_chat_panel.offset_top = -244.0
+	_chat_panel.offset_top = -350.0
 	_chat_panel.offset_right = 434.0
-	_chat_panel.offset_bottom = -116.0
+	_chat_panel.offset_bottom = -222.0
 	_chat_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_chat_panel)
 
