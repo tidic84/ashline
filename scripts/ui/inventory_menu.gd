@@ -5,6 +5,7 @@ signal closed
 
 const HOTBAR_KEY_LABELS: Array[String] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
 const TOOLTIP_OFFSET := Vector2(14.0, 14.0)
+const CHARACTER_PREVIEW_SCALE := 1.25
 
 var _hotbar_ui: Array[InventorySlotUI] = []
 var _inventory_ui: Array[InventorySlotUI] = []
@@ -21,6 +22,7 @@ var _char_viewport: SubViewport = null
 var _char_camera: Camera3D = null
 var _char_model: Node3D = null
 var _char_texture_rect: TextureRect = null
+var _char_animation_player: AnimationPlayer = null
 
 var _tooltip_panel: PanelContainer
 var _tooltip_title: Label
@@ -28,12 +30,13 @@ var _tooltip_subtitle: Label
 var _tooltip_flavor: Label
 var _tooltip_meta: Label
 var _tooltip_hint: Label
-var _tooltip_hint_row: Control
 
-var _tab_buttons: Array[Button] = []
+var _tablet: TabletFrame = null
+var _view_stack: Control = null
 var _inventory_view: Control
 var _craft_view: Control
-var _current_tab: int = 0
+var _skills_view: Control
+var _current_tab: String = "inventory"
 
 var _stat_health_fill: ColorRect
 var _stat_health_empty: ColorRect
@@ -71,6 +74,9 @@ func _notification(what: int) -> void:
 		if _active_drag_source_index >= 0 and not get_viewport().gui_is_drag_successful():
 			_drop_item_to_world(_active_drag_source_index)
 		_active_drag_source_index = -1
+	elif what == NOTIFICATION_VISIBILITY_CHANGED:
+		if visible and _tablet:
+			_tablet.open()
 
 
 func _drop_item_to_world(slot_index: int) -> void:
@@ -97,248 +103,49 @@ func _get_local_player() -> CharacterBody3D:
 # ─── UI BUILD ─────────────────────────────────────────────────────────────────
 
 func _build_ui() -> void:
-	var bg := ColorRect.new()
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0.0, 0.0, 0.0, 0.80)
-	bg.mouse_filter = Control.MOUSE_FILTER_STOP
-	add_child(bg)
+	_tablet = TabletFrame.new()
+	_tablet.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(_tablet)
+	_tablet.closed.connect(func(): closed.emit())
+	_tablet.tab_selected.connect(_on_tab_selected)
 
-	var center := CenterContainer.new()
-	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	center.mouse_filter = Control.MOUSE_FILTER_PASS
-	add_child(center)
-
-	# Outer wrapper: 2px amber top accent bar
-	var wrapper := VBoxContainer.new()
-	wrapper.custom_minimum_size = Vector2(1080, 640)
-	wrapper.add_theme_constant_override("separation", 0)
-	center.add_child(wrapper)
-
-	var top_accent := ColorRect.new()
-	top_accent.custom_minimum_size = Vector2(0, 2)
-	top_accent.color = C_ACCENT
-	top_accent.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	wrapper.add_child(top_accent)
-
-	var main_panel := PanelContainer.new()
-	main_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_apply_panel_style(main_panel, C_BG, C_BORDER, 1)
-	wrapper.add_child(main_panel)
-
-	var outer_margin := MarginContainer.new()
-	_set_margins(outer_margin, 18, 14, 18, 18)
-	main_panel.add_child(outer_margin)
-
-	var root_vbox := VBoxContainer.new()
-	root_vbox.add_theme_constant_override("separation", 10)
-	outer_margin.add_child(root_vbox)
-
-	_build_tab_bar(root_vbox)
-	_add_divider(root_vbox)
-
-	var content_stack := Control.new()
-	content_stack.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	root_vbox.add_child(content_stack)
+	_view_stack = Control.new()
+	_view_stack.mouse_filter = Control.MOUSE_FILTER_PASS
+	_tablet.set_content(_view_stack)
 
 	_inventory_view = _build_inventory_view()
 	_inventory_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	content_stack.add_child(_inventory_view)
+	_view_stack.add_child(_inventory_view)
 
 	_craft_view = _build_craft_view()
 	_craft_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_craft_view.visible = false
-	content_stack.add_child(_craft_view)
+	_view_stack.add_child(_craft_view)
 
-	_add_divider(root_vbox)
-	_build_legend(root_vbox)
+	_skills_view = _build_skills_view()
+	_skills_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_skills_view.visible = false
+	_view_stack.add_child(_skills_view)
+
+	_tablet.add_tab("inventory", "Sac", "▦", "Inventaire et équipement")
+	_tablet.add_tab("craft", "Craft", "⚒", "Artisanat de base")
+	_tablet.add_tab("skills", "Skills", "✦", "Arbre de compétence")
+	_tablet.add_close_button()
+	_tablet.set_active_tab("inventory", false)
 
 	_build_tooltip()
 
 
-func _build_legend(parent: VBoxContainer) -> void:
-	# Keybind hint row along the bottom of the panel — mirrors the reference legend.
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 18)
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	parent.add_child(row)
-
-	var entries: Array = [
-		{"key": "Clic G.", "label": "Utiliser / Équiper"},
-		{"key": "Glisser", "label": "Déplacer"},
-		{"key": "Alt",     "label": "Diviser la pile"},
-		{"key": "Clic D.", "label": "Jeter"},
-		{"key": "Échap",   "label": "Fermer"},
-	]
-	for e in entries:
-		row.add_child(_make_legend_entry(e["key"], e["label"]))
+func _on_tab_selected(tab_id: String) -> void:
+	_switch_tab(tab_id)
 
 
-func _make_legend_entry(key_text: String, label_text: String) -> Control:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 6)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-	# Key pill — small rounded panel with uppercase glyph
-	var pill := PanelContainer.new()
-	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.050, 0.040, 0.028, 1.0)
-	sb.border_width_top    = 1
-	sb.border_width_left   = 1
-	sb.border_width_right  = 1
-	sb.border_width_bottom = 1
-	sb.border_color = C_BORDER
-	sb.corner_radius_top_left     = 3
-	sb.corner_radius_top_right    = 3
-	sb.corner_radius_bottom_left  = 3
-	sb.corner_radius_bottom_right = 3
-	sb.content_margin_left   = 8
-	sb.content_margin_right  = 8
-	sb.content_margin_top    = 2
-	sb.content_margin_bottom = 2
-	pill.add_theme_stylebox_override("panel", sb)
-
-	var key_lbl := Label.new()
-	key_lbl.text = key_text
-	key_lbl.add_theme_font_size_override("font_size", 10)
-	key_lbl.add_theme_color_override("font_color", C_TEXT_HI)
-	key_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pill.add_child(key_lbl)
-	row.add_child(pill)
-
-	var desc := Label.new()
-	desc.text = label_text
-	desc.add_theme_font_size_override("font_size", 10)
-	desc.add_theme_color_override("font_color", C_MUTED)
-	desc.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(desc)
-
-	return row
-
-
-func _build_tab_bar(parent: VBoxContainer) -> void:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 4)
-	parent.add_child(row)
-
-	# Left — screen title "CHARACTER" styled as a bold small-caps header.
-	var title_lbl := Label.new()
-	title_lbl.text = "PERSONNAGE"
-	title_lbl.add_theme_font_size_override("font_size", 15)
-	title_lbl.add_theme_color_override("font_color", C_ACCENT)
-	title_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	title_lbl.custom_minimum_size = Vector2(130, 0)
-	title_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	row.add_child(title_lbl)
-
-	# Thin gold vertical separator between title and tabs
-	var sep := ColorRect.new()
-	sep.custom_minimum_size = Vector2(1, 20)
-	sep.color = C_BORDER
-	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(sep)
-
-	_tab_buttons.clear()
-	for i in range(2):
-		var label: String = ["Inventaire", "Artisanat"][i]
-		var btn := Button.new()
-		btn.text = label
-		btn.add_theme_font_size_override("font_size", 13)
-		btn.toggle_mode = true
-		btn.button_pressed = (i == 0)
-		btn.focus_mode = Control.FOCUS_NONE
-		btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-		var idx := i
-		btn.pressed.connect(func(): _switch_tab(idx))
-		_style_tab_button(btn, i == 0)
-		row.add_child(btn)
-		_tab_buttons.append(btn)
-
-	var spacer := Control.new()
-	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(spacer)
-
-	# Right — player name pill followed by a gold diamond level badge
-	var name_lbl := Label.new()
-	name_lbl.text = "UZUMAKI"
-	name_lbl.add_theme_font_size_override("font_size", 14)
-	name_lbl.add_theme_color_override("font_color", C_TEXT_HI)
-	name_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	name_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(name_lbl)
-
-	var level_badge := _make_level_badge(4)
-	row.add_child(level_badge)
-
-	# Subtle close button styled as a glyph on the right edge
-	var close_btn := Button.new()
-	close_btn.text = "Fermer  [Echap]"
-	close_btn.add_theme_font_size_override("font_size", 10)
-	close_btn.focus_mode = Control.FOCUS_NONE
-	close_btn.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	var sb_close := StyleBoxFlat.new()
-	sb_close.bg_color = Color(0, 0, 0, 0)
-	sb_close.content_margin_left   = 10
-	sb_close.content_margin_right  = 10
-	sb_close.content_margin_top    = 6
-	sb_close.content_margin_bottom = 6
-	close_btn.add_theme_stylebox_override("normal", sb_close)
-	var sb_close_h := sb_close.duplicate() as StyleBoxFlat
-	sb_close_h.bg_color = Color(C_DANGER.r, C_DANGER.g, C_DANGER.b, 0.12)
-	sb_close_h.border_width_bottom = 2
-	sb_close_h.border_color = C_DANGER
-	close_btn.add_theme_stylebox_override("hover", sb_close_h)
-	close_btn.add_theme_color_override("font_color", Color(0.72, 0.38, 0.32, 1.0))
-	close_btn.add_theme_color_override("font_hover_color", Color(0.95, 0.68, 0.58, 1.0))
-	close_btn.pressed.connect(func(): closed.emit())
-	row.add_child(close_btn)
-
-
-func _make_level_badge(level: int) -> Control:
-	# Diamond-shaped gold badge (rotated square) with the level number.
-	var holder := Control.new()
-	holder.custom_minimum_size = Vector2(34, 30)
-	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-	var diamond := Panel.new()
-	diamond.custom_minimum_size = Vector2(22, 22)
-	diamond.size = Vector2(22, 22)
-	diamond.position = Vector2(6, 4)
-	diamond.rotation = PI / 4.0
-	diamond.pivot_offset = Vector2(11, 11)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.20, 0.15, 0.08, 1.0)
-	sb.border_width_top    = 2
-	sb.border_width_left   = 2
-	sb.border_width_right  = 2
-	sb.border_width_bottom = 2
-	sb.border_color = C_ACCENT
-	diamond.add_theme_stylebox_override("panel", sb)
-	diamond.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	holder.add_child(diamond)
-
-	var lvl_lbl := Label.new()
-	lvl_lbl.text = str(level)
-	lvl_lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	lvl_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lvl_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	lvl_lbl.add_theme_font_size_override("font_size", 13)
-	lvl_lbl.add_theme_color_override("font_color", C_ACCENT_HI)
-	lvl_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	holder.add_child(lvl_lbl)
-
-	return holder
-
-
-func _switch_tab(index: int) -> void:
-	_current_tab = index
-	_inventory_view.visible = (index == 0)
-	_craft_view.visible = (index == 1)
-	for i in range(_tab_buttons.size()):
-		_style_tab_button(_tab_buttons[i], i == index)
-		_tab_buttons[i].button_pressed = (i == index)
-	if index == 1:
+func _switch_tab(tab_id: String) -> void:
+	_current_tab = tab_id
+	_inventory_view.visible = (tab_id == "inventory")
+	_craft_view.visible = (tab_id == "craft")
+	_skills_view.visible = (tab_id == "skills")
+	if tab_id == "craft":
 		_update_craft_view()
 
 
@@ -445,27 +252,26 @@ func _build_equipment_section() -> VBoxContainer:
 	armor_grid.add_theme_constant_override("v_separation", 8)
 	vbox.add_child(armor_grid)
 
-	# Unicode silhouettes evoke the armor piece without needing icon assets.
-	armor_grid.add_child(_make_equip_slot("⛑"))   # Helm
-	armor_grid.add_child(_make_equip_slot("🛡"))   # Cuirass
-	armor_grid.add_child(_make_equip_slot("👖"))   # Legs
-	armor_grid.add_child(_make_equip_slot("👢"))   # Boots
+	armor_grid.add_child(_make_equip_slot("TÊTE"))
+	armor_grid.add_child(_make_equip_slot("TORSE"))
+	armor_grid.add_child(_make_equip_slot("JAMBES"))
+	armor_grid.add_child(_make_equip_slot("PIEDS"))
 
 	_add_section_label(vbox, "Accessoires")
 
 	var acc_row := HBoxContainer.new()
 	acc_row.add_theme_constant_override("separation", 8)
 	vbox.add_child(acc_row)
-	acc_row.add_child(_make_equip_slot("◈"))  # Ring
-	acc_row.add_child(_make_equip_slot("⚜"))  # Necklace
+	acc_row.add_child(_make_equip_slot("SAC"))
+	acc_row.add_child(_make_equip_slot("CEINT."))
 
 	_add_section_label(vbox, "Munitions")
 
 	var ammo_row := HBoxContainer.new()
 	ammo_row.add_theme_constant_override("separation", 8)
 	vbox.add_child(ammo_row)
-	ammo_row.add_child(_make_equip_slot("◉"))
-	ammo_row.add_child(_make_equip_slot("◉"))
+	ammo_row.add_child(_make_equip_slot("MUN."))
+	ammo_row.add_child(_make_equip_slot("MUN."))
 
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -474,8 +280,7 @@ func _build_equipment_section() -> VBoxContainer:
 	return vbox
 
 
-func _make_equip_slot(icon_char: String) -> PanelContainer:
-	# Single-slot panel: warm recessed well, soft silhouette glyph when empty.
+func _make_equip_slot(tag_text: String) -> PanelContainer:
 	var slot_bg := PanelContainer.new()
 	slot_bg.custom_minimum_size = Vector2(72, 62)
 	var sb := StyleBoxFlat.new()
@@ -485,19 +290,15 @@ func _make_equip_slot(icon_char: String) -> PanelContainer:
 	sb.border_width_right  = 1
 	sb.border_width_bottom = 1
 	sb.border_color = C_BORDER
-	sb.corner_radius_top_left     = 3
-	sb.corner_radius_top_right    = 3
-	sb.corner_radius_bottom_left  = 3
-	sb.corner_radius_bottom_right = 3
 	slot_bg.add_theme_stylebox_override("panel", sb)
 
 	var glyph := Label.new()
 	glyph.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	glyph.text = icon_char
+	glyph.text = tag_text
 	glyph.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	glyph.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	glyph.add_theme_font_size_override("font_size", 24)
-	glyph.add_theme_color_override("font_color", Color(C_MUTED.r, C_MUTED.g, C_MUTED.b, 0.55))
+	glyph.add_theme_font_size_override("font_size", 10)
+	glyph.add_theme_color_override("font_color", Color(C_MUTED.r, C_MUTED.g, C_MUTED.b, 0.65))
 	glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	slot_bg.add_child(glyph)
 
@@ -530,11 +331,6 @@ func _build_character_section() -> VBoxContainer:
 	loading_lbl.name = "LoadingLabel"
 	char_panel.add_child(loading_lbl)
 
-	# Compact stat icon strip (reference-inspired: eye, spark, heart, blade with numeric values)
-	var stat_strip := _build_stat_icon_strip()
-	vbox.add_child(stat_strip)
-
-	# Slim bars below for survival (health / hunger / thirst)
 	var stats_panel := PanelContainer.new()
 	stats_panel.add_theme_stylebox_override("panel", _make_inset_style())
 	vbox.add_child(stats_panel)
@@ -558,47 +354,6 @@ func _build_character_section() -> VBoxContainer:
 	_stat_thirst_empty = t[1] as ColorRect
 
 	return vbox
-
-
-func _build_stat_icon_strip() -> Control:
-	# Four-stat strip: Observation (👁), Agility (⚡), Vigor (♥), Blade (🗡).
-	# Values are cosmetic placeholders matching the reference look.
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 18)
-	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-	var stats: Array = [
-		{"glyph": "👁", "value": "0"},
-		{"glyph": "⚡", "value": "0"},
-		{"glyph": "♥", "value": "9"},
-		{"glyph": "🗡", "value": "4"},
-	]
-	for s in stats:
-		var col := VBoxContainer.new()
-		col.alignment = BoxContainer.ALIGNMENT_CENTER
-		col.add_theme_constant_override("separation", 0)
-		col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-		var g := Label.new()
-		g.text = s["glyph"]
-		g.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		g.add_theme_font_size_override("font_size", 18)
-		g.add_theme_color_override("font_color", C_ACCENT)
-		g.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		col.add_child(g)
-
-		var v := Label.new()
-		v.text = s["value"]
-		v.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		v.add_theme_font_size_override("font_size", 13)
-		v.add_theme_color_override("font_color", C_TEXT_HI)
-		v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		col.add_child(v)
-
-		row.add_child(col)
-
-	return row
 
 
 func _add_stat_bar(parent: VBoxContainer, label_text: String, bar_color: Color) -> Array:
@@ -706,10 +461,6 @@ func _build_craft_view() -> Control:
 	sb_craft.border_width_right  = 1
 	sb_craft.border_width_bottom = 1
 	sb_craft.border_color = C_ACCENT_HI
-	sb_craft.corner_radius_top_left     = 4
-	sb_craft.corner_radius_top_right    = 4
-	sb_craft.corner_radius_bottom_left  = 4
-	sb_craft.corner_radius_bottom_right = 4
 	sb_craft.content_margin_left   = 14
 	sb_craft.content_margin_right  = 14
 	sb_craft.content_margin_top    = 6
@@ -719,11 +470,11 @@ func _build_craft_view() -> Control:
 	sb_craft_h.bg_color = C_ACCENT_HI
 	_craft_button.add_theme_stylebox_override("hover", sb_craft_h)
 	var sb_craft_d := sb_craft.duplicate() as StyleBoxFlat
-	sb_craft_d.bg_color = Color(0.18, 0.15, 0.11, 1.0)
+	sb_craft_d.bg_color = Color(0.12, 0.12, 0.13, 1.0)
 	sb_craft_d.border_color = C_BORDER
 	_craft_button.add_theme_stylebox_override("disabled", sb_craft_d)
-	_craft_button.add_theme_color_override("font_color", Color(0.10, 0.06, 0.02, 1.0))
-	_craft_button.add_theme_color_override("font_hover_color", Color(0.10, 0.06, 0.02, 1.0))
+	_craft_button.add_theme_color_override("font_color", Color(0.06, 0.06, 0.06, 1.0))
+	_craft_button.add_theme_color_override("font_hover_color", Color(0.06, 0.06, 0.06, 1.0))
 	_craft_button.add_theme_color_override("font_color_disabled", C_MUTED)
 	_craft_button.pressed.connect(_on_craft_pressed)
 	detail_inner.add_child(_craft_button)
@@ -882,10 +633,10 @@ func _setup_character_viewport() -> void:
 	_char_viewport.add_child(back_light)
 
 	_char_camera = Camera3D.new()
-	_char_camera.position = Vector3(0.0, 1.0, 2.6)
+	_char_camera.position = Vector3(0.0, 1.05, 2.6)
 	_char_camera.rotation_degrees = Vector3(-5.0, 0.0, 0.0)
 	_char_camera.projection = Camera3D.PROJECTION_PERSPECTIVE
-	_char_camera.fov = 48.0
+	_char_camera.fov = 44.0
 	_char_camera.near = 0.1
 	_char_camera.far = 20.0
 	_char_viewport.add_child(_char_camera)
@@ -896,8 +647,10 @@ func _setup_character_viewport() -> void:
 		if _char_model:
 			_char_viewport.add_child(_char_model)
 			_char_model.position = Vector3(0.0, 0.0, 0.0)
+			_char_model.scale = Vector3.ONE * CHARACTER_PREVIEW_SCALE
 
 	get_tree().root.add_child(_char_viewport)
+	_play_character_idle_animation()
 	await get_tree().process_frame
 
 	if _char_texture_rect and is_instance_valid(_char_viewport):
@@ -907,50 +660,79 @@ func _setup_character_viewport() -> void:
 			loading_lbl.visible = false
 
 
+func _play_character_idle_animation() -> void:
+	_char_animation_player = _find_character_animation_player(_char_model)
+	if _char_animation_player == null:
+		return
+	var animation_names := _char_animation_player.get_animation_list()
+	if animation_names.is_empty():
+		return
+	var idle_animation := _select_character_idle_animation(animation_names)
+	var animation := _char_animation_player.get_animation(idle_animation)
+	if animation:
+		animation.loop_mode = Animation.LOOP_LINEAR
+	_char_animation_player.play(idle_animation)
+
+
+func _select_character_idle_animation(animation_names: PackedStringArray) -> StringName:
+	for animation_name in animation_names:
+		if String(animation_name).to_lower().contains("idle"):
+			return StringName(animation_name)
+	for animation_name in animation_names:
+		if String(animation_name).to_lower() != "reset":
+			return StringName(animation_name)
+	return StringName(animation_names[0])
+
+
+func _find_character_animation_player(node: Node) -> AnimationPlayer:
+	if node == null:
+		return null
+	if node is AnimationPlayer:
+		return node as AnimationPlayer
+	for child in node.get_children():
+		var found := _find_character_animation_player(child)
+		if found != null:
+			return found
+	return null
+
+
 func _exit_tree() -> void:
 	if _char_viewport and is_instance_valid(_char_viewport):
 		_char_viewport.queue_free()
 		_char_viewport = null
+	_char_animation_player = null
 
 
 # ─── TOOLTIP ─────────────────────────────────────────────────────────────────
 
 func _build_tooltip() -> void:
-	# Parchment-card tooltip: gold title, muted subtitle, italic flavor, meta + hint footer.
 	_tooltip_panel = PanelContainer.new()
 	_tooltip_panel.visible = false
 	_tooltip_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_tooltip_panel.custom_minimum_size = Vector2(232, 0)
+	_tooltip_panel.custom_minimum_size = Vector2(220, 0)
 	add_child(_tooltip_panel)
 
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.088, 0.070, 0.050, 0.98)
+	sb.bg_color = Color(0.040, 0.042, 0.046, 0.97)
 	sb.border_width_top    = 1
 	sb.border_width_left   = 1
 	sb.border_width_right  = 1
 	sb.border_width_bottom = 1
-	sb.border_color = C_BORDER_LT
-	sb.corner_radius_top_left     = 4
-	sb.corner_radius_top_right    = 4
-	sb.corner_radius_bottom_left  = 4
-	sb.corner_radius_bottom_right = 4
-	sb.shadow_color = Color(0, 0, 0, 0.75)
-	sb.shadow_size = 10
-	sb.shadow_offset = Vector2(0, 3)
+	sb.border_color = C_BORDER
 	_tooltip_panel.add_theme_stylebox_override("panel", sb)
 
 	var tooltip_margin := MarginContainer.new()
-	_set_margins(tooltip_margin, 12, 10, 12, 10)
+	_set_margins(tooltip_margin, 10, 8, 10, 8)
 	_tooltip_panel.add_child(tooltip_margin)
 
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 4)
+	vbox.add_theme_constant_override("separation", 2)
 	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tooltip_margin.add_child(vbox)
 
 	_tooltip_title = Label.new()
-	_tooltip_title.add_theme_font_size_override("font_size", 15)
-	_tooltip_title.add_theme_color_override("font_color", C_ACCENT_HI)
+	_tooltip_title.add_theme_font_size_override("font_size", 13)
+	_tooltip_title.add_theme_color_override("font_color", C_TEXT_HI)
 	_tooltip_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(_tooltip_title)
 
@@ -960,18 +742,12 @@ func _build_tooltip() -> void:
 	_tooltip_subtitle.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(_tooltip_subtitle)
 
-	# Thin rule
-	var rule := ColorRect.new()
-	rule.custom_minimum_size = Vector2(0, 1)
-	rule.color = C_BORDER
-	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(rule)
-
 	_tooltip_flavor = Label.new()
+	_tooltip_flavor.visible = false
 	_tooltip_flavor.add_theme_font_size_override("font_size", 11)
 	_tooltip_flavor.add_theme_color_override("font_color", C_TEXT)
 	_tooltip_flavor.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_tooltip_flavor.custom_minimum_size = Vector2(208, 0)
+	_tooltip_flavor.custom_minimum_size = Vector2(200, 0)
 	_tooltip_flavor.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(_tooltip_flavor)
 
@@ -981,36 +757,11 @@ func _build_tooltip() -> void:
 	_tooltip_meta.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_child(_tooltip_meta)
 
-	_tooltip_hint_row = Control.new()
-	_tooltip_hint_row.custom_minimum_size = Vector2(0, 22)
-	_tooltip_hint_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vbox.add_child(_tooltip_hint_row)
-
-	var hint_bg := Panel.new()
-	hint_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var hint_sb := StyleBoxFlat.new()
-	hint_sb.bg_color = Color(0.050, 0.040, 0.028, 1.0)
-	hint_sb.border_width_top    = 1
-	hint_sb.border_width_left   = 1
-	hint_sb.border_width_right  = 1
-	hint_sb.border_width_bottom = 1
-	hint_sb.border_color = C_BORDER
-	hint_sb.corner_radius_top_left     = 3
-	hint_sb.corner_radius_top_right    = 3
-	hint_sb.corner_radius_bottom_left  = 3
-	hint_sb.corner_radius_bottom_right = 3
-	hint_bg.add_theme_stylebox_override("panel", hint_sb)
-	hint_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_tooltip_hint_row.add_child(hint_bg)
-
 	_tooltip_hint = Label.new()
-	_tooltip_hint.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_tooltip_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_tooltip_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_tooltip_hint.add_theme_font_size_override("font_size", 10)
-	_tooltip_hint.add_theme_color_override("font_color", C_TEXT_HI)
+	_tooltip_hint.add_theme_color_override("font_color", C_ACCENT)
 	_tooltip_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_tooltip_hint_row.add_child(_tooltip_hint)
+	vbox.add_child(_tooltip_hint)
 
 
 func _process(_delta: float) -> void:
@@ -1059,30 +810,21 @@ func _on_slot_hovered(slot_index: int, item_id: String) -> void:
 
 
 func _item_subtitle(item_id: String) -> String:
-	# Best-effort classification for the card's subline (e.g. "Ressource, Commun").
-	var kind: String = "Objet"
 	match item_id:
-		"axe", "pickaxe", "hammer": kind = "Outil"
-		"wood", "log", "branch", "stone": kind = "Ressource"
-		"metal", "metal_scrap": kind = "Matériau"
-		"fuel": kind = "Consommable"
-		"components": kind = "Composant"
-	return "%s, Commun" % kind
+		"axe", "pickaxe", "hammer", "hammer_crude":
+			return "Outil"
+		"wood", "log", "branch", "stone":
+			return "Ressource"
+		"metal", "metal_scrap":
+			return "Matériau"
+		"fuel":
+			return "Consommable"
+		"components":
+			return "Composant"
+	return "Objet"
 
 
-func _item_flavor(item_id: String) -> String:
-	match item_id:
-		"axe":         return "Affûtée par l'usage, fendue par l'ambition."
-		"pickaxe":     return "Les cieux n'attendent pas ceux qui ne creusent pas."
-		"hammer":      return "Le son d'un chantier, la patience d'un forgeron."
-		"wood":        return "Planches brutes, à la sève encore tendre."
-		"log":         return "Grumes fraîchement abattues, prêtes à être fendues."
-		"branch":      return "De petits fagots parfaits pour le foyer."
-		"stone":       return "Pierres des terres basses, lourdes et sûres."
-		"metal":       return "Lingots polis, dignes d'une bonne lame."
-		"metal_scrap": return "Fragments rouillés que l'on recycle volontiers."
-		"fuel":        return "Huile épaisse qui brûle longtemps dans la nuit."
-		"components":  return "Rouages et ressorts — le cœur de toute mécanique."
+func _item_flavor(_item_id: String) -> String:
 	return ""
 
 
@@ -1101,7 +843,7 @@ func _on_slot_unhovered(_slot_index: int) -> void:
 func _on_inventory_updated() -> void:
 	_refresh_hotbar_slots()
 	_refresh_inventory_slots()
-	if _current_tab == 1:
+	if _current_tab == "craft":
 		_update_craft_view()
 	else:
 		_update_craft_detail()
@@ -1210,22 +952,21 @@ func _can_craft(recipe_id: String) -> bool:
 	return false
 
 
-# ─── PALETTE (warm parchment + aged gold, RPG / pirate feel) ────────────────
-const C_BG        := Color(0.095, 0.078, 0.060, 0.985)  # main panel — warm dark brown
-const C_BG_TOP    := Color(0.135, 0.108, 0.078, 0.985)  # panel top gradient tint
-const C_DEEP      := Color(0.055, 0.045, 0.034, 1.00)   # inner wells (tobacco dark)
-const C_DEEP_EDGE := Color(0.030, 0.024, 0.018, 1.00)   # inner well shadow edge
-const C_SLOT      := Color(0.115, 0.095, 0.072, 1.00)   # item slot fill
-const C_SLOT_EMPTY:= Color(0.070, 0.057, 0.042, 1.00)   # empty slot fill
-const C_BORDER    := Color(0.245, 0.195, 0.130, 1.00)   # warm wood border
-const C_BORDER_LT := Color(0.360, 0.282, 0.180, 1.00)   # brighter wood border
-const C_ACCENT    := Color(0.860, 0.650, 0.260, 1.00)   # aged gold
-const C_ACCENT2   := Color(0.860, 0.650, 0.260, 0.28)   # aged gold, translucent
-const C_ACCENT_HI := Color(0.985, 0.830, 0.430, 1.00)   # bright gold highlight
-const C_TEXT      := Color(0.905, 0.855, 0.745, 1.00)   # warm parchment
-const C_TEXT_HI   := Color(0.985, 0.955, 0.880, 1.00)   # bright parchment (titles)
-const C_MUTED     := Color(0.555, 0.490, 0.395, 1.00)   # warm muted
-const C_DANGER    := Color(0.765, 0.235, 0.210, 1.00)   # ember red
+# ─── PALETTE — industrial survival, muted steel with a single rust accent ───
+const C_BG        := Color(0.080, 0.082, 0.088, 0.96)
+const C_DEEP      := Color(0.048, 0.050, 0.055, 1.00)
+const C_DEEP_EDGE := Color(0.020, 0.022, 0.026, 1.00)
+const C_SLOT      := Color(0.110, 0.115, 0.122, 1.00)
+const C_SLOT_EMPTY:= Color(0.070, 0.074, 0.080, 1.00)
+const C_BORDER    := Color(0.185, 0.195, 0.210, 1.00)
+const C_BORDER_LT := Color(0.275, 0.290, 0.310, 1.00)
+const C_ACCENT    := Color(0.820, 0.420, 0.180, 1.00)
+const C_ACCENT2   := Color(0.820, 0.420, 0.180, 0.22)
+const C_ACCENT_HI := Color(0.950, 0.560, 0.280, 1.00)
+const C_TEXT      := Color(0.820, 0.830, 0.840, 1.00)
+const C_TEXT_HI   := Color(0.955, 0.960, 0.965, 1.00)
+const C_MUTED     := Color(0.480, 0.495, 0.520, 1.00)
+const C_DANGER    := Color(0.780, 0.260, 0.230, 1.00)
 
 
 func _apply_panel_style(panel: Control, bg: Color, border: Color, border_w: int) -> void:
@@ -1236,20 +977,10 @@ func _apply_panel_style(panel: Control, bg: Color, border: Color, border_w: int)
 	sb.border_width_right  = border_w
 	sb.border_width_bottom = border_w
 	sb.border_color = border
-	sb.border_blend = true
-	sb.corner_radius_top_left     = 4
-	sb.corner_radius_top_right    = 4
-	sb.corner_radius_bottom_left  = 4
-	sb.corner_radius_bottom_right = 4
-	# soft outer shadow for depth
-	sb.shadow_color = Color(0, 0, 0, 0.55)
-	sb.shadow_size = 8
-	sb.shadow_offset = Vector2(0, 2)
 	panel.add_theme_stylebox_override("panel", sb)
 
 
 func _make_inset_style(bg: Color = C_DEEP) -> StyleBoxFlat:
-	# Recessed "leather" well with warm two-tone border
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
 	sb.border_width_top    = 1
@@ -1257,10 +988,6 @@ func _make_inset_style(bg: Color = C_DEEP) -> StyleBoxFlat:
 	sb.border_width_right  = 1
 	sb.border_width_bottom = 1
 	sb.border_color = C_DEEP_EDGE
-	sb.corner_radius_top_left     = 3
-	sb.corner_radius_top_right    = 3
-	sb.corner_radius_bottom_left  = 3
-	sb.corner_radius_bottom_right = 3
 	sb.content_margin_left   = 2
 	sb.content_margin_right  = 2
 	sb.content_margin_top    = 2
@@ -1268,32 +995,147 @@ func _make_inset_style(bg: Color = C_DEEP) -> StyleBoxFlat:
 	return sb
 
 
-func _style_tab_button(btn: Button, active: bool) -> void:
-	# Reference-inspired tabs: active has a small gold underline dot + brighter label.
+func _build_skills_view() -> Control:
+	# Placeholder skill tree — a cyan-wired blueprint of constellations.
+	# Tabs exist, content is stubbed until the skill system is wired in.
+	var root := Control.new()
+	root.mouse_filter = Control.MOUSE_FILTER_PASS
+
+	var header := Label.new()
+	header.text = "ARBRE DE COMPÉTENCE"
+	header.add_theme_font_size_override("font_size", 16)
+	header.add_theme_color_override("font_color", C_TEXT_HI)
+	header.anchor_left = 0.0
+	header.anchor_right = 1.0
+	header.offset_top = 0
+	header.offset_bottom = 26
+	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(header)
+
+	var subtitle := Label.new()
+	subtitle.text = "3 points disponibles  ·  Sélectionnez un nœud pour débloquer"
+	subtitle.add_theme_font_size_override("font_size", 11)
+	subtitle.add_theme_color_override("font_color", C_MUTED)
+	subtitle.anchor_left = 0.0
+	subtitle.anchor_right = 1.0
+	subtitle.offset_top = 28
+	subtitle.offset_bottom = 50
+	subtitle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(subtitle)
+
+	# Canvas area with blueprint-style nodes
+	var canvas_panel := PanelContainer.new()
+	canvas_panel.anchor_left = 0.0
+	canvas_panel.anchor_right = 1.0
+	canvas_panel.anchor_top = 0.0
+	canvas_panel.anchor_bottom = 1.0
+	canvas_panel.offset_top = 60
+	canvas_panel.offset_bottom = -8
+	var cp_sb := StyleBoxFlat.new()
+	cp_sb.bg_color = Color(0.012, 0.025, 0.045, 1.0)
+	cp_sb.border_width_top    = 1
+	cp_sb.border_width_left   = 1
+	cp_sb.border_width_right  = 1
+	cp_sb.border_width_bottom = 1
+	cp_sb.border_color = Color(0.22, 0.55, 0.72, 0.6)
+	cp_sb.set_corner_radius_all(8)
+	canvas_panel.add_theme_stylebox_override("panel", cp_sb)
+	root.add_child(canvas_panel)
+
+	var canvas := Control.new()
+	canvas.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	canvas.mouse_filter = Control.MOUSE_FILTER_PASS
+	canvas_panel.add_child(canvas)
+
+	var nodes := [
+		{"pos": Vector2(0.18, 0.50), "label": "Survie",       "glyph": "✦", "unlocked": true},
+		{"pos": Vector2(0.35, 0.30), "label": "Endurance",    "glyph": "⚡", "unlocked": true},
+		{"pos": Vector2(0.35, 0.70), "label": "Métabolisme",  "glyph": "♥", "unlocked": false},
+		{"pos": Vector2(0.55, 0.18), "label": "Course",       "glyph": "➤", "unlocked": false},
+		{"pos": Vector2(0.55, 0.42), "label": "Récolte",      "glyph": "⛏", "unlocked": false},
+		{"pos": Vector2(0.55, 0.62), "label": "Regen",        "glyph": "❋", "unlocked": false},
+		{"pos": Vector2(0.55, 0.82), "label": "Immunité",     "glyph": "◈", "unlocked": false},
+		{"pos": Vector2(0.78, 0.30), "label": "Vitesse 2",    "glyph": "➤➤", "unlocked": false},
+		{"pos": Vector2(0.78, 0.62), "label": "Artisan",      "glyph": "✚", "unlocked": false},
+	]
+	var connections := [[0, 1], [0, 2], [1, 3], [1, 4], [2, 5], [2, 6], [4, 7], [5, 8]]
+
+	var wires := Control.new()
+	wires.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	wires.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wires.set_script(load("res://scripts/ui/skill_tree_wires.gd"))
+	wires.set("nodes_data", nodes)
+	wires.set("connections_data", connections)
+	canvas.add_child(wires)
+
+	for i in range(nodes.size()):
+		var nd: Dictionary = nodes[i]
+		var node_btn := _make_skill_node(nd)
+		node_btn.anchor_left = nd["pos"].x
+		node_btn.anchor_right = nd["pos"].x
+		node_btn.anchor_top = nd["pos"].y
+		node_btn.anchor_bottom = nd["pos"].y
+		node_btn.offset_left = -32
+		node_btn.offset_right = 32
+		node_btn.offset_top = -32
+		node_btn.offset_bottom = 32
+		canvas.add_child(node_btn)
+
+	return root
+
+
+func _make_skill_node(nd: Dictionary) -> Control:
+	var unlocked: bool = bool(nd.get("unlocked", false))
+	var wrap := Control.new()
+	wrap.custom_minimum_size = Vector2(64, 64)
+	wrap.mouse_filter = Control.MOUSE_FILTER_PASS
+
+	var panel := Panel.new()
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0, 0, 0, 0)
-	sb.border_width_top    = 0
-	sb.border_width_left   = 0
-	sb.border_width_right  = 0
-	sb.border_width_bottom = 2 if active else 0
-	sb.border_color = C_ACCENT if active else C_BORDER
-	sb.content_margin_left   = 14
-	sb.content_margin_right  = 14
-	sb.content_margin_top    = 6
-	sb.content_margin_bottom = 6
-	btn.add_theme_stylebox_override("normal", sb)
-	btn.add_theme_stylebox_override("pressed", sb)
+	if unlocked:
+		sb.bg_color = Color(0.10, 0.35, 0.48, 1.0)
+		sb.border_color = Color(0.35, 0.85, 1.00, 1.0)
+		sb.shadow_color = Color(0.35, 0.85, 1.0, 0.55)
+		sb.shadow_size = 10
+	else:
+		sb.bg_color = Color(0.04, 0.08, 0.12, 1.0)
+		sb.border_color = Color(0.22, 0.55, 0.72, 0.6)
+	sb.border_width_top    = 2
+	sb.border_width_left   = 2
+	sb.border_width_right  = 2
+	sb.border_width_bottom = 2
+	sb.set_corner_radius_all(32)
+	panel.add_theme_stylebox_override("panel", sb)
+	wrap.add_child(panel)
 
-	var sb_h := sb.duplicate() as StyleBoxFlat
-	sb_h.bg_color = Color(C_ACCENT.r, C_ACCENT.g, C_ACCENT.b, 0.10)
-	sb_h.border_width_bottom = 2
-	sb_h.border_color = C_ACCENT2
-	btn.add_theme_stylebox_override("hover", sb_h)
+	var lbl := Label.new()
+	lbl.text = String(nd.get("glyph", "✦"))
+	lbl.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lbl.add_theme_font_size_override("font_size", 22)
+	lbl.add_theme_color_override("font_color", Color(0.92, 0.97, 1.0, 1.0) if unlocked else Color(0.45, 0.62, 0.72, 1.0))
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(lbl)
 
-	btn.add_theme_color_override("font_color", C_TEXT_HI if active else C_MUTED)
-	btn.add_theme_color_override("font_hover_color", C_TEXT_HI)
-	btn.add_theme_color_override("font_pressed_color", C_TEXT_HI)
-	btn.add_theme_constant_override("outline_size", 0)
+	var caption := Label.new()
+	caption.text = String(nd.get("label", ""))
+	caption.add_theme_font_size_override("font_size", 9)
+	caption.add_theme_color_override("font_color", Color(0.92, 0.97, 1.0, 1.0) if unlocked else Color(0.55, 0.72, 0.82, 0.9))
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	caption.anchor_left = 0.0
+	caption.anchor_right = 1.0
+	caption.anchor_top = 1.0
+	caption.anchor_bottom = 1.0
+	caption.offset_left = -24
+	caption.offset_right = 24
+	caption.offset_top = 2
+	caption.offset_bottom = 18
+	caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(caption)
+
+	return wrap
 
 
 func _add_section_label(parent: Control, text: String) -> Label:
@@ -1307,17 +1149,6 @@ func _add_section_label(parent: Control, text: String) -> Label:
 	return lbl
 
 
-func _add_divider(parent: VBoxContainer) -> void:
-	# Thin two-tone gold rule for section separation
-	var sep := HSeparator.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = C_BORDER
-	sb.content_margin_top    = 0
-	sb.content_margin_bottom = 0
-	sep.add_theme_stylebox_override("separator", sb)
-	sep.add_theme_constant_override("separation", 1)
-	sep.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	parent.add_child(sep)
 
 
 func _set_margins(c: MarginContainer, left: int, top: int, right: int, bottom: int) -> void:
