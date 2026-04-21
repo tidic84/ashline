@@ -18,17 +18,30 @@ signal tab_selected(tab_id: String)
 
 # ─── Model path ───────────────────────────────────────────────────────────────
 const TABLET_MODEL_PATH := "res://assets/models/ui/tablet/Tablet.fbx"
+const TABLET_TEX_DIR    := "res://assets/models/ui/tablet/"
+
+# Body UV rectangles where the screen is painted directly into the body's
+# BaseColor texture. We discard those fragments so the painted teal screens
+# don't show through after removing the separate screen mesh.
+# UV space: (0,0) top-left, (1,1) bottom-right.
+const BODY_SCREEN_UV_RECTS: Array = [
+	Rect2(0.255, 0.035, 0.325, 0.485),  # front screen panel
+	Rect2(0.595, 0.165, 0.340, 0.575),  # back screen panel
+]
 
 # ─── Screen alignment (UV, 0-1 relative to tablet size) ──────────────────────
 # Adjust until 2D content aligns with the transparent screen in the 3D model.
 # Enable DEBUG_SCREEN_RECT to see a highlight while tuning.
-const SCREEN_UV_RECT    := Rect2(0.04, 0.08, 0.78, 0.84)
+const SCREEN_UV_RECT    := Rect2(0.08, 0.10, 0.74, 0.80)
 const DEBUG_SCREEN_RECT := false  # set true to show alignment helper
 
 # Camera setup for the 3D model (tweak if model is wrong orientation/size)
 const CAM_POSITION   := Vector3(0.0, 0.0, 0.0)   # auto-framed, used as fallback
-const CAM_FOV        := 38.0
-const MODEL_ROTATION := Vector3(0.0, 0.0, 0.0)   # deg; adjust if model arrives in wrong orientation
+const CAM_FOV        := 32.0
+# Base rotation applied first. Additional 90° Z swap is applied automatically
+# if the model's AABB comes out portrait (taller than wide).
+const MODEL_ROTATION := Vector3(0.0, 0.0, 0.0)
+const FRAME_FILL     := 1.0   # how much of the viewport the tablet should fill
 
 # ─── Palette ──────────────────────────────────────────────────────────────────
 const C_VOID       := Color(0.010, 0.012, 0.016, 1.00)
@@ -43,10 +56,16 @@ const C_TEXT_HI    := Color(0.92, 0.97, 1.00, 1.00)
 const C_TEXT_DIM   := Color(0.55, 0.72, 0.82, 1.00)
 
 # ─── Layout ───────────────────────────────────────────────────────────────────
-const TABLET_SIZE   := Vector2(1320, 760)
+const TABLET_SIZE   := Vector2(1480, 860)
 const SCREEN_INSET  := Vector4(44, 64, 118, 64)  # for procedural fallback
 const TAB_RAIL_W    := 80.0
 const TAB_BTN_SIZE  := Vector2(56, 56)
+# Inset of the menu content within the tablet frame (matches the tablet's
+# screen area on the 3D model).
+const SCREEN_UV_RECT_OVERLAY := Rect2(0.10, 0.12, 0.72, 0.76)
+# Bounding rect of the tablet body (excludes the handle bar on the right edge).
+# Used to clip the blue backdrop so it hugs the tablet silhouette.
+const BODY_RECT := Rect2(0.035, 0.055, 0.755, 0.88)
 
 # ─── State ────────────────────────────────────────────────────────────────────
 var _use_3d_model: bool = false
@@ -84,7 +103,7 @@ func _ready() -> void:
 func _build() -> void:
 	_dim_bg = ColorRect.new()
 	_dim_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_dim_bg.color = Color(0, 0, 0, 0.72)
+	_dim_bg.color = Color(0, 0, 0, 0.32)
 	_dim_bg.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(_dim_bg)
 
@@ -125,14 +144,19 @@ func _build() -> void:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 func _build_chassis_3d(parent: Control) -> void:
-	# Layer 1: dark background (visible behind the 3D render)
-	var bg := Panel.new()
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var bg_sb := StyleBoxFlat.new()
-	bg_sb.bg_color = Color(0.02, 0.025, 0.032, 1.0)
-	bg.add_theme_stylebox_override("panel", bg_sb)
-	parent.add_child(bg)
+	# Blue backdrop clipped to the tablet body (excludes the handle bar on the
+	# right). Semi-transparent so the world behind the tablet still reads.
+	var backdrop := Panel.new()
+	backdrop.anchor_left   = BODY_RECT.position.x
+	backdrop.anchor_top    = BODY_RECT.position.y
+	backdrop.anchor_right  = BODY_RECT.position.x + BODY_RECT.size.x
+	backdrop.anchor_bottom = BODY_RECT.position.y + BODY_RECT.size.y
+	backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var backdrop_sb := StyleBoxFlat.new()
+	backdrop_sb.bg_color = Color(0.05, 0.22, 0.42, 0.55)
+	backdrop_sb.set_corner_radius_all(38)
+	backdrop.add_theme_stylebox_override("panel", backdrop_sb)
+	parent.add_child(backdrop)
 
 	# SubViewport renders the 3D tablet
 	_3d_viewport = SubViewport.new()
@@ -147,24 +171,27 @@ func _build_chassis_3d(parent: Control) -> void:
 	key_light.transform = Transform3D(
 		Basis().rotated(Vector3.RIGHT, -0.55).rotated(Vector3.UP, 0.4),
 		Vector3.ZERO)
-	key_light.light_energy = 1.4
+	key_light.light_energy = 2.6
 	_3d_viewport.add_child(key_light)
 
 	var fill_light := DirectionalLight3D.new()
 	fill_light.transform = Transform3D(
 		Basis().rotated(Vector3.RIGHT, -0.15).rotated(Vector3.UP, -2.1),
 		Vector3.ZERO)
-	fill_light.light_energy = 0.45
+	fill_light.light_energy = 1.1
 	_3d_viewport.add_child(fill_light)
 
 	var rim_light := DirectionalLight3D.new()
 	rim_light.transform = Transform3D(
 		Basis().rotated(Vector3.RIGHT, 0.3).rotated(Vector3.UP, 3.14),
 		Vector3.ZERO)
-	rim_light.light_color = Color(0.4, 0.85, 1.0)
-	rim_light.light_energy = 0.35
+	rim_light.light_color = Color(1.0, 1.0, 1.0)
+	rim_light.light_energy = 0.5
 	_3d_viewport.add_child(rim_light)
 
+	# No WorldEnvironment — it would override the SubViewport's transparent_bg
+	# and force the tablet to render fully opaque. PBR ambient comes from the
+	# directional lights alone (we boost them to compensate).
 	_3d_camera = Camera3D.new()
 	_3d_camera.fov = CAM_FOV
 	_3d_camera.near = 0.05
@@ -186,56 +213,337 @@ func _build_chassis_3d(parent: Control) -> void:
 	_3d_texture_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_3d_texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	_3d_texture_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Tint the tablet body toward blue so the chassis visually matches the lit
+	# screen backdrop. Chassis PBR detail still shows through; it just reads blue.
+	_3d_texture_rect.modulate = Color(0.45, 0.70, 1.00, 1.0)
 	parent.add_child(_3d_texture_rect)
 
 	_3d_viewport.ready.connect(func():
 		if _3d_texture_rect:
 			_3d_texture_rect.texture = _3d_viewport.get_texture()
 		if _3d_model and is_instance_valid(_3d_model):
-			_make_screen_transparent(_3d_model)
-			call_deferred("_frame_3d_camera")
+			_apply_pbr_materials(_3d_model)
+			call_deferred("_orient_and_frame")
 	, CONNECT_ONE_SHOT)
 
 
-func _make_screen_transparent(node: Node) -> void:
+# ─── Material pipeline ────────────────────────────────────────────────────────
+# FBX import often fails to auto-link the PBR jpegs. We manually build one
+# StandardMaterial3D per original material and override it on every surface.
+#
+# The model has two materials named "Ui" (the screen) and "tablet" (the body).
+# We cache them and detect which surface is which by the original material
+# name found on the MeshInstance3D.
+
+var _mat_body: Material = null
+var _mat_screen: ShaderMaterial = null
+
+func _apply_pbr_materials(node: Node) -> void:
+	if _mat_body == null:
+		_mat_body = _build_pbr_material("tablet")
+	if _mat_screen == null:
+		_mat_screen = _build_screen_material()
+	# Collect every surface across the tree and count its verts.
+	var surfaces: Array = []
+	_collect_surfaces(node, surfaces)
+	for s in surfaces:
+		s["verts"] = _surface_vertex_count(s["mesh"], s["surf"])
+		s["name_screen"] = _surface_is_screen(s["mi"], s["mesh"], s["surf"])
+	# Identify the screen surface.
+	# Strategy: prefer name match. Else, if 2+ surfaces exist, pick the one
+	# with the fewest verts (typical Sketchfab tablets have a quad screen
+	# vs a detailed body chassis with hundreds of verts).
+	var screen_idx := -1
+	for i in range(surfaces.size()):
+		if surfaces[i]["name_screen"]:
+			screen_idx = i
+			break
+	if screen_idx < 0 and surfaces.size() >= 2:
+		var min_v := INF
+		for i in range(surfaces.size()):
+			if surfaces[i]["verts"] < min_v:
+				min_v = surfaces[i]["verts"]
+				screen_idx = i
+	# Collect screen MIs to free after the loop (don't mutate while iterating).
+	var screens_to_free: Array = []
+	for i in range(surfaces.size()):
+		var s: Dictionary = surfaces[i]
+		var mi := s["mi"] as MeshInstance3D
+		var surf: int = s["surf"]
+		if i == screen_idx:
+			# Remove the screen mesh entirely. Belt-and-suspenders: hide it,
+			# null out the mesh, and queue it for deletion so absolutely
+			# nothing renders for that surface.
+			mi.visible = false
+			mi.mesh = null
+			screens_to_free.append(mi)
+		else:
+			mi.set_surface_override_material(surf, _mat_body)
+	for mi in screens_to_free:
+		(mi as MeshInstance3D).queue_free()
+
+
+func _surface_vertex_count(mesh_res: Mesh, surf: int) -> int:
+	if mesh_res is ArrayMesh:
+		var arr := (mesh_res as ArrayMesh).surface_get_arrays(surf)
+		if arr.size() > Mesh.ARRAY_VERTEX and arr[Mesh.ARRAY_VERTEX] != null:
+			return (arr[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+	return 0
+
+
+func _collect_surfaces(node: Node, out: Array) -> void:
 	if node is MeshInstance3D:
 		var mi := node as MeshInstance3D
 		var mesh_res := mi.mesh
-		if mesh_res == null:
-			return
-		for surf in range(mesh_res.get_surface_count()):
-			var mat := mi.get_active_material(surf)
-			if mat == null:
-				continue
-			var mat_name := mat.resource_name.to_lower()
-			if "ui" in mat_name or "screen" in mat_name or "display" in mat_name:
-				var override_mat := StandardMaterial3D.new()
-				override_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-				override_mat.albedo_color = Color(0.0, 0.0, 0.0, 0.0)
-				override_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-				mi.set_surface_override_material(surf, override_mat)
+		if mesh_res:
+			for surf in range(mesh_res.get_surface_count()):
+				out.append({"mi": mi, "mesh": mesh_res, "surf": surf, "is_screen": false})
 	for child in node.get_children():
-		_make_screen_transparent(child)
+		_collect_surfaces(child, out)
 
 
-func _frame_3d_camera() -> void:
+func _surface_is_screen(mi: MeshInstance3D, mesh_res: Mesh, surf: int) -> bool:
+	# Collect every name-ish string we can find for this surface, keeping only
+	# the filename/identifier part (strip folder paths) so that a "/ui/" folder
+	# in the asset path doesn't accidentally flag body surfaces as screen.
+	var haystack: Array[String] = []
+	haystack.append(String(mi.name))
+	haystack.append(String(mesh_res.resource_name))
+	var mat := mi.get_active_material(surf)
+	if mat:
+		haystack.append(String(mat.resource_name))
+		if mat is BaseMaterial3D:
+			var bm := mat as BaseMaterial3D
+			if bm.albedo_texture:
+				haystack.append(_basename(bm.albedo_texture.resource_path))
+	if mesh_res is ArrayMesh:
+		var am := mesh_res as ArrayMesh
+		var surf_mat := am.surface_get_material(surf)
+		haystack.append(String(am.surface_get_name(surf)))
+		if surf_mat:
+			haystack.append(String(surf_mat.resource_name))
+			if surf_mat is BaseMaterial3D:
+				var sbm := surf_mat as BaseMaterial3D
+				if sbm.albedo_texture:
+					haystack.append(_basename(sbm.albedo_texture.resource_path))
+	for s in haystack:
+		var low := s.to_lower()
+		if low.is_empty():
+			continue
+		# Sketchfab naming: "Tablet_Ui_*", or plain "ui"/"screen"/"display".
+		if "_ui_" in low or low.begins_with("ui_") or low.ends_with("_ui") or low == "ui":
+			return true
+		if "screen" in low or "display" in low:
+			return true
+	return false
+
+
+func _basename(path: String) -> String:
+	var i := path.rfind("/")
+	return path.substr(i + 1) if i >= 0 else path
+
+
+func _build_pbr_material(stub: String) -> Material:
+	# Custom shader: PBR sampling + UV-rect discard for painted screens.
+	var base := _load_tex(stub, "BaseColor")
+	var normal := _load_tex(stub, "Normal")
+	var rough := _load_tex(stub, "Roughness")
+	var metal := _load_tex(stub, "Metallic")
+
+	var sm := ShaderMaterial.new()
+	var sh := Shader.new()
+	sh.code = """
+shader_type spatial;
+render_mode cull_disabled;
+
+uniform sampler2D tex_albedo : source_color, hint_default_white;
+uniform sampler2D tex_normal : hint_normal;
+uniform sampler2D tex_rough : hint_default_white;
+uniform sampler2D tex_metal : hint_default_black;
+uniform bool has_albedo = false;
+uniform bool has_normal = false;
+uniform bool has_rough = false;
+uniform bool has_metal = false;
+uniform vec4 albedo_fallback = vec4(0.18, 0.20, 0.23, 1.0);
+uniform float metallic_max = 0.85;
+uniform vec4 screen_rect_a = vec4(-1.0, -1.0, 0.0, 0.0); // x,y,w,h
+uniform vec4 screen_rect_b = vec4(-1.0, -1.0, 0.0, 0.0);
+
+bool in_rect(vec2 uv, vec4 r) {
+	return r.z > 0.0
+		&& uv.x >= r.x && uv.x <= r.x + r.z
+		&& uv.y >= r.y && uv.y <= r.y + r.w;
+}
+
+void fragment() {
+	if (in_rect(UV, screen_rect_a) || in_rect(UV, screen_rect_b)) {
+		discard;
+	}
+	if (has_albedo) {
+		ALBEDO = texture(tex_albedo, UV).rgb;
+	} else {
+		ALBEDO = albedo_fallback.rgb;
+	}
+	if (has_rough) {
+		ROUGHNESS = texture(tex_rough, UV).r;
+	} else {
+		ROUGHNESS = 0.8;
+	}
+	if (has_metal) {
+		METALLIC = texture(tex_metal, UV).r * metallic_max;
+	} else {
+		METALLIC = 0.0;
+	}
+	if (has_normal) {
+		NORMAL_MAP = texture(tex_normal, UV).xyz;
+		NORMAL_MAP_DEPTH = 0.6;
+	}
+}
+"""
+	sm.shader = sh
+	if base:
+		sm.set_shader_parameter("tex_albedo", base)
+		sm.set_shader_parameter("has_albedo", true)
+	if normal:
+		sm.set_shader_parameter("tex_normal", normal)
+		sm.set_shader_parameter("has_normal", true)
+	if rough:
+		sm.set_shader_parameter("tex_rough", rough)
+		sm.set_shader_parameter("has_rough", true)
+	if metal:
+		sm.set_shader_parameter("tex_metal", metal)
+		sm.set_shader_parameter("has_metal", true)
+	# Pack the body screen rects (only on the body material, not screen mat).
+	if stub == "tablet":
+		var ra: Rect2 = BODY_SCREEN_UV_RECTS[0]
+		var rb: Rect2 = BODY_SCREEN_UV_RECTS[1]
+		sm.set_shader_parameter("screen_rect_a", Vector4(ra.position.x, ra.position.y, ra.size.x, ra.size.y))
+		sm.set_shader_parameter("screen_rect_b", Vector4(rb.position.x, rb.position.y, rb.size.x, rb.size.y))
+	return sm
+
+
+func _build_pbr_shader_material(
+		base: Texture2D, normal: Texture2D, rough: Texture2D,
+		metal: Texture2D, opacity: Texture2D) -> ShaderMaterial:
+	var sm := ShaderMaterial.new()
+	var sh := Shader.new()
+	sh.code = """
+shader_type spatial;
+render_mode cull_disabled;
+
+uniform sampler2D tex_albedo : source_color, hint_default_white;
+uniform sampler2D tex_normal : hint_normal;
+uniform sampler2D tex_rough : hint_default_white;
+uniform sampler2D tex_metal : hint_default_black;
+uniform sampler2D tex_opacity : hint_default_white;
+uniform bool has_normal = false;
+uniform bool has_rough = false;
+uniform bool has_metal = false;
+uniform float metallic_max = 0.85;
+uniform float opacity_threshold = 0.5;
+
+void fragment() {
+	vec4 col = texture(tex_albedo, UV);
+	ALBEDO = col.rgb;
+	float op = texture(tex_opacity, UV).r;
+	if (op < opacity_threshold) {
+		discard;
+	}
+	ALPHA = 1.0;
+	if (has_rough) {
+		ROUGHNESS = texture(tex_rough, UV).r;
+	} else {
+		ROUGHNESS = 0.7;
+	}
+	if (has_metal) {
+		METALLIC = texture(tex_metal, UV).r * metallic_max;
+	} else {
+		METALLIC = 0.0;
+	}
+	if (has_normal) {
+		NORMAL_MAP = texture(tex_normal, UV).xyz;
+		NORMAL_MAP_DEPTH = 0.6;
+	}
+}
+"""
+	sm.shader = sh
+	if base:
+		sm.set_shader_parameter("tex_albedo", base)
+	if opacity:
+		sm.set_shader_parameter("tex_opacity", opacity)
+	if normal:
+		sm.set_shader_parameter("tex_normal", normal)
+		sm.set_shader_parameter("has_normal", true)
+	if rough:
+		sm.set_shader_parameter("tex_rough", rough)
+		sm.set_shader_parameter("has_rough", true)
+	if metal:
+		sm.set_shader_parameter("tex_metal", metal)
+		sm.set_shader_parameter("has_metal", true)
+	return sm
+
+
+func _build_screen_material() -> ShaderMaterial:
+	# A shader that discards every fragment — makes the screen surface render
+	# literally nothing, so whatever 2D content sits behind the viewport's
+	# transparent-bg texture at that pixel shows through with no blending math.
+	var mat := ShaderMaterial.new()
+	var sh := Shader.new()
+	sh.code = "shader_type spatial;\nrender_mode unshaded, cull_disabled, depth_draw_disabled;\nvoid fragment() { discard; }\n"
+	mat.shader = sh
+	return mat
+
+
+func _load_tex(stub: String, channel: String) -> Texture2D:
+	var path := "%sTablet_%s_%s.jpeg" % [TABLET_TEX_DIR, stub, channel]
+	if ResourceLoader.exists(path):
+		return load(path) as Texture2D
+	return null
+
+
+# ─── Orientation + framing ────────────────────────────────────────────────────
+
+func _orient_and_frame() -> void:
 	if _3d_model == null or _3d_camera == null or not is_instance_valid(_3d_model):
 		return
 	var aabb := _compute_model_aabb(_3d_model)
+	# Step 1: make the screen face the camera (thin axis should be Z).
+	# If the model imports standing (thin Y), tip it forward 90° on X.
+	if aabb.size.y < aabb.size.x * 0.5 and aabb.size.y < aabb.size.z * 0.5:
+		_3d_model.rotate_x(deg_to_rad(-90.0))
+		aabb = _compute_model_aabb(_3d_model)
+	# If thin X (standing sideways), lay it flat on Y.
+	elif aabb.size.x < aabb.size.y * 0.5 and aabb.size.x < aabb.size.z * 0.5:
+		_3d_model.rotate_y(deg_to_rad(90.0))
+		aabb = _compute_model_aabb(_3d_model)
+	# Step 2: auto-rotate to landscape if portrait (taller than wide).
+	if aabb.size.y > aabb.size.x * 1.05:
+		_3d_model.rotate_z(deg_to_rad(90.0))
+		aabb = _compute_model_aabb(_3d_model)
+	_frame_3d_camera(aabb)
+
+
+func _frame_3d_camera(aabb: AABB = AABB()) -> void:
+	if _3d_model == null or _3d_camera == null or not is_instance_valid(_3d_model):
+		return
+	if aabb.size == Vector3.ZERO:
+		aabb = _compute_model_aabb(_3d_model)
 	if aabb.size == Vector3.ZERO:
 		_3d_camera.position = Vector3(0, 0, 3.5)
 		_3d_camera.look_at(Vector3.ZERO, Vector3.UP)
 		return
-	var center := aabb.get_center()
-	# Center model at origin
-	_3d_model.position -= center
-	var size := aabb.size
-	var radius := max(size.x, max(size.y, size.z)) * 0.5
-	var fov_rad := deg_to_rad(CAM_FOV)
-	# Account for aspect ratio — tablet is wider than tall
-	var aspect := TABLET_SIZE.x / TABLET_SIZE.y
-	var vert_fov := 2.0 * atan(tan(fov_rad * 0.5) / aspect)
-	var dist := radius / tan(min(fov_rad, vert_fov) * 0.5) * 1.15
+	# Center model at origin.
+	_3d_model.position -= aabb.get_center()
+	var size: Vector3 = aabb.size
+	var vert_fov: float = deg_to_rad(CAM_FOV)
+	var aspect: float = TABLET_SIZE.x / TABLET_SIZE.y
+	var horz_fov: float = 2.0 * atan(tan(vert_fov * 0.5) * aspect)
+	# Distance needed so each dimension fits the chosen fov.
+	var dist_for_height: float = (size.y * 0.5) / tan(vert_fov * 0.5)
+	var dist_for_width:  float = (size.x * 0.5) / tan(horz_fov * 0.5)
+	var dist: float = maxf(dist_for_height, dist_for_width) / FRAME_FILL
+	# Pull camera back slightly more than half-depth to avoid clipping into model.
+	dist += size.z * 0.5
 	_3d_camera.position = Vector3(0.0, 0.0, dist)
 	_3d_camera.look_at(Vector3.ZERO, Vector3.UP)
 
@@ -337,7 +645,7 @@ func _build_chassis_procedural(parent: Control) -> void:
 
 	# Side vents
 	for i in range(5):
-		var y := 120.0 + i * 42
+		var y: float = 120.0 + float(i) * 42.0
 		_add_side_notch(parent, y, true)
 		_add_side_notch(parent, y, false)
 
@@ -474,15 +782,13 @@ func _build_content_area() -> void:
 	_content_holder.mouse_filter = Control.MOUSE_FILTER_PASS
 
 	if _use_3d_model:
-		# Position under the 3D texture rect (shows through transparent screen)
-		_content_holder.anchor_left   = SCREEN_UV_RECT.position.x
-		_content_holder.anchor_top    = SCREEN_UV_RECT.position.y
-		_content_holder.anchor_right  = SCREEN_UV_RECT.position.x + SCREEN_UV_RECT.size.x
-		_content_holder.anchor_bottom = SCREEN_UV_RECT.position.y + SCREEN_UV_RECT.size.y
-		# Content holder is child of _tablet_chassis (z-order: behind _3d_texture_rect)
-		# We insert before the texture rect so it renders below it.
-		_tablet_chassis.add_child(_content_holder)
-		_tablet_chassis.move_child(_content_holder, 1)  # after bg panel, before texture rect
+		# The tablet-wide blue backdrop is built in _build_chassis_3d; content
+		# just anchors within the screen area so text stays on the display.
+		_content_holder.anchor_left   = SCREEN_UV_RECT_OVERLAY.position.x
+		_content_holder.anchor_top    = SCREEN_UV_RECT_OVERLAY.position.y
+		_content_holder.anchor_right  = SCREEN_UV_RECT_OVERLAY.position.x + SCREEN_UV_RECT_OVERLAY.size.x
+		_content_holder.anchor_bottom = SCREEN_UV_RECT_OVERLAY.position.y + SCREEN_UV_RECT_OVERLAY.size.y
+		_tablet_chassis.add_child(_content_holder)  # on top of backdrop
 	else:
 		# Procedural mode: content fills the inset screen area
 		_content_holder.anchor_left   = 0.0

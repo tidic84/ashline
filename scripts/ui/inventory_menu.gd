@@ -5,7 +5,9 @@ signal closed
 
 const HOTBAR_KEY_LABELS: Array[String] = ["1", "2", "3", "4", "5", "6", "7", "8", "9"]
 const TOOLTIP_OFFSET := Vector2(14.0, 14.0)
+const CHARACTER_PREVIEW_MODEL_PATH := "res://scenes/player/player.tscn"
 const CHARACTER_PREVIEW_SCALE := 1.25
+const CHARACTER_PREVIEW_PADDING := 1.12
 
 var _hotbar_ui: Array[InventorySlotUI] = []
 var _inventory_ui: Array[InventorySlotUI] = []
@@ -77,6 +79,7 @@ func _notification(what: int) -> void:
 	elif what == NOTIFICATION_VISIBILITY_CHANGED:
 		if visible and _tablet:
 			_tablet.open()
+			_play_character_idle_animation()
 
 
 func _drop_item_to_world(slot_index: int) -> void:
@@ -596,14 +599,17 @@ func _select_recipe(index: int) -> void:
 # ─── CHARACTER VIEWPORT ───────────────────────────────────────────────────────
 
 func _setup_character_viewport() -> void:
-	var model_path := "res://assets/models/player/animations/Idle.glb"
+	var model_path := CHARACTER_PREVIEW_MODEL_PATH
 	if not ResourceLoader.exists(model_path):
 		return
 
 	_char_viewport = SubViewport.new()
 	_char_viewport.size = Vector2i(400, 600)
 	_char_viewport.transparent_bg = true
-	_char_viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
+	# UPDATE_ALWAYS so the preview keeps rendering even while UPDATE_WHEN_VISIBLE
+	# heuristics think the texture isn't being consumed (happens when the
+	# inventory is animating in or parented deep in the tree).
+	_char_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	_char_viewport.own_world_3d = true
 	_char_viewport.world_3d = World3D.new()
 	_char_viewport.msaa_3d = Viewport.MSAA_4X
@@ -613,7 +619,7 @@ func _setup_character_viewport() -> void:
 		Basis().rotated(Vector3.RIGHT, -0.55).rotated(Vector3.UP, 0.35),
 		Vector3.ZERO
 	)
-	key_light.light_energy = 1.5
+	key_light.light_energy = 2.8
 	_char_viewport.add_child(key_light)
 
 	var fill_light := DirectionalLight3D.new()
@@ -621,7 +627,7 @@ func _setup_character_viewport() -> void:
 		Basis().rotated(Vector3.RIGHT, -0.2).rotated(Vector3.UP, -2.1),
 		Vector3.ZERO
 	)
-	fill_light.light_energy = 0.45
+	fill_light.light_energy = 1.1
 	_char_viewport.add_child(fill_light)
 
 	var back_light := DirectionalLight3D.new()
@@ -629,27 +635,42 @@ func _setup_character_viewport() -> void:
 		Basis().rotated(Vector3.RIGHT, 0.4).rotated(Vector3.UP, 3.14),
 		Vector3.ZERO
 	)
-	back_light.light_energy = 0.3
+	back_light.light_energy = 0.7
 	_char_viewport.add_child(back_light)
 
 	_char_camera = Camera3D.new()
-	_char_camera.position = Vector3(0.0, 1.05, 2.6)
-	_char_camera.rotation_degrees = Vector3(-5.0, 0.0, 0.0)
 	_char_camera.projection = Camera3D.PROJECTION_PERSPECTIVE
-	_char_camera.fov = 44.0
+	_char_camera.fov = 42.0
 	_char_camera.near = 0.1
 	_char_camera.far = 20.0
 	_char_viewport.add_child(_char_camera)
 
 	var model_scene := load(model_path) as PackedScene
 	if model_scene:
-		_char_model = model_scene.instantiate() as Node3D
+		var full_scene := model_scene.instantiate()
+		# Extract just the visual subtree (VisualRoot) so the preview never
+		# carries the player's CharacterBody3D, controller script or in-game
+		# camera into the SubViewport. Falls back to the whole scene if the
+		# expected node isn't found.
+		var visual := full_scene.find_child("VisualRoot", true, false)
+		if visual and visual is Node3D:
+			visual.get_parent().remove_child(visual)
+			_char_model = visual as Node3D
+			full_scene.queue_free()
+		else:
+			_char_model = full_scene as Node3D
 		if _char_model:
+			_char_model.set_script(null)
+			_disable_player_scene_for_preview(_char_model)
 			_char_viewport.add_child(_char_model)
 			_char_model.position = Vector3(0.0, 0.0, 0.0)
+			# player.tscn applies a 180° Y rot to face the in-game camera; our
+			# preview camera sits on the opposite side, so flip it back.
+			_char_model.rotation = Vector3(0.0, PI, 0.0)
 			_char_model.scale = Vector3.ONE * CHARACTER_PREVIEW_SCALE
 
 	get_tree().root.add_child(_char_viewport)
+	_frame_character_preview()
 	_play_character_idle_animation()
 	await get_tree().process_frame
 
@@ -658,6 +679,75 @@ func _setup_character_viewport() -> void:
 		var loading_lbl := _char_texture_rect.get_parent().find_child("LoadingLabel", true, false)
 		if loading_lbl:
 			loading_lbl.visible = false
+
+
+func _frame_character_preview() -> void:
+	if _char_model == null or _char_camera == null:
+		return
+	var aabb: AABB = _compute_character_preview_aabb(_char_model)
+	# Skinned meshes often expose a near-zero static AABB because the bones
+	# haven't been evaluated yet. Clamp to a human silhouette (≈1.2 × 2.0 × 0.8 m
+	# after the 1.25× preview scale) so the camera can't land inside the model.
+	var min_size := Vector3(1.4, 2.2, 0.9)
+	if aabb.size == Vector3.ZERO:
+		aabb = AABB(Vector3(-min_size.x * 0.5, 0.0, -min_size.z * 0.5), min_size)
+	else:
+		aabb.size = Vector3(
+			maxf(aabb.size.x, min_size.x),
+			maxf(aabb.size.y, min_size.y),
+			maxf(aabb.size.z, min_size.z)
+		)
+	var center: Vector3 = aabb.get_center()
+	var half_height: float = aabb.size.y * 0.5
+	var half_width: float = maxf(aabb.size.x, aabb.size.z) * 0.5
+	var fov_rad: float = deg_to_rad(_char_camera.fov)
+	var aspect: float = float(_char_viewport.size.x) / float(_char_viewport.size.y)
+	var vertical_distance: float = half_height / tan(fov_rad * 0.5)
+	var horizontal_distance: float = half_width / (tan(fov_rad * 0.5) * aspect)
+	var distance: float = maxf(vertical_distance, horizontal_distance) * CHARACTER_PREVIEW_PADDING
+	# Lock camera to X=Z=0 regardless of the AABB's horizontal center: some
+	# rigs report a biased center when bones are asymmetric, pulling the
+	# character off-frame. Vertical center is still driven by the AABB.
+	_char_camera.position = Vector3(0.0, center.y, distance)
+	_char_camera.look_at(Vector3(0.0, center.y, 0.0), Vector3.UP)
+
+
+func _compute_character_preview_aabb(root: Node3D) -> AABB:
+	var aabb: AABB = AABB()
+	var first: bool = true
+	var stack: Array[Node] = [root]
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		if node is MeshInstance3D:
+			var visual := node as MeshInstance3D
+			var local_aabb: AABB = visual.get_aabb()
+			if local_aabb.size != Vector3.ZERO:
+				var world_aabb: AABB = _transform_aabb(visual.global_transform, local_aabb)
+				if first:
+					aabb = world_aabb
+					first = false
+				else:
+					aabb = aabb.merge(world_aabb)
+		for child in node.get_children():
+			stack.append(child)
+	return aabb
+
+
+func _transform_aabb(transform: Transform3D, aabb: AABB) -> AABB:
+	var result: AABB = AABB()
+	var first: bool = true
+	for x in [0.0, 1.0]:
+		for y in [0.0, 1.0]:
+			for z in [0.0, 1.0]:
+				var point: Vector3 = aabb.position + Vector3(aabb.size.x * x, aabb.size.y * y, aabb.size.z * z)
+				point = transform * point
+				if first:
+					result.position = point
+					result.size = Vector3.ZERO
+					first = false
+				else:
+					result = result.expand(point)
+	return result
 
 
 func _play_character_idle_animation() -> void:
@@ -682,6 +772,21 @@ func _select_character_idle_animation(animation_names: PackedStringArray) -> Str
 		if String(animation_name).to_lower() != "reset":
 			return StringName(animation_name)
 	return StringName(animation_names[0])
+
+
+func _disable_player_scene_for_preview(root: Node) -> void:
+	# Recursively disable cameras, scripts, raycasts and collision shapes
+	# so the instantiated player.tscn is purely visual in the preview.
+	for child in root.get_children():
+		if child is Camera3D:
+			(child as Camera3D).current = false
+		if child is RayCast3D:
+			(child as RayCast3D).enabled = false
+		if child is CollisionShape3D:
+			(child as CollisionShape3D).disabled = true
+		if child.get_script() != null and not (child is AnimationPlayer):
+			child.set_script(null)
+		_disable_player_scene_for_preview(child)
 
 
 func _find_character_animation_player(node: Node) -> AnimationPlayer:
@@ -953,8 +1058,8 @@ func _can_craft(recipe_id: String) -> bool:
 
 
 # ─── PALETTE — industrial survival, muted steel with a single rust accent ───
-const C_BG        := Color(0.080, 0.082, 0.088, 0.96)
-const C_DEEP      := Color(0.048, 0.050, 0.055, 1.00)
+const C_BG        := Color(0.040, 0.085, 0.130, 0.30)
+const C_DEEP      := Color(0.030, 0.060, 0.095, 0.28)
 const C_DEEP_EDGE := Color(0.020, 0.022, 0.026, 1.00)
 const C_SLOT      := Color(0.110, 0.115, 0.122, 1.00)
 const C_SLOT_EMPTY:= Color(0.070, 0.074, 0.080, 1.00)
@@ -1032,7 +1137,7 @@ func _build_skills_view() -> Control:
 	canvas_panel.offset_top = 60
 	canvas_panel.offset_bottom = -8
 	var cp_sb := StyleBoxFlat.new()
-	cp_sb.bg_color = Color(0.012, 0.025, 0.045, 1.0)
+	cp_sb.bg_color = Color(0.012, 0.025, 0.045, 0.38)
 	cp_sb.border_width_top    = 1
 	cp_sb.border_width_left   = 1
 	cp_sb.border_width_right  = 1
