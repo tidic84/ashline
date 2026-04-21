@@ -13,9 +13,9 @@ signal exit_build_requested
 @onready var title_label: Label = $Content/VBox/TitleBar/Title
 var _tablet: TabletFrame = null
 
-const C_BG_PANEL   := Color(0.082, 0.085, 0.090, 0.96)
-const C_BG_CARD    := Color(0.110, 0.115, 0.122, 1.0)
-const C_BG_CARD_HL := Color(0.160, 0.150, 0.138, 1.0)
+const C_BG_PANEL   := Color(0.082, 0.085, 0.090, 0.40)
+const C_BG_CARD    := Color(0.110, 0.115, 0.122, 0.55)
+const C_BG_CARD_HL := Color(0.160, 0.150, 0.138, 0.72)
 const C_BORDER     := Color(0.185, 0.195, 0.210, 1.0)
 const C_GOLD       := Color(0.950, 0.560, 0.280, 1.0)
 const C_TEXT       := Color(0.820, 0.830, 0.840, 1.0)
