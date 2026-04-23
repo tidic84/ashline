@@ -39,6 +39,11 @@ const PLAYER_ANIM_BLEND: float = 0.16
 const PLAYER_ANIM_WALK_SPEED: float = 0.35
 const PLAYER_ANIM_RUN_SPEED: float = 4.4
 const PLAYER_ANIM_AIR_SPEED: float = 0.45
+const WEAPON_VIEWMODELS: Dictionary = {
+	"pistol": "res://scenes/weapons/pistol_viewmodel.tscn",
+	"axe": "res://scenes/weapons/axe_viewmodel.tscn",
+}
+
 const PLAYER_ANIMATION_SOURCES: Dictionary = {
 	PLAYER_ANIM_IDLE: {
 		"path": "res://assets/models/player/animations/Idle.glb",
@@ -67,7 +72,11 @@ const PLAYER_ANIMATION_SOURCES: Dictionary = {
 @onready var collision_shape: CollisionShape3D = $CollisionShape3D
 @onready var interact_ray: RayCast3D = $Head/Camera3D/InteractRay
 @onready var build_ray: RayCast3D = $Head/Camera3D/BuildRay
-@onready var weapon_holder: Node3D = $Head/Camera3D/WeaponHolder
+@onready var viewmodel_viewport: SubViewport = $Head/Camera3D/ViewModelViewport
+@onready var viewmodel_camera: Camera3D = $Head/Camera3D/ViewModelViewport/ViewModelCamera
+@onready var weapon_holder: Node3D = $Head/Camera3D/ViewModelViewport/ViewModelCamera/WeaponHolder
+@onready var viewmodel_canvas: CanvasLayer = $ViewModelCanvas
+@onready var viewmodel_display: TextureRect = $ViewModelCanvas/ViewModelDisplay
 @onready var name_label: Label3D = $NameLabel
 @onready var visual_root: Node3D = $VisualRoot
 @onready var multiplayer_sync: MultiplayerSynchronizer = get_node_or_null("MultiplayerSynchronizer") as MultiplayerSynchronizer
@@ -112,6 +121,7 @@ var _batch_build_end_grid: Vector3i = Vector3i.ZERO
 var _batch_build_edge: int = BuildSystem.EdgeSide.NONE
 var _hovered_switch: RailSwitch = null
 var _footstep_timer: float = 0.0
+var _debug_cam: Camera3D = null
 
 func _enter_tree() -> void:
 	is_local = not multiplayer.has_multiplayer_peer() or get_multiplayer_authority() == multiplayer.get_unique_id()
@@ -128,7 +138,13 @@ func _ready() -> void:
 		camera.current = false
 		set_process_unhandled_input(false)
 		name_label.visible = true
+		viewmodel_canvas.visible = false
+		viewmodel_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 		return
+
+	_setup_viewmodel_viewport()
+	Inventory.selected_hotbar_changed.connect(_on_selected_hotbar_changed)
+	_equip_viewmodel_for_item(Inventory.get_selected_item())
 
 	hud = _resolve_hud()
 	if hud == null:
@@ -182,6 +198,68 @@ func _resolve_hud() -> Control:
 
 func _process(delta: float) -> void:
 	_update_visual_rotation()
+	if is_local:
+		_sync_viewmodel_viewport()
+
+func _setup_viewmodel_viewport() -> void:
+	viewmodel_canvas.visible = true
+	viewmodel_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	viewmodel_display.texture = viewmodel_viewport.get_texture()
+	viewmodel_display.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	get_viewport().size_changed.connect(_on_main_viewport_resized)
+	_on_main_viewport_resized()
+
+func _on_main_viewport_resized() -> void:
+	var size: Vector2i = get_viewport().get_visible_rect().size
+	if size.x <= 0 or size.y <= 0:
+		return
+	viewmodel_viewport.size = size
+
+func _sync_viewmodel_viewport() -> void:
+	if viewmodel_camera == null or camera == null:
+		return
+	viewmodel_camera.fov = camera.fov
+
+func _on_selected_hotbar_changed(_index: int, item_id: String) -> void:
+	_equip_viewmodel_for_item(item_id)
+
+func _equip_viewmodel_for_item(item_id: String) -> void:
+	if weapon_holder == null:
+		return
+	_clear_current_weapon()
+	if not WEAPON_VIEWMODELS.has(item_id):
+		return
+	var scene: PackedScene = load(WEAPON_VIEWMODELS[item_id]) as PackedScene
+	if scene == null:
+		push_warning("PlayerController: viewmodel introuvable pour %s" % item_id)
+		return
+	var instance := scene.instantiate() as Node3D
+	if instance == null:
+		return
+	weapon_holder.add_child(instance)
+	current_weapon = instance
+
+func _toggle_debug_cam() -> void:
+	if _debug_cam != null and is_instance_valid(_debug_cam):
+		_debug_cam.queue_free()
+		_debug_cam = null
+		camera.current = true
+		return
+	var scene_root := get_tree().current_scene
+	if scene_root == null:
+		return
+	var cam_script := load("res://scripts/debug/free_cam.gd")
+	_debug_cam = Camera3D.new()
+	_debug_cam.set_script(cam_script)
+	_debug_cam.fov = camera.fov
+	scene_root.add_child(_debug_cam)
+	_debug_cam.global_transform = camera.global_transform
+	_debug_cam.current = true
+
+func _clear_current_weapon() -> void:
+	if current_weapon and is_instance_valid(current_weapon):
+		current_weapon.queue_free()
+	current_weapon = null
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not is_local:
@@ -237,6 +315,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F10:
 		_toggle_settings_menu()
+		return
+
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F4:
+		_toggle_debug_cam()
 		return
 
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
@@ -1245,6 +1327,8 @@ func _update_interact_hint() -> void:
 
 func _exit_tree() -> void:
 	_clear_hovered_switch()
+	if is_local and Inventory.selected_hotbar_changed.is_connected(_on_selected_hotbar_changed):
+		Inventory.selected_hotbar_changed.disconnect(_on_selected_hotbar_changed)
 
 
 func _set_hovered_switch(rail_switch: RailSwitch) -> void:

@@ -2,8 +2,8 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://jny758741xj7"
-path.s3tc="res://.godot/imported/T_AXE_01_4K_D.tga-2f48d90f6e7ed4a824d593346c3b5ef9.s3tc.ctex"
+uid="uid://dw27qnu34hi8k"
+path.s3tc="res://.godot/imported/fireaxe_mat_baseColor.png-cf85c27cb1943f28ee5ebdb53fbd2cac.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
@@ -11,8 +11,8 @@ metadata={
 
 [deps]
 
-source_file="res://assets/fab/axe/fbx/T_AXE_01_4K_D.tga"
-dest_files=["res://.godot/imported/T_AXE_01_4K_D.tga-2f48d90f6e7ed4a824d593346c3b5ef9.s3tc.ctex"]
+source_file="res://assets/models/player/fps_axe/textures/fireaxe_mat_baseColor.png"
+dest_files=["res://.godot/imported/fireaxe_mat_baseColor.png-cf85c27cb1943f28ee5ebdb53fbd2cac.s3tc.ctex"]
 
 [params]
 

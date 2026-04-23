@@ -2,17 +2,20 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://jny758741xj7"
-path.s3tc="res://.godot/imported/T_AXE_01_4K_D.tga-2f48d90f6e7ed4a824d593346c3b5ef9.s3tc.ctex"
+uid="uid://cfbr6i6aorv5b"
+path.s3tc="res://.godot/imported/arms_axe_texture_0.png-c3587b15b8a34d357d86201924af682b.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
 }
+generator_parameters={
+"md5": "ae1f765f662115fbd298d4ca3f52858c"
+}
 
 [deps]
 
-source_file="res://assets/fab/axe/fbx/T_AXE_01_4K_D.tga"
-dest_files=["res://.godot/imported/T_AXE_01_4K_D.tga-2f48d90f6e7ed4a824d593346c3b5ef9.s3tc.ctex"]
+source_file="res://assets/models/player/animations/arms_axe_texture_0.png"
+dest_files=["res://.godot/imported/arms_axe_texture_0.png-c3587b15b8a34d357d86201924af682b.s3tc.ctex"]
 
 [params]
 

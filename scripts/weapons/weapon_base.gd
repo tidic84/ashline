@@ -18,6 +18,7 @@ var is_reloading: bool = false
 @onready var muzzle: Marker3D = $Muzzle
 @onready var fire_timer: Timer = $FireTimer
 @onready var reload_timer: Timer = $ReloadTimer
+@onready var anim: AnimationPlayer = get_node_or_null("AnimationPlayer") as AnimationPlayer
 
 func _ready() -> void:
 	current_ammo = mag_size
@@ -28,6 +29,19 @@ func _ready() -> void:
 	reload_timer.wait_time = reload_time
 	reload_timer.one_shot = true
 	reload_timer.timeout.connect(_finish_reload)
+	play_anim("equip")
+
+func play_anim(name: String) -> void:
+	if anim == null or not anim.has_animation(name):
+		return
+	anim.play(name)
+
+func play_idle() -> void:
+	if anim == null or not anim.has_animation("idle"):
+		return
+	if anim.current_animation == "idle" and anim.is_playing():
+		return
+	anim.play("idle")
 
 func shoot() -> void:
 	if not can_shoot or is_reloading or current_ammo <= 0:
@@ -38,6 +52,7 @@ func shoot() -> void:
 	current_ammo -= 1
 	can_shoot = false
 	fire_timer.start()
+	play_anim("fire")
 
 	var ray_origin := raycast.global_position
 	var ray_dir := -raycast.global_basis.z
@@ -64,6 +79,7 @@ func reload() -> void:
 		return
 	is_reloading = true
 	reload_timer.start()
+	play_anim("reload")
 
 func _finish_reload() -> void:
 	var needed := mag_size - current_ammo
@@ -71,6 +87,12 @@ func _finish_reload() -> void:
 	current_ammo += available
 	reserve_ammo -= available
 	is_reloading = false
+	play_idle()
+
+func _process(_delta: float) -> void:
+	if anim == null or anim.is_playing():
+		return
+	play_idle()
 
 func _play_shoot_effects() -> void:
 	pass

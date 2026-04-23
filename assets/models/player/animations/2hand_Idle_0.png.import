@@ -2,17 +2,20 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://jny758741xj7"
-path.s3tc="res://.godot/imported/T_AXE_01_4K_D.tga-2f48d90f6e7ed4a824d593346c3b5ef9.s3tc.ctex"
+uid="uid://b56q0o8qmvruh"
+path.s3tc="res://.godot/imported/2hand_Idle_0.png-4563ed4b231dfef757c1206c815bc355.s3tc.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc"],
 "vram_texture": true
 }
+generator_parameters={
+"md5": "ae1f765f662115fbd298d4ca3f52858c"
+}
 
 [deps]
 
-source_file="res://assets/fab/axe/fbx/T_AXE_01_4K_D.tga"
-dest_files=["res://.godot/imported/T_AXE_01_4K_D.tga-2f48d90f6e7ed4a824d593346c3b5ef9.s3tc.ctex"]
+source_file="res://assets/models/player/animations/2hand_Idle_0.png"
+dest_files=["res://.godot/imported/2hand_Idle_0.png-4563ed4b231dfef757c1206c815bc355.s3tc.ctex"]
 
 [params]
 

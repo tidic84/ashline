@@ -1,0 +1,11 @@
+Model Information:
+* title:	Animated FPS Axe
+* source:	https://sketchfab.com/3d-models/animated-fps-axe-3c4e32a07d4146c69e297b26c565f343
+* author:	Levraicoincoin (https://sketchfab.com/Levraicoincoin)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Animated FPS Axe" (https://sketchfab.com/3d-models/animated-fps-axe-3c4e32a07d4146c69e297b26c565f343) by Levraicoincoin (https://sketchfab.com/Levraicoincoin) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

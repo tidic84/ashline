@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://sf0sg8htuyik"
-path="res://.godot/imported/Idle.glb-a597a3e6906c6e7302d194647f06ba96.scn"
+uid="uid://k1vm4x4k7l5m"
+path="res://.godot/imported/2hand_Idle.fbx-6cfcdbad2bcdd90896474fb07508652c.scn"
 
 [deps]
 
-source_file="res://assets/models/player/animations/Idle.glb"
-dest_files=["res://.godot/imported/Idle.glb-a597a3e6906c6e7302d194647f06ba96.scn"]
+source_file="res://assets/models/player/animations/2hand_Idle.fbx"
+dest_files=["res://.godot/imported/2hand_Idle.fbx-6cfcdbad2bcdd90896474fb07508652c.scn"]
 
 [params]
 
@@ -30,7 +30,7 @@ meshes/force_disable_compression=false
 skins/use_named_skins=true
 animation/import=true
 animation/fps=30
-animation/trimming=false
+animation/trimming=true
 animation/remove_immutable_tracks=true
 animation/import_rest_as_RESET=false
 import_script/path=""
@@ -39,12 +39,12 @@ materials/extract_format=0
 materials/extract_path=""
 _subresources={
 "animations": {
-"Armature|Idle_11|baselayer": {
-"save_to_file/enabled": false,
-"save_to_file/fallback_path": "",
+"mixamo_com": {
+"save_to_file/enabled": true,
+"save_to_file/fallback_path": "res://assets/models/player/animations/axe_idle.tres",
 "save_to_file/keep_custom_tracks": "",
-"save_to_file/path": "",
-"settings/loop_mode": 1,
+"save_to_file/path": "uid://cqa2gn6y827h3",
+"settings/loop_mode": 0,
 "slice_1/end_frame": 0,
 "slice_1/loop_mode": 0,
 "slice_1/name": "",
@@ -2097,5 +2097,7 @@ _subresources={
 }
 }
 }
-gltf/naming_version=2
-gltf/embedded_image_handling=1
+fbx/importer=0
+fbx/allow_geometry_helper_nodes=false
+fbx/embedded_image_handling=1
+fbx/naming_version=2

@@ -249,7 +249,6 @@ grass_mask_area_size = Vector2(100, 100)
 grass_mask_channel = 1
 grass_mask_threshold = 0.03
 grass_mask_inverse = true
-grass_radius = 18.0
 grass_spacing = 0.16
 grass_max_instances = 20000
 grass_height_offset = -0.17
@@ -275,7 +274,7 @@ rail_curve_influence = 2.6
 rail_pitch_influence = 2.0
 
 [node name="UP_FPSController_Prefab" parent="." unique_id=1209285326 instance=ExtResource("26_fps")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -38.93445, 4.8396044, -40.59617)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -38.93445, -0.16039562, -40.59617)
 floor_constant_speed = true
 hurry_factor = 0.1
 jump_factor = 0.9
