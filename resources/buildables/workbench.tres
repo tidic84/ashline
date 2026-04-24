@@ -14,4 +14,4 @@ health = 100.0
 build_weight = 3
 cost = { "wood": 20, "metal": 5 }
 can_rotate = true
-footprint_size = Vector2i(1, 2)
+footprint_size = Vector2i(2, 1)

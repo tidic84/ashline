@@ -1,19 +1,20 @@
-[gd_scene load_steps=4 format=3 uid="uid://place_bench001"]
+[gd_scene format=3 uid="uid://c11q70ibf3weq"]
 
-[ext_resource type="Script" path="res://scripts/building/placeable.gd" id="1"]
-[ext_resource type="PackedScene" path="res://assets/models/survival/workbench-anvil.glb" id="2"]
+[ext_resource type="Script" uid="uid://cnxmswaknsu6f" path="res://scripts/building/placeable.gd" id="1"]
+[ext_resource type="PackedScene" uid="uid://7tc0ts5i5lcv" path="res://assets/models/survival/etabli.glb" id="2"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_bench"]
-size = Vector3(1, 1, 1)
+size = Vector3(1.7462158, 0.7251282, 0.81884766)
 
-[node name="PlaceableWorkbench" type="StaticBody3D"]
+[node name="PlaceableWorkbench" type="StaticBody3D" unique_id=753383636]
 collision_layer = 48
 collision_mask = 7
 script = ExtResource("1")
 max_health = 100.0
 
-[node name="Model" parent="." instance=ExtResource("2")]
+[node name="Model" parent="." unique_id=1788089497 instance=ExtResource("2")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8182732, 0)
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1620535997]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.061706543, 0.42697632, -0.09057617)
 shape = SubResource("BoxShape3D_bench")
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)

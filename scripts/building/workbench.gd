@@ -5,6 +5,8 @@ var current_health: float
 
 func _ready() -> void:
 	current_health = max_health
+	if has_meta("is_preview"):
+		return
 	add_to_group("placeable")
 	if not has_meta(WorldSync.NET_ID_META) and WorldSync.is_host():
 		WorldSync.register_entity(self)
