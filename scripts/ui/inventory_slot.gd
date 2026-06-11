@@ -188,18 +188,15 @@ func _make_icon_preview(texture: Texture2D, panel_size: Vector2, icon_size: Vect
 
 func _slot_style(selected: bool) -> StyleBoxFlat:
 	var s := StyleBoxFlat.new()
-	s.bg_color = Color(0.110, 0.115, 0.122, 0.98)
+	s.set_corner_radius_all(7)
+	s.bg_color = Color(0.07, 0.08, 0.095, 0.85)
 	if selected:
-		s.border_width_top = 2
-		s.border_width_left = 2
-		s.border_width_right = 2
-		s.border_width_bottom = 2
+		s.set_border_width_all(2)
 		s.border_color = Color(0.950, 0.560, 0.280, 1.0)
-		s.bg_color = Color(0.165, 0.150, 0.135, 0.98)
+		s.bg_color = Color(0.18, 0.14, 0.10, 0.92)
+		s.shadow_color = Color(0.95, 0.56, 0.28, 0.25)
+		s.shadow_size = 6
 	else:
-		s.border_width_top = 1
-		s.border_width_left = 1
-		s.border_width_right = 1
-		s.border_width_bottom = 1
-		s.border_color = Color(0.185, 0.195, 0.210, 1.0)
+		s.set_border_width_all(1)
+		s.border_color = Color(1.0, 1.0, 1.0, 0.10)
 	return s

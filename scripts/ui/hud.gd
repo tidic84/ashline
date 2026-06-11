@@ -44,10 +44,13 @@ var _preview_tuner_config_label: Label
 var _preview_tuner_syncing: bool = false
 var _preview_tuner_item_ids: Array[String] = []
 var _selected_preview_item_id: String = ""
+const CHAT_LINGER_SECONDS: float = 6.0
+
 var _chat_panel: PanelContainer
 var _chat_log: RichTextLabel
 var _chat_input: LineEdit
 var _chat_open: bool = false
+var _chat_hide_timer: Timer
 var _build_drag_text: String = ""
 
 func _ready() -> void:
@@ -428,6 +431,8 @@ func open_chat() -> void:
 		return
 	_chat_open = true
 	_chat_panel.visible = true
+	if _chat_hide_timer:
+		_chat_hide_timer.stop()
 	_chat_input.visible = true
 	_chat_input.grab_focus()
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -438,6 +443,8 @@ func close_chat() -> void:
 	_chat_open = false
 	_chat_input.release_focus()
 	_chat_input.visible = false
+	if _chat_hide_timer:
+		_chat_hide_timer.start()
 	if GameManager.current_state == GameManager.GameState.PLAYING:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
@@ -453,7 +460,17 @@ func _build_chat_ui() -> void:
 	_chat_panel.offset_right = 434.0
 	_chat_panel.offset_bottom = -222.0
 	_chat_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_chat_panel.visible = false
 	add_child(_chat_panel)
+
+	_chat_hide_timer = Timer.new()
+	_chat_hide_timer.wait_time = CHAT_LINGER_SECONDS
+	_chat_hide_timer.one_shot = true
+	_chat_hide_timer.timeout.connect(func():
+		if not _chat_open:
+			_chat_panel.visible = false
+	)
+	_chat_panel.add_child(_chat_hide_timer)
 
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 8)
@@ -512,6 +529,9 @@ func _on_chat_message_received(_peer_id: int, player_name: String, message: Stri
 	var prefix := "*" if is_system else player_name + ":"
 	_chat_log.append_text("%s %s\n" % [prefix, message])
 	_chat_log.scroll_to_line(_chat_log.get_line_count())
+	_chat_panel.visible = true
+	if not _chat_open and _chat_hide_timer:
+		_chat_hide_timer.start()
 
 
 func select_next_recipe() -> void:

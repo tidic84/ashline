@@ -1,0 +1,22 @@
+[gd_resource type="ShaderMaterial" load_steps=6 format=3 uid="uid://mgroundterr1"]
+
+[ext_resource type="Shader" path="res://materials/terrain_ground.gdshader" id="1_shader"]
+[ext_resource type="Texture2D" uid="uid://c1crknyc5l80g" path="res://textures/Ground020_1K-JPG/Ground020_1K_Color.jpg" id="2_color"]
+[ext_resource type="Texture2D" uid="uid://crwspa7n1ej4e" path="res://textures/Ground020_1K-JPG/Ground020_1K_NormalGL.jpg" id="3_normal"]
+[ext_resource type="Texture2D" uid="uid://bdgrvha11igfp" path="res://textures/Ground020_1K-JPG/Ground020_1K_AmbientOcclusion.jpg" id="4_ao"]
+[ext_resource type="Texture2D" uid="uid://c78kxh6w8klfg" path="res://textures/Ground020_1K-JPG/Ground020_1K_Roughness.jpg" id="5_rough"]
+
+[resource]
+shader = ExtResource("1_shader")
+shader_parameter/albedo_tint = Color(0.45, 0.47, 0.36, 1.0)
+shader_parameter/detail_scale = 0.45
+shader_parameter/macro_scale = 0.04
+shader_parameter/macro_blend = 0.5
+shader_parameter/normal_strength = 1.6
+shader_parameter/roughness_mult = 1.0
+shader_parameter/color_variation = Color(0.78, 0.84, 0.66, 1.0)
+shader_parameter/variation_scale = 0.012
+shader_parameter/albedo_tex = ExtResource("2_color")
+shader_parameter/normal_tex = ExtResource("3_normal")
+shader_parameter/ao_tex = ExtResource("4_ao")
+shader_parameter/rough_tex = ExtResource("5_rough")

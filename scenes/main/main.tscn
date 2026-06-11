@@ -20,7 +20,7 @@
 [ext_resource type="PackedScene" uid="uid://c6roi7ykvj2vb" path="res://generated/biomes_billboards/plants/01_plant99/billboard.tscn" id="17_bb_plant99"]
 [ext_resource type="Material" uid="uid://c7uwsax7ffiwo" path="res://grass/grass.tres" id="18_grass_mat"]
 [ext_resource type="ArrayMesh" uid="uid://cextepyc4ggc7" path="res://grass/grass.mesh" id="18_grass_mesh"]
-[ext_resource type="Material" uid="uid://b563p0dw1mx6t" path="res://textures/Ground020_1K-JPG/M_ground.tres" id="25_ground"]
+[ext_resource type="Material" uid="uid://mgroundterr1" path="res://textures/Ground020_1K-JPG/M_ground_terrain.tres" id="25_ground"]
 [ext_resource type="PackedScene" uid="uid://7uya15kvp665" path="res://addons/uniplayer/prefabs/UP_FPSController_Prefab.tscn" id="26_fps"]
 [ext_resource type="Script" uid="uid://b21dp6stblt2g" path="res://addons/uniplayer/tools/UP_MouseCapture.gd" id="27_mouse"]
 [ext_resource type="Script" uid="uid://cqk5duaw6het6" path="res://scripts/world/terrain_generator.gd" id="28_railgen"]
@@ -33,11 +33,7 @@
 [ext_resource type="PackedScene" uid="uid://shlinehud01" path="res://scenes/ui/hud.tscn" id="34_hud"]
 
 [sub_resource type="CameraAttributesPractical" id="CameraAttributesPractical_001"]
-auto_exposure_enabled = true
-auto_exposure_scale = 0.33
-auto_exposure_speed = 3.0
-auto_exposure_min_sensitivity = 91.33
-auto_exposure_max_sensitivity = 506.5
+auto_exposure_enabled = false
 
 [sub_resource type="Resource" id="tree_pine1"]
 script = ExtResource("3_entry")
@@ -181,14 +177,15 @@ script = ExtResource("1_main")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1725955204]
 transform = Transform3D(-0.09382802, 0.82773817, -0.5532142, -0.35695884, 0.49075216, 0.79482245, 0.929396, 0.27205127, 0.24942213, 0, 0.5193932, -0.2882359)
-light_color = Color(1, 0.93054914, 0.84765625, 1)
-light_energy = 1.409
-light_indirect_energy = 0.925
-light_volumetric_fog_energy = 6.176
-light_angular_distance = 2.5
+light_color = Color(1, 0.95686275, 0.89019608, 1)
+light_energy = 1.5
+light_indirect_energy = 1.0
+light_volumetric_fog_energy = 1.6
+light_angular_distance = 0.7
 shadow_enabled = true
-directional_shadow_mode = 1
-directional_shadow_max_distance = 120.0
+directional_shadow_mode = 2
+directional_shadow_blend_splits = true
+directional_shadow_max_distance = 280.0
 sky_mode = 1
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=871891078]
