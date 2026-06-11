@@ -41,8 +41,10 @@ const PLAYER_ANIM_RUN_SPEED: float = 4.4
 const PLAYER_ANIM_AIR_SPEED: float = 0.45
 const WEAPON_VIEWMODELS: Dictionary = {
 	"pistol": "res://scenes/weapons/pistol_viewmodel.tscn",
-	"axe": "res://scenes/weapons/axe_viewmodel.tscn",
 }
+# Fallback pour tout item avec un modele 3D (Inventory.ITEM_MODELS) :
+# l'item seul s'affiche en bas a droite de l'ecran, sans bras visible.
+const TOOL_VIEWMODEL_SCENE: String = "res://scenes/weapons/tool_viewmodel.tscn"
 
 const PLAYER_ANIMATION_SOURCES: Dictionary = {
 	PLAYER_ANIM_IDLE: {
@@ -227,15 +229,21 @@ func _equip_viewmodel_for_item(item_id: String) -> void:
 	if weapon_holder == null:
 		return
 	_clear_current_weapon()
-	if not WEAPON_VIEWMODELS.has(item_id):
+	if item_id.is_empty():
 		return
-	var scene: PackedScene = load(WEAPON_VIEWMODELS[item_id]) as PackedScene
+	var scene_path: String = WEAPON_VIEWMODELS.get(item_id, "")
+	if scene_path.is_empty():
+		if not Inventory.has_item_model_preview(item_id):
+			return
+		scene_path = TOOL_VIEWMODEL_SCENE
+	var scene: PackedScene = load(scene_path) as PackedScene
 	if scene == null:
 		push_warning("PlayerController: viewmodel introuvable pour %s" % item_id)
 		return
 	var instance := scene.instantiate() as Node3D
 	if instance == null:
 		return
+	instance.set("item_id", item_id)
 	weapon_holder.add_child(instance)
 	current_weapon = instance
 
@@ -633,6 +641,10 @@ func _try_interact() -> void:
 		return
 	var collider: Object = interact_ray.get_collider()
 	if collider and collider.has_method("interact"):
+		var node := collider as Node
+		if node != null and node.is_in_group("harvestable") \
+				and current_weapon != null and current_weapon.has_method("play_swing"):
+			current_weapon.play_swing()
 		collider.interact(self)
 
 func _try_secondary_interact() -> void:
@@ -643,8 +655,23 @@ func _try_secondary_interact() -> void:
 		collider.secondary_interact(self)
 
 func _try_shoot() -> void:
-	if current_weapon and current_weapon.has_method("shoot"):
+	if current_weapon == null:
+		return
+	if current_weapon.has_method("play_swing"):
+		# Outil/item tenu : coup visuel + recolte si on vise un harvestable.
+		current_weapon.play_swing()
+		_try_harvest_with_tool()
+		return
+	if current_weapon.has_method("shoot"):
 		current_weapon.shoot()
+
+func _try_harvest_with_tool() -> void:
+	if not interact_ray.is_colliding():
+		return
+	var collider: Object = interact_ray.get_collider()
+	var node := collider as Node
+	if node != null and node.is_in_group("harvestable") and collider.has_method("interact"):
+		collider.interact(self)
 
 func _try_build() -> void:
 	var hit_point: Vector3 = Vector3.ZERO
